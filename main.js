@@ -69,8 +69,24 @@ function addWall(axis, fixedPos, from, to, doorAt) {
     if (axis === 'x') addWallSegment(s, e, fixedPos - wallThickness / 2, fixedPos + wallThickness / 2);
     else addWallSegment(fixedPos - wallThickness / 2, fixedPos + wallThickness / 2, s, e);
   });
+  if (doorAt !== undefined) addDoor(axis, fixedPos, doorAt);
 }
+const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+const doorHeight = 2.1;
 
+function addDoor(axis, fixedPos, doorAt) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      axis === 'x' ? doorWidth : wallThickness,
+      doorHeight,
+      axis === 'x' ? wallThickness : doorWidth
+    ),
+    doorMaterial
+  );
+  if (axis === 'x') mesh.position.set(doorAt, doorHeight / 2, fixedPos);
+  else mesh.position.set(fixedPos, doorHeight / 2, doorAt);
+  scene.add(mesh);
+}
 addWall('x', 8,  -6, 6);        // 外周: 上
 addWall('x', -4, -6, 6);        // 外周: 下
 addWall('z', -6, -4, 8);        // 外周: 左
