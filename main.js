@@ -2,12 +2,16 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
 const rooms = [
-  { name: "寝室1",   bounds: { minX: -6, maxX: -2, minZ: 4, maxZ: 8 } },
-  { name: "浴室",     bounds: { minX: -2, maxX:  2, minZ: 4, maxZ: 8 } },
-  { name: "寝室2",   bounds: { minX:  2, maxX:  6, minZ: 4, maxZ: 8 } },
-  { name: "廊下",     bounds: { minX: -6, maxX:  6, minZ: 2, maxZ: 4 } },
-  { name: "リビング", bounds: { minX: -6, maxX:  0, minZ: -4, maxZ: 2 } },
-  { name: "キッチン", bounds: { minX:  0, maxX:  6, minZ: -4, maxZ: 2 } },
+  { name: "玄関",              bounds: { minX: 0,   maxX: 1.7, minZ: 6.3, maxZ: 8.2 } },
+  { name: "浴室・洗面",         bounds: { minX: 1.7, maxX: 3.2, minZ: 6.3, maxZ: 8.2 } },
+  { name: "トイレ",             bounds: { minX: 3.2, maxX: 4.2, minZ: 6.3, maxZ: 8.2 } },
+  { name: "Master Bed Room",   bounds: { minX: 4.2, maxX: 6.4, minZ: 4.9, maxZ: 8.2 } },
+  { name: "納戸",               bounds: { minX: 1.7, maxX: 3.2, minZ: 4.9, maxZ: 6.3 } },
+  { name: "W.I.C",             bounds: { minX: 3.2, maxX: 4.2, minZ: 4.9, maxZ: 6.3 } },
+  { name: "Pantry",            bounds: { minX: 0,   maxX: 1.7, minZ: 3.9, maxZ: 4.9 } },
+  { name: "Bed Room(4.5畳)",   bounds: { minX: 4.2, maxX: 6.4, minZ: 2.4, maxZ: 4.9 } },
+  { name: "Bed Room(5.0畳)",   bounds: { minX: 4.2, maxX: 6.4, minZ: 0,   maxZ: 2.4 } },
+  { name: "Living Dining Kitchen", bounds: { minX: 0, maxX: 4.2, minZ: 0, maxZ: 4.9 } },
 ];
 
 function getRoomAt(x, z) {
@@ -21,14 +25,12 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x000000, 5, 20);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 1.6, 0);
-
+camera.position.set(2, 1.6, 2);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const floorColors = [0x555577, 0x557755, 0x775555, 0x666666, 0x777733, 0x337777];
-rooms.forEach((room, i) => {
+  const floorColors = [0x666666, 0x337777, 0x555577, 0x775555, 0x333355, 0x553355, 0x557755, 0x557733, 0x777733, 0x773333];rooms.forEach((room, i) => {
   const w = room.bounds.maxX - room.bounds.minX;
   const d = room.bounds.maxZ - room.bounds.minZ;
   const cx = (room.bounds.maxX + room.bounds.minX) / 2;
@@ -87,16 +89,7 @@ function addDoor(axis, fixedPos, doorAt) {
   else mesh.position.set(fixedPos, doorHeight / 2, doorAt);
   scene.add(mesh);
 }
-addWall('x', 8,  -6, 6);        // 外周: 上
-addWall('x', -4, -6, 6);        // 外周: 下
-addWall('z', -6, -4, 8);        // 外周: 左
-addWall('z', 6,  -4, 8);        // 外周: 右
-addWall('z', -2, 4, 8);         // 寝室1と浴室の間(ドアなし)
-addWall('z', 2,  4, 8);         // 浴室と寝室2の間(ドアなし)
-addWall('x', 4, -6, -2, -4);    // 寝室1 → 廊下 のドア
-addWall('x', 4, -2, 2,  0);     // 浴室 → 廊下 のドア
-addWall('x', 4, 2,  6,  4);     // 寝室2 → 廊下 のドア
-addWall('x', 2, -6, 6,  0);     // 廊下 → リビング/キッチン のドア
+
 // リビングとキッチンの間(X=0)はオープンのまま、壁を作らない
 
 function collidesWithWalls(x, z, radius = 0.3) {
