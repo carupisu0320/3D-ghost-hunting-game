@@ -103,6 +103,31 @@ function collidesWithWalls(x, z, radius = 0.3) {
     z + radius > b.minZ && z - radius < b.maxZ
   );
 }
+// 家具
+function room(name) {
+  return rooms.find(r => r.name === name).bounds;
+}
+
+const furnitureMaterial = new THREE.MeshStandardMaterial({ color: 0x5b4636 });
+function addFurniture(x, z, w, d, h) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), furnitureMaterial);
+  mesh.position.set(x, h / 2, z);
+  scene.add(mesh);
+  wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+}
+
+const masterBR = room("Master Bed Room");
+addFurniture(masterBR.minX + 1.1, masterBR.minZ + 1.2, 1.8, 2.0, 0.6); // ダブルベッド
+
+const br45 = room("Bed Room(4.5畳)");
+addFurniture(br45.minX + 0.9, br45.minZ + 1.2, 1.0, 2.0, 0.6); // シングルベッド
+
+const br50 = room("Bed Room(5.0畳)");
+addFurniture(br50.minX + 0.9, br50.minZ + 1.2, 1.0, 2.0, 0.6); // シングルベッド
+
+const ldk = room("Living Dining Kitchen");
+addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.5, 1.8, 0.9, 0.75); // ダイニングテーブル
+addFurniture(ldk.maxX - 1.3, ldk.maxZ - 1.0, 1.8, 0.9, 0.8); // ソファ
 scene.add(new THREE.AmbientLight(0x222233, 1.5));
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
 camera.add(flashlight);
