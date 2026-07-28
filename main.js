@@ -13,7 +13,7 @@ const rooms = [
   { name: "Bed Room(5.0畳)",   bounds: { minX: 4.2, maxX: 6.4, minZ: 0,   maxZ: 2.4 } },
   { name: "Living Dining Kitchen", bounds: { minX: 0, maxX: 4.2, minZ: 0, maxZ: 4.9 } },
 ];
-const SCALE = 1.5;
+const SCALE = 2;
 rooms.forEach(r => {
   r.bounds.minX *= SCALE; r.bounds.maxX *= SCALE;
   r.bounds.minZ *= SCALE; r.bounds.maxZ *= SCALE;
@@ -30,7 +30,7 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x000000, 5, 20);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(3, 1.6, 3);
+camera.position.set(4, 1.6, 4);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
