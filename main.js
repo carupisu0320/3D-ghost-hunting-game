@@ -46,8 +46,7 @@ const wallBoxes = [];
 const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x3a3a3a });
-
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x707070 });
 function addWallSegment(minX, maxX, minZ, maxZ) {
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ),
@@ -135,4 +134,3 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-EOF
