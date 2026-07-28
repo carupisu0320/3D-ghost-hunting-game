@@ -41,7 +41,55 @@ rooms.forEach((room, i) => {
   floor.position.set(cx, 0, cz);
   scene.add(floor);
 });
+// 壁とドア
+const wallBoxes = [];
+const wallHeight = 3;
+const wallThickness = 0.2;
+const doorWidth = 1.2;
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x3a3a3a });
 
+function addWallSegment(minX, maxX, minZ, maxZ) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ),
+    wallMaterial
+  );
+  mesh.position.set((minX + maxX) / 2, wallHeight / 2, (minZ + maxZ) / 2);
+  scene.add(mesh);
+  wallBoxes.push({ minX, maxX, minZ, maxZ });
+}
+
+// axis:'x' はX方向に伸びる壁(Zが固定)、axis:'z' はZ方向に伸びる壁(Xが固定)
+// doorAtを指定すると、その位置にドア幅ぶんの隙間を空ける
+function addWall(axis, fixedPos, from, to, doorAt) {
+  const ranges = doorAt === undefined
+    ? [[from, to]]
+    : [[from, doorAt - doorWidth / 2], [doorAt + doorWidth / 2, to]];
+
+  ranges.forEach(([s, e]) => {
+    if (e - s < 0.05) return;
+    if (axis === 'x') addWallSegment(s, e, fixedPos - wallThickness / 2, fixedPos + wallThickness / 2);
+    else addWallSegment(fixedPos - wallThickness / 2, fixedPos + wallThickness / 2, s, e);
+  });
+}
+
+addWall('x', 8,  -6, 6);        // 外周: 上
+addWall('x', -4, -6, 6);        // 外周: 下
+addWall('z', -6, -4, 8);        // 外周: 左
+addWall('z', 6,  -4, 8);        // 外周: 右
+addWall('z', -2, 4, 8);         // 寝室1と浴室の間(ドアなし)
+addWall('z', 2,  4, 8);         // 浴室と寝室2の間(ドアなし)
+addWall('x', 4, -6, -2, -4);    // 寝室1 → 廊下 のドア
+addWall('x', 4, -2, 2,  0);     // 浴室 → 廊下 のドア
+addWall('x', 4, 2,  6,  4);     // 寝室2 → 廊下 のドア
+addWall('x', 2, -6, 6,  0);     // 廊下 → リビング/キッチン のドア
+// リビングとキッチンの間(X=0)はオープンのまま、壁を作らない
+
+function collidesWithWalls(x, z, radius = 0.3) {
+  return wallBoxes.some(b =>
+    x + radius > b.minX && x - radius < b.maxX &&
+    z + radius > b.minZ && z - radius < b.maxZ
+  );
+}
 scene.add(new THREE.AmbientLight(0x222233, 1.5));
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
 camera.add(flashlight);
@@ -65,10 +113,16 @@ function animate() {
 
   if (controls.isLocked) {
     const move = speed * delta;
+const prevX = camera.position.x;
+    const prevZ = camera.position.z;
     if (keys['KeyW']) controls.moveForward(move);
     if (keys['KeyS']) controls.moveForward(-move);
     if (keys['KeyA']) controls.moveRight(-move);
     if (keys['KeyD']) controls.moveRight(move);
+    if (collidesWithWalls(camera.position.x, camera.position.z)) {
+      camera.position.x = prevX;
+      camera.position.z = prevZ;
+    }
     info.textContent = `現在の部屋: ${getRoomAt(camera.position.x, camera.position.z)}`;
   }
 
