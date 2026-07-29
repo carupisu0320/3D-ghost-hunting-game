@@ -372,19 +372,61 @@ let ghostTarget = randomPointInRoom(hauntedRoom);
 ghost.position.copy(ghostTarget);
 scene.add(ghost);
 
-// 照明
+// 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
 function addRoomLight(name, intensity, color = 0x554433) {
   const r = room(name);
   const light = new THREE.PointLight(color, intensity, 7);
   light.position.set((r.minX + r.maxX) / 2, 2.5, (r.minZ + r.maxZ) / 2);
   scene.add(light);
+  return light;
 }
-addRoomLight("Living Dining Kitchen", 0.6);
-addRoomLight("Master Bed Room", 0.4);
-addRoomLight("Bed Room(4.5畳)", 0.4);
-addRoomLight("Bed Room(5.0畳)", 0.4);
-addRoomLight("玄関", 0.4);
+const roomLights = {
+  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 0.6),
+  "Master Bed Room": addRoomLight("Master Bed Room", 0.4),
+  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 0.4),
+  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 0.4),
+  "玄関": addRoomLight("玄関", 0.4),
+  "浴室・洗面": addRoomLight("浴室・洗面", 0.45, 0xccddee),
+  "トイレ": addRoomLight("トイレ", 0.35, 0xccddee),
+  "納戸": addRoomLight("納戸", 0.3),
+  "W.I.C": addRoomLight("W.I.C", 0.3),
+  "廊下": addRoomLight("廊下", 0.3),
+  "Pantry": addRoomLight("Pantry", 0.3),
+};
+
+// 各部屋の壁際にスイッチを設置(部屋の入口寄りの角、床上1.1m)
+const lightSwitches = [];
+function addLightSwitch(roomName) {
+  const r = room(roomName);
+  const x = r.minX + 0.15;
+  const z = r.minZ + 0.6;
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5, roughness: 0.4 });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
+  mesh.position.set(x, 1.1, z);
+  mesh.castShadow = true;
+  scene.add(mesh);
+  lightSwitches.push({ x, z, light: roomLights[roomName], mat, on: true });
+}
+rooms.forEach(r => addLightSwitch(r.name));
+
+// スイッチに近づいてクリックするとON/OFF切り替え
+document.addEventListener('click', () => {
+  if (!controls.isLocked) return;
+  let nearest = null, nearestDist = 1.4;
+  for (const sw of lightSwitches) {
+    const dx = camera.position.x - sw.x;
+    const dz = camera.position.z - sw.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d < nearestDist) { nearest = sw; nearestDist = d; }
+  }
+  if (nearest) {
+    nearest.on = !nearest.on;
+    nearest.light.visible = nearest.on;
+    nearest.mat.color.set(nearest.on ? 0xffffcc : 0x555555);
+    nearest.mat.emissiveIntensity = nearest.on ? 0.5 : 0;
+  }
+});
 
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
 flashlight.castShadow = true;
