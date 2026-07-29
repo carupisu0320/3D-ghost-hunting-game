@@ -44,16 +44,105 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// 床
-const floorColors = [0x666666, 0x337777, 0x555577, 0x775555, 0x333355, 0x553355, 0x444444, 0x557733, 0x777733, 0x773333, 0x557755];
-rooms.forEach((r, i) => {
+// ---- 手続き的テクスチャ(画像ファイルを使わず、その場で模様を描く) ----
+function makeWoodTexture(baseColor = '#8a6642') {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 256, 256);
+  const plankCount = 6;
+  const plankH = 256 / plankCount;
+  for (let i = 0; i < plankCount; i++) {
+    const shade = (Math.random() - 0.5) * 40;
+    ctx.fillStyle = shade > 0 ? `rgba(255,255,255,${shade / 255})` : `rgba(0,0,0,${-shade / 255})`;
+    ctx.fillRect(0, i * plankH, 256, plankH);
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, i * plankH);
+    ctx.lineTo(256, i * plankH);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 250; i++) {
+    ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.08})`;
+    const y = Math.random() * 256;
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * 200, y);
+    ctx.lineTo(Math.random() * 200 + 40, y + (Math.random() * 4 - 2));
+    ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+function makeTileTexture(baseColor = '#d9d4c8') {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 256, 256);
+  const gridSize = 4;
+  const cell = 256 / gridSize;
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i <= gridSize; i++) {
+    ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, 256); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(256, i * cell); ctx.stroke();
+  }
+  for (let i = 0; i < 400; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`;
+    ctx.fillRect(Math.random() * 256, Math.random() * 256, 3, 3);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+function makeWallTexture(baseColor = '#767676') {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 3000; i++) {
+    const v = Math.random() * 24 - 12;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 200})` : `rgba(0,0,0,${-v / 200})`;
+    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+function scaled(base, rx, ry) {
+  const t = base.clone();
+  t.needsUpdate = true;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx, ry);
+  return t;
+}
+
+const woodBase = makeWoodTexture();
+const tileBase = makeTileTexture();
+const wallBase = makeWallTexture();
+
+// 床(水回りはタイル、それ以外は木目)
+const wetRooms = new Set(["浴室・洗面", "トイレ", "玄関"]);
+rooms.forEach((r) => {
   const w = r.bounds.maxX - r.bounds.minX;
   const d = r.bounds.maxZ - r.bounds.minZ;
   const cx = (r.bounds.maxX + r.bounds.minX) / 2;
   const cz = (r.bounds.maxZ + r.bounds.minZ) / 2;
+  const isWet = wetRooms.has(r.name);
+  const tex = isWet ? scaled(tileBase, w / 0.5, d / 0.5) : scaled(woodBase, w / 1.5, d / 1.5);
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(w, d),
-    new THREE.MeshStandardMaterial({ color: floorColors[i], roughness: 0.85 })
+    new THREE.MeshStandardMaterial({ map: tex, roughness: isWet ? 0.35 : 0.8 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0, cz);
@@ -67,8 +156,8 @@ const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
 const doorHeight = 2.1;
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x707070, roughness: 0.9 });
-const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.6 });
+const wallMaterial = new THREE.MeshStandardMaterial({ map: scaled(wallBase, 4, 2), roughness: 0.9 });
+const doorMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4022'), 1, 1), roughness: 0.55 });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
   const mesh = new THREE.Mesh(
@@ -125,31 +214,28 @@ let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
   const b45 = room("Bed Room(4.5畳)"), b50 = room("Bed Room(5.0畳)"), ldk = room("Living Dining Kitchen");
   houseMinX = ldk.minX; houseMaxX = m.maxX; houseMinZ = ldk.minZ; houseMaxZ = g.maxZ;
 
-  // 外周
   addWall('z', houseMinX, houseMinZ, houseMaxZ);
   addWall('z', houseMaxX, houseMinZ, houseMaxZ);
   addWall('x', houseMaxZ, houseMinX, houseMaxX);
   addWall('x', houseMinZ, houseMinX, houseMaxX);
 
-  // ドアのある間仕切り
-  addWall('z', g.maxX, g.minZ, g.maxZ, (g.minZ + g.maxZ) / 2);           // 玄関|浴室洗面
-  addWall('z', b.maxX, b.minZ, b.maxZ, (b.minZ + b.maxZ) / 2);           // 浴室洗面|トイレ
-  addWall('z', t.maxX, t.minZ, t.maxZ, (t.minZ + t.maxZ) / 2);           // トイレ|MasterBR
-  addWall('x', g.minZ, g.minX, g.maxX, (g.minX + g.maxX) / 2);           // 玄関|廊下
-  addWall('z', h.maxX, h.minZ, h.maxZ, (h.minZ + h.maxZ) / 2);           // 廊下|納戸
-  addWall('x', h.minZ, h.minX, h.maxX, (h.minX + h.maxX) / 2);           // 廊下|Pantry
-  addWall('x', w.minZ, w.minX, w.maxX, (w.minX + w.maxX) / 2);           // W.I.C|LDK
-  addWall('z', b45.minX, b45.minZ, b45.maxZ, (b45.minZ + b45.maxZ) / 2); // BedRoom4.5|LDK
-  addWall('z', b50.minX, b50.minZ, b50.maxZ, (b50.minZ + b50.maxZ) / 2); // BedRoom5.0|LDK
+  addWall('z', g.maxX, g.minZ, g.maxZ, (g.minZ + g.maxZ) / 2);
+  addWall('z', b.maxX, b.minZ, b.maxZ, (b.minZ + b.maxZ) / 2);
+  addWall('z', t.maxX, t.minZ, t.maxZ, (t.minZ + t.maxZ) / 2);
+  addWall('x', g.minZ, g.minX, g.maxX, (g.minX + g.maxX) / 2);
+  addWall('z', h.maxX, h.minZ, h.maxZ, (h.minZ + h.maxZ) / 2);
+  addWall('x', h.minZ, h.minX, h.maxX, (h.minX + h.maxX) / 2);
+  addWall('x', w.minZ, w.minX, w.maxX, (w.minX + w.maxX) / 2);
+  addWall('z', b45.minX, b45.minZ, b45.maxZ, (b45.minZ + b45.maxZ) / 2);
+  addWall('z', b50.minX, b50.minZ, b50.maxZ, (b50.minZ + b50.maxZ) / 2);
 
-  // ドアなしの間仕切り
-  addWall('x', b.minZ, b.minX, b.maxX);       // 浴室洗面|納戸
-  addWall('x', t.minZ, t.minX, t.maxX);       // トイレ|W.I.C
-  addWall('z', m.minX, w.minZ, w.maxZ);       // MasterBR|W.I.C
-  addWall('x', b45.maxZ, m.minX, m.maxX);     // MasterBR|BedRoom4.5
-  addWall('z', s.maxX, s.minZ, s.maxZ);       // 納戸|W.I.C
-  addWall('x', s.minZ, s.minX, s.maxX);       // 納戸|LDK
-  addWall('x', b50.maxZ, b45.minX, b45.maxX); // BedRoom4.5|BedRoom5.0
+  addWall('x', b.minZ, b.minX, b.maxX);
+  addWall('x', t.minZ, t.minX, t.maxX);
+  addWall('z', m.minX, w.minZ, w.maxZ);
+  addWall('x', b45.maxZ, m.minX, m.maxX);
+  addWall('z', s.maxX, s.minZ, s.maxZ);
+  addWall('x', s.minZ, s.minX, s.maxX);
+  addWall('x', b50.maxZ, b45.minX, b45.maxX);
 }
 
 // 天井
@@ -164,9 +250,13 @@ let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
   scene.add(ceiling);
 }
 
-// 家具(壁と同じ当たり判定に登録される)
-const furnitureMaterial = new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.75 });
-function addFurniture(x, z, w, d, h, material = furnitureMaterial) {
+// ---- 家具の材質(木・陶器・布・金属) ----
+const woodFurnitureMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2), roughness: 0.7 });
+const ceramicMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.25 });
+const fabricMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4550, roughness: 0.95 });
+const metalMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.35, metalness: 0.6 });
+
+function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   mesh.position.set(x, h / 2, z);
   mesh.castShadow = true;
@@ -179,33 +269,30 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
 
-// 寝室(いずれもLDK側のドアから離れた奥の壁側に配置)
-furnitureIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0, 0.6);   // ダブルベッド
-furnitureIn("Master Bed Room", 2.4, 3.4, 1.0, 0.6, 1.8);   // ワードローブ
-furnitureIn("Bed Room(4.5畳)", 3.1, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
-furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);   // 机
-furnitureIn("Bed Room(5.0畳)", 3.1, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
-furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);   // 机
+furnitureIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0, 0.6);
+furnitureIn("Master Bed Room", 2.4, 3.4, 1.0, 0.6, 1.8);
+furnitureIn("Bed Room(4.5畳)", 3.1, 1.2, 1.0, 2.0, 0.6);
+furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
+furnitureIn("Bed Room(5.0畳)", 3.1, 1.2, 1.0, 2.0, 0.6);
+furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
 
-// 水回り・収納
-furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);                // 下駄箱
-furnitureIn("浴室・洗面", 0.7, 0.4, 0.9, 0.5, 0.85);          // 洗面台
-furnitureIn("浴室・洗面", 1.3, 1.8, 1.4, 1.4, 0.6);           // 浴槽
-furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4);               // 便器
-furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);                 // 棚
-furnitureIn("W.I.C", 0.6, 0.5, 0.8, 0.4, 1.8);                // 棚
-furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);               // 棚
+furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
+furnitureIn("浴室・洗面", 0.7, 0.4, 0.9, 0.5, 0.85, ceramicMaterial);
+furnitureIn("浴室・洗面", 1.3, 1.8, 1.4, 1.4, 0.6, ceramicMaterial);
+furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4, ceramicMaterial);
+furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
+furnitureIn("W.I.C", 0.6, 0.5, 0.8, 0.4, 1.8);
+furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
 
-// LDK(ドアの正面を避け、部屋中央〜奥の壁沿いに配置)
 {
   const ldk = room("Living Dining Kitchen");
-  addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.6, 1.8, 0.9, 0.75); // ダイニングテーブル
-  addFurniture(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9, 0.8);            // ソファ
-  addFurniture(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);            // キッチンカウンター
-  addFurniture(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);            // 冷蔵庫
+  addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.6, 1.8, 0.9, 0.75);
+  addFurniture(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9, 0.8, fabricMaterial);
+  addFurniture(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);
+  addFurniture(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7, metalMaterial);
 }
 
-// 照明(環境光は弱めにして、影がちゃんと出るようにする)
+// 照明
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
 function addRoomLight(name, intensity, color = 0x554433) {
   const r = room(name);
@@ -219,7 +306,6 @@ addRoomLight("Bed Room(4.5畳)", 0.4);
 addRoomLight("Bed Room(5.0畳)", 0.4);
 addRoomLight("玄関", 0.4);
 
-// 懐中電灯だけが影を落とす(全灯に影を付けると重くなるため)
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
 flashlight.castShadow = true;
 flashlight.shadow.mapSize.set(1024, 1024);
@@ -228,7 +314,6 @@ flashlight.shadow.camera.far = 10;
 camera.add(flashlight);
 scene.add(camera);
 
-// 一人称視点操作
 const controls = new PointerLockControls(camera, document.body);
 const info = document.getElementById('info');
 info.addEventListener('click', () => controls.lock());
