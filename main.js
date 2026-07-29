@@ -40,6 +40,8 @@ camera.position.set(4, 1.6, 4);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // 床
@@ -51,10 +53,11 @@ rooms.forEach((r, i) => {
   const cz = (r.bounds.maxZ + r.bounds.minZ) / 2;
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(w, d),
-    new THREE.MeshStandardMaterial({ color: floorColors[i] })
+    new THREE.MeshStandardMaterial({ color: floorColors[i], roughness: 0.85 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0, cz);
+  floor.receiveShadow = true;
   scene.add(floor);
 });
 
@@ -64,8 +67,8 @@ const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
 const doorHeight = 2.1;
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x707070 });
-const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x707070, roughness: 0.9 });
+const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.6 });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
   const mesh = new THREE.Mesh(
@@ -73,6 +76,8 @@ function addWallSegment(minX, maxX, minZ, maxZ) {
     wallMaterial
   );
   mesh.position.set((minX + maxX) / 2, wallHeight / 2, (minZ + maxZ) / 2);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
   wallBoxes.push({ minX, maxX, minZ, maxZ });
 }
@@ -88,6 +93,8 @@ function addDoor(axis, fixedPos, doorAt) {
   );
   if (axis === 'x') mesh.position.set(doorAt, doorHeight / 2, fixedPos);
   else mesh.position.set(fixedPos, doorHeight / 2, doorAt);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
 }
 
@@ -111,11 +118,12 @@ function collidesWithWalls(x, z, radius = 0.3) {
   );
 }
 
+let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
 {
   const g = room("玄関"), b = room("浴室・洗面"), t = room("トイレ"), m = room("Master Bed Room");
   const s = room("納戸"), w = room("W.I.C"), h = room("廊下");
   const b45 = room("Bed Room(4.5畳)"), b50 = room("Bed Room(5.0畳)"), ldk = room("Living Dining Kitchen");
-  const houseMinX = ldk.minX, houseMaxX = m.maxX, houseMinZ = ldk.minZ, houseMaxZ = g.maxZ;
+  houseMinX = ldk.minX; houseMaxX = m.maxX; houseMinZ = ldk.minZ; houseMaxZ = g.maxZ;
 
   // 外周
   addWall('z', houseMinX, houseMinZ, houseMaxZ);
@@ -144,55 +152,79 @@ function collidesWithWalls(x, z, radius = 0.3) {
   addWall('x', b50.maxZ, b45.minX, b45.maxX); // BedRoom4.5|BedRoom5.0
 }
 
-// 家具
-const furnitureMaterial = new THREE.MeshStandardMaterial({ color: 0x5b4636 });
-function addFurniture(x, z, w, d, h) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), furnitureMaterial);
+// 天井
+{
+  const ceiling = new THREE.Mesh(
+    new THREE.PlaneGeometry(houseMaxX - houseMinX, houseMaxZ - houseMinZ),
+    new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.95, side: THREE.DoubleSide })
+  );
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.set((houseMinX + houseMaxX) / 2, wallHeight, (houseMinZ + houseMaxZ) / 2);
+  ceiling.receiveShadow = true;
+  scene.add(ceiling);
+}
+
+// 家具(壁と同じ当たり判定に登録される)
+const furnitureMaterial = new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.75 });
+function addFurniture(x, z, w, d, h, material = furnitureMaterial) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   mesh.position.set(x, h / 2, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
   wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
 }
-function furnitureIn(name, dx, dz, w, d, h) {
+function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
-  addFurniture(r.minX + dx, r.minZ + dz, w, d, h);
+  addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
 
+// 寝室(いずれもLDK側のドアから離れた奥の壁側に配置)
 furnitureIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0, 0.6);   // ダブルベッド
 furnitureIn("Master Bed Room", 2.4, 3.4, 1.0, 0.6, 1.8);   // ワードローブ
-furnitureIn("Bed Room(4.5畳)", 0.9, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
-furnitureIn("Bed Room(4.5畳)", 1.7, 3.2, 0.9, 0.5, 0.75);   // 机
-furnitureIn("Bed Room(5.0畳)", 0.9, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
-furnitureIn("Bed Room(5.0畳)", 1.7, 3.2, 0.9, 0.5, 0.75);   // 机
-furnitureIn("玄関", 0.4, 0.4, 1.2, 0.4, 0.7);               // 下駄箱
-furnitureIn("浴室・洗面", 0.6, 0.4, 0.9, 0.5, 0.85);         // 洗面台
-furnitureIn("浴室・洗面", 1.3, 1.8, 1.4, 1.4, 0.6);          // 浴槽
-furnitureIn("トイレ", 0.5, 0.4, 0.5, 0.7, 0.4);              // 便器
-furnitureIn("納戸", 0.3, 0.3, 1.2, 0.4, 1.8);                // 棚
-furnitureIn("W.I.C", 0.3, 0.3, 0.8, 0.4, 1.8);              // 棚
-furnitureIn("Pantry", 0.3, 0.3, 1.2, 0.4, 1.8);             // 棚
+furnitureIn("Bed Room(4.5畳)", 3.1, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
+furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);   // 机
+furnitureIn("Bed Room(5.0畳)", 3.1, 1.2, 1.0, 2.0, 0.6);    // シングルベッド
+furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);   // 机
+
+// 水回り・収納
+furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);                // 下駄箱
+furnitureIn("浴室・洗面", 0.7, 0.4, 0.9, 0.5, 0.85);          // 洗面台
+furnitureIn("浴室・洗面", 1.3, 1.8, 1.4, 1.4, 0.6);           // 浴槽
+furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4);               // 便器
+furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);                 // 棚
+furnitureIn("W.I.C", 0.6, 0.5, 0.8, 0.4, 1.8);                // 棚
+furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);               // 棚
+
+// LDK(ドアの正面を避け、部屋中央〜奥の壁沿いに配置)
 {
   const ldk = room("Living Dining Kitchen");
   addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.6, 1.8, 0.9, 0.75); // ダイニングテーブル
-  addFurniture(ldk.maxX - 1.4, ldk.maxZ - 1.1, 1.8, 0.9, 0.8);            // ソファ
-  addFurniture(ldk.minX + 0.6, ldk.maxZ - 0.5, 2.6, 0.7, 0.9);            // キッチンカウンター
-  addFurniture(ldk.minX + 0.6, ldk.maxZ - 1.6, 0.7, 0.7, 1.7);            // 冷蔵庫
+  addFurniture(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9, 0.8);            // ソファ
+  addFurniture(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);            // キッチンカウンター
+  addFurniture(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);            // 冷蔵庫
 }
 
-// 照明
-scene.add(new THREE.AmbientLight(0x222233, 1.5));
+// 照明(環境光は弱めにして、影がちゃんと出るようにする)
+scene.add(new THREE.AmbientLight(0x222233, 0.55));
 function addRoomLight(name, intensity, color = 0x554433) {
   const r = room(name);
   const light = new THREE.PointLight(color, intensity, 7);
   light.position.set((r.minX + r.maxX) / 2, 2.5, (r.minZ + r.maxZ) / 2);
   scene.add(light);
 }
-addRoomLight("Living Dining Kitchen", 0.5);
-addRoomLight("Master Bed Room", 0.3);
-addRoomLight("Bed Room(4.5畳)", 0.3);
-addRoomLight("Bed Room(5.0畳)", 0.3);
-addRoomLight("玄関", 0.3);
+addRoomLight("Living Dining Kitchen", 0.6);
+addRoomLight("Master Bed Room", 0.4);
+addRoomLight("Bed Room(4.5畳)", 0.4);
+addRoomLight("Bed Room(5.0畳)", 0.4);
+addRoomLight("玄関", 0.4);
 
+// 懐中電灯だけが影を落とす(全灯に影を付けると重くなるため)
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
+flashlight.castShadow = true;
+flashlight.shadow.mapSize.set(1024, 1024);
+flashlight.shadow.camera.near = 0.1;
+flashlight.shadow.camera.far = 10;
 camera.add(flashlight);
 scene.add(camera);
 
