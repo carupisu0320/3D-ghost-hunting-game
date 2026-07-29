@@ -119,6 +119,29 @@ function makeWallTexture(baseColor = '#767676') {
   return texture;
 }
 
+function makeDoorTexture(baseColor = '#6b4022') {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 128, 256);
+  for (let i = 0; i < 40; i++) {
+    ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+    const y = Math.random() * 256;
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * 60, y);
+    ctx.lineTo(Math.random() * 60 + 60, y + (Math.random() * 3 - 1.5));
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(14, 18, 100, 96);
+  ctx.strokeRect(14, 142, 100, 96);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function scaled(base, rx, ry) {
   const t = base.clone();
   t.needsUpdate = true;
@@ -157,7 +180,9 @@ const wallThickness = 0.2;
 const doorWidth = 1.2;
 const doorHeight = 2.1;
 const wallMaterial = new THREE.MeshStandardMaterial({ map: scaled(wallBase, 4, 2), roughness: 0.9 });
-const doorMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4022'), 1, 1), roughness: 0.55 });
+const doorMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeDoorTexture(), 1, 1), roughness: 0.5 });
+const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.7 });
+const doorHandleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.35, metalness: 0.6 });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
   const mesh = new THREE.Mesh(
@@ -180,8 +205,58 @@ function addDoor(axis, fixedPos, doorAt) {
     ),
     doorMaterial
   );
-  if (axis === 'x') mesh.position.set(doorAt, doorHeight / 2, fixedPos);
-  else mesh.position.set(fixedPos, doorHeight / 2, doorAt);
+  const trimW = 0.06;
+  const trimDepth = wallThickness + 0.04;
+  const sideLen = doorHeight + trimW;
+
+  if (axis === 'x') {
+    mesh.position.set(doorAt, doorHeight / 2, fixedPos);
+
+    [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(x => {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(trimW, sideLen, trimDepth), doorFrameMaterial);
+      side.position.set(x, sideLen / 2, fixedPos);
+      side.castShadow = true; side.receiveShadow = true;
+      scene.add(side);
+    });
+    const top = new THREE.Mesh(new THREE.BoxGeometry(doorWidth + trimW * 2, trimW, trimDepth), doorFrameMaterial);
+    top.position.set(doorAt, doorHeight + trimW / 2, fixedPos);
+    top.castShadow = true; top.receiveShadow = true;
+    scene.add(top);
+
+    const header = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, wallHeight - doorHeight, wallThickness), wallMaterial);
+    header.position.set(doorAt, doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
+    header.castShadow = true; header.receiveShadow = true;
+    scene.add(header);
+
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
+    handle.position.set(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + wallThickness / 2 + 0.03);
+    handle.castShadow = true;
+    scene.add(handle);
+  } else {
+    mesh.position.set(fixedPos, doorHeight / 2, doorAt);
+
+    [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(z => {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, sideLen, trimW), doorFrameMaterial);
+      side.position.set(fixedPos, sideLen / 2, z);
+      side.castShadow = true; side.receiveShadow = true;
+      scene.add(side);
+    });
+    const top = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, trimW, doorWidth + trimW * 2), doorFrameMaterial);
+    top.position.set(fixedPos, doorHeight + trimW / 2, doorAt);
+    top.castShadow = true; top.receiveShadow = true;
+    scene.add(top);
+
+    const header = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight - doorHeight, doorWidth), wallMaterial);
+    header.position.set(fixedPos, doorHeight + (wallHeight - doorHeight) / 2, doorAt);
+    header.castShadow = true; header.receiveShadow = true;
+    scene.add(header);
+
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
+    handle.position.set(fixedPos + wallThickness / 2 + 0.03, doorHeight * 0.45, doorAt + doorWidth * 0.36);
+    handle.castShadow = true;
+    scene.add(handle);
+  }
+
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -329,11 +404,11 @@ bedIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0);
 furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
 
 furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
-furnitureIn("浴室・洗面", 0.7, 0.3, 0.9, 0.5, 0.85, ceramicMaterial);
-furnitureIn("浴室・洗面", 2.2, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
+furnitureIn("浴室・洗面", 0.6, 0.3, 0.9, 0.5, 0.85, ceramicMaterial);
+furnitureIn("浴室・洗面", 1.9, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
 furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4, ceramicMaterial);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
-furnitureIn("W.I.C", 0.6, 0.5, 0.8, 0.4, 1.8);
+furnitureIn("W.I.C", 0.6, 2.3, 0.8, 0.4, 1.8);
 furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
 
 {
@@ -341,7 +416,7 @@ furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
   addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.6, 1.8, 0.9, 0.75);
   sofaAt(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9);
   counterAt(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);
-  fridgeAt(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);
+  fridgeAt(ldk.minX + 2.7, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);
 }
 
 // 幽霊(証拠システムの土台込み)
