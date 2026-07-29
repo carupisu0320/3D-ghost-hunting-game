@@ -255,6 +255,58 @@ const woodFurnitureMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeW
 const ceramicMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.25 });
 const fabricMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4550, roughness: 0.95 });
 const metalMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.35, metalness: 0.6 });
+const mattressMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.85 });
+const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.5 });
+const countertopMaterial = new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.3 });
+
+// 見た目だけの飾りパーツ(当たり判定には登録しない)
+function addDetailMesh(x, y, z, w, h, d, material) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+// ベッド = 木の土台 + マットレス
+function bedIn(name, dx, dz, w, d) {
+  const r = room(name);
+  const x = r.minX + dx, z = r.minZ + dz;
+  const frameH = 0.3, mattressH = 0.25;
+  addFurniture(x, z, w, d, frameH);
+  addDetailMesh(x, frameH + mattressH / 2, z, w * 0.92, mattressH, d * 0.92, mattressMaterial);
+}
+
+// ソファ = 座面 + 背もたれ
+function sofaAt(x, z, w, d) {
+  const seatH = 0.42, backH = 0.4, backT = 0.18;
+  addFurniture(x, z, w, d, seatH, fabricMaterial);
+  addDetailMesh(x, seatH + backH / 2, z + d / 2 - backT / 2, w, backH, backT, fabricMaterial);
+}
+
+// ワードローブ = 本体 + 中央の継ぎ目 + 取っ手2つ(部屋の内側=-X向きに面する想定)
+function wardrobeIn(name, dx, dz, w, d, h) {
+  const r = room(name);
+  const x = r.minX + dx, z = r.minZ + dz;
+  addFurniture(x, z, w, d, h, woodFurnitureMaterial);
+  const faceX = x - w / 2 - 0.01;
+  addDetailMesh(faceX, h * 0.5, z, 0.02, h * 0.9, 0.02, handleMaterial);
+  addDetailMesh(faceX - 0.02, h * 0.5, z - d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
+  addDetailMesh(faceX - 0.02, h * 0.5, z + d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
+}
+
+// キッチンカウンター = 木の台 + 天板(少しはみ出す)
+function counterAt(x, z, w, d, h) {
+  addFurniture(x, z, w, d, h, woodFurnitureMaterial);
+  addDetailMesh(x, h + 0.03, z, w + 0.08, 0.06, d + 0.08, countertopMaterial);
+}
+
+// 冷蔵庫 = 本体 + 取っ手(部屋の内側=-Z向きに面する想定)
+function fridgeAt(x, z, w, d, h) {
+  addFurniture(x, z, w, d, h, metalMaterial);
+  const faceZ = z - d / 2 - 0.01;
+  addDetailMesh(x + w * 0.15, h * 0.55, faceZ, 0.06, h * 0.5, 0.03, handleMaterial);
+}
 
 function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
@@ -269,11 +321,11 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
 
-furnitureIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0, 0.6);
-furnitureIn("Master Bed Room", 3.8, 3.4, 1.0, 0.6, 1.8);
-furnitureIn("Bed Room(4.5畳)", 3.8, 1.2, 1.0, 2.0, 0.6);
+bedIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0);
+wardrobeIn("Master Bed Room", 3.8, 3.4, 1.0, 0.6, 1.8);
+bedIn("Bed Room(4.5畳)", 3.8, 1.2, 1.0, 2.0);
 furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
-furnitureIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0, 0.6);
+bedIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0);
 furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
 
 furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
@@ -287,9 +339,9 @@ furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
 {
   const ldk = room("Living Dining Kitchen");
   addFurniture((ldk.minX + ldk.maxX) / 2, ldk.minZ + 1.6, 1.8, 0.9, 0.75);
-  addFurniture(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9, 0.8, fabricMaterial);
-  addFurniture(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);
-  addFurniture(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7, metalMaterial);
+  sofaAt(ldk.minX + 4.2, ldk.minZ + 6.5, 1.8, 0.9);
+  counterAt(ldk.minX + 5.0, ldk.maxZ - 0.6, 2.6, 0.7, 0.9);
+  fridgeAt(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);
 }
 
 // 照明
