@@ -344,6 +344,34 @@ furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
   fridgeAt(ldk.minX + 6.8, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);
 }
 
+// 幽霊(証拠システムの土台込み)
+const ghostTypes = [
+  { name: "Spirit", evidence: ["EMF5", "スピリットボックス", "ゴーストライティング"] },
+  { name: "Wraith", evidence: ["EMF5", "スピリットボックス", "UV痕跡"] },
+  { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "UV痕跡"] },
+];
+const currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
+const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry");
+const hauntedRoom = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)].bounds;
+console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
+
+function randomPointInRoom(r, margin = 0.6) {
+  return new THREE.Vector3(
+    r.minX + margin + Math.random() * Math.max(0.1, r.maxX - r.minX - margin * 2),
+    1.0,
+    r.minZ + margin + Math.random() * Math.max(0.1, r.maxZ - r.minZ - margin * 2)
+  );
+}
+
+const ghostMaterial = new THREE.MeshStandardMaterial({
+  color: 0xaad4ff, transparent: true, opacity: 0.35,
+  emissive: 0x335577, emissiveIntensity: 0.6
+});
+const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.2, 4, 8), ghostMaterial);
+let ghostTarget = randomPointInRoom(hauntedRoom);
+ghost.position.copy(ghostTarget);
+scene.add(ghost);
+
 // 照明
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
 function addRoomLight(name, intensity, color = 0x554433) {
@@ -371,9 +399,26 @@ const info = document.getElementById('info');
 info.addEventListener('click', () => controls.lock());
 controls.addEventListener('unlock', () => { info.textContent = 'クリックで開始'; });
 
+const emfDisplay = document.createElement('div');
+emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(emfDisplay);
+
+let emfActive = false;
 const keys = {};
-document.addEventListener('keydown', (e) => keys[e.code] = true);
+document.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'KeyE') {
+    emfActive = !emfActive;
+    if (!emfActive) emfDisplay.textContent = '';
+  }
+});
 document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+function emfLevelAt(distance, hasEMF5) {
+  let level = distance < 1 ? 5 : distance < 2 ? 4 : distance < 3.5 ? 3 : distance < 5 ? 2 : distance < 8 ? 1 : 0;
+  if (level === 5 && !hasEMF5) level = 4;
+  return level;
+}
 
 const speed = 4;
 const clock = new THREE.Clock();
@@ -395,6 +440,34 @@ function animate() {
       camera.position.z = prevZ;
     }
     info.textContent = `現在の部屋: ${getRoomAt(camera.position.x, camera.position.z)}`;
+
+    // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
+    const toTarget = new THREE.Vector3().subVectors(ghostTarget, ghost.position);
+    toTarget.y = 0;
+    if (toTarget.length() < 0.2) {
+      ghostTarget = randomPointInRoom(hauntedRoom);
+    } else {
+      toTarget.normalize();
+      ghost.position.x += toTarget.x * 1.0 * delta;
+      ghost.position.z += toTarget.z * 1.0 * delta;
+    }
+    ghost.position.y = 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
+    ghost.rotation.y += delta * 0.5;
+
+    // 懐中電灯を向けると少しはっきり見える
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    const toGhost = new THREE.Vector3().subVectors(ghost.position, camera.position);
+    const ghostDist = toGhost.length();
+    toGhost.normalize();
+    const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
+    ghostMaterial.opacity = lookingAtGhost ? 0.75 : 0.35;
+
+    // EMFリーダー(Eキーでオン/オフ)
+    if (emfActive) {
+      const level = emfLevelAt(ghostDist, currentGhost.evidence.includes("EMF5"));
+      emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
+    }
   }
 
   renderer.render(scene, camera);
