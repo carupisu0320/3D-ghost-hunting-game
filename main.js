@@ -228,10 +228,12 @@ function addDoor(axis, fixedPos, doorAt) {
     header.castShadow = true; header.receiveShadow = true;
     scene.add(header);
 
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
-    handle.position.set(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + wallThickness / 2 + 0.03);
-    handle.castShadow = true;
-    scene.add(handle);
+    [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(zOff => {
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
+      handle.position.set(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + zOff);
+      handle.castShadow = true;
+      scene.add(handle);
+    });
   } else {
     mesh.position.set(fixedPos, doorHeight / 2, doorAt);
 
@@ -251,10 +253,12 @@ function addDoor(axis, fixedPos, doorAt) {
     header.castShadow = true; header.receiveShadow = true;
     scene.add(header);
 
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
-    handle.position.set(fixedPos + wallThickness / 2 + 0.03, doorHeight * 0.45, doorAt + doorWidth * 0.36);
-    handle.castShadow = true;
-    scene.add(handle);
+    [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(xOff => {
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
+      handle.position.set(fixedPos + xOff, doorHeight * 0.45, doorAt + doorWidth * 0.36);
+      handle.castShadow = true;
+      scene.add(handle);
+    });
   }
 
   mesh.castShadow = true;
@@ -395,18 +399,27 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
+// トイレ = ボウル(当たり判定あり) + 背面のタンク(見た目のみ)
+function toiletIn(name, dx, dz) {
+  const r = room(name);
+  const x = r.minX + dx, z = r.minZ + dz;
+  const bowlW = 0.38, bowlD = 0.48, bowlH = 0.38;
+  addFurniture(x, z, bowlW, bowlD, bowlH, ceramicMaterial);
+  const tankH = 0.32;
+  addDetailMesh(x, bowlH + tankH / 2, z - bowlD / 2 + 0.09, bowlW + 0.02, tankH, 0.16, ceramicMaterial);
+}
 
 bedIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0);
 wardrobeIn("Master Bed Room", 3.8, 3.4, 1.0, 0.6, 1.8);
 bedIn("Bed Room(4.5畳)", 3.8, 1.2, 1.0, 2.0);
-furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
+furnitureIn("Bed Room(4.5畳)", 0.8, 4.65, 0.9, 0.5, 0.75);
 bedIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0);
-furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
+furnitureIn("Bed Room(5.0畳)", 0.8, 4.45, 0.9, 0.5, 0.75);
 
 furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
 furnitureIn("浴室・洗面", 0.6, 0.3, 0.9, 0.5, 0.85, ceramicMaterial);
 furnitureIn("浴室・洗面", 1.9, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
-furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4, ceramicMaterial);
+toiletIn("トイレ", 1.0, 0.35);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
 furnitureIn("W.I.C", 0.6, 2.3, 0.8, 0.4, 1.8);
 furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
