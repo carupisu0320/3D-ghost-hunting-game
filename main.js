@@ -270,15 +270,15 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
 }
 
 furnitureIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0, 0.6);
-furnitureIn("Master Bed Room", 2.4, 3.4, 1.0, 0.6, 1.8);
-furnitureIn("Bed Room(4.5畳)", 3.1, 1.2, 1.0, 2.0, 0.6);
+furnitureIn("Master Bed Room", 3.8, 3.4, 1.0, 0.6, 1.8);
+furnitureIn("Bed Room(4.5畳)", 3.8, 1.2, 1.0, 2.0, 0.6);
 furnitureIn("Bed Room(4.5畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
-furnitureIn("Bed Room(5.0畳)", 3.1, 1.2, 1.0, 2.0, 0.6);
+furnitureIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0, 0.6);
 furnitureIn("Bed Room(5.0畳)", 0.8, 4.0, 0.9, 0.5, 0.75);
 
 furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
-furnitureIn("浴室・洗面", 0.7, 0.4, 0.9, 0.5, 0.85, ceramicMaterial);
-furnitureIn("浴室・洗面", 1.3, 1.8, 1.4, 1.4, 0.6, ceramicMaterial);
+furnitureIn("浴室・洗面", 0.7, 0.3, 0.9, 0.5, 0.85, ceramicMaterial);
+furnitureIn("浴室・洗面", 2.2, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
 furnitureIn("トイレ", 0.6, 0.5, 0.5, 0.7, 0.4, ceramicMaterial);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
 furnitureIn("W.I.C", 0.6, 0.5, 0.8, 0.4, 1.8);
