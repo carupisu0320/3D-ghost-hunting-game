@@ -399,6 +399,15 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
+// 洗面台 = 台座 + 天板 + 蛇口
+function washstandIn(name, dx, dz, w, d, h) {
+  const r = room(name);
+  const x = r.minX + dx, z = r.minZ + dz;
+  addFurniture(x, z, w, d, h, ceramicMaterial);
+  addDetailMesh(x, h + 0.02, z, w - 0.04, 0.04, d - 0.04, ceramicMaterial);
+  addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial);
+}
+
 // トイレ = ボウル(当たり判定あり) + 背面のタンク(見た目のみ)
 function toiletIn(name, dx, dz) {
   const r = room(name);
@@ -417,12 +426,12 @@ bedIn("Bed Room(5.0畳)", 3.8, 1.2, 1.0, 2.0);
 furnitureIn("Bed Room(5.0畳)", 0.8, 4.45, 0.9, 0.5, 0.75);
 
 furnitureIn("玄関", 0.7, 0.8, 1.2, 0.4, 0.7);
-furnitureIn("浴室・洗面", 0.6, 0.3, 0.9, 0.5, 0.85, ceramicMaterial);
+washstandIn("浴室・洗面", 0.6, 0.3, 0.9, 0.5, 0.85);
 furnitureIn("浴室・洗面", 1.9, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
 toiletIn("トイレ", 1.0, 0.35);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
-furnitureIn("W.I.C", 0.6, 2.3, 0.8, 0.4, 1.8);
-furnitureIn("Pantry", 0.8, 0.5, 1.2, 0.4, 1.8);
+furnitureIn("W.I.C", 0.6, 2.5, 0.8, 0.4, 1.8);
+furnitureIn("Pantry", 0.7, 0.5, 1.2, 0.4, 1.8);
 
 {
   const ldk = room("Living Dining Kitchen");
@@ -499,8 +508,8 @@ const roomLights = {
 const lightSwitches = [];
 function addLightSwitch(roomName) {
   const r = room(roomName);
-  const x = r.minX + 0.15;
-  const z = r.minZ + 0.6;
+  const x = r.maxX - 0.15;
+  const z = r.maxZ - 0.6;
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5, roughness: 0.4 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
   mesh.position.set(x, 1.1, z);
