@@ -374,25 +374,37 @@ scene.add(ghost);
 
 // 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
-function addRoomLight(name, intensity, color = 0x554433) {
+
+// 天井の照明本体(光源+見た目のランプ部分)
+function addRoomLight(name, intensity, color = 0xfff2cc, distance = 13) {
   const r = room(name);
-  const light = new THREE.PointLight(color, intensity, 7);
-  light.position.set((r.minX + r.maxX) / 2, 2.5, (r.minZ + r.maxZ) / 2);
+  const cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+
+  const light = new THREE.PointLight(color, intensity, distance);
+  light.position.set(cx, 2.85, cz);
   scene.add(light);
-  return light;
+
+  const fixtureMat = new THREE.MeshStandardMaterial({
+    color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 1.2, roughness: 0.6
+  });
+  const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 16), fixtureMat);
+  fixture.position.set(cx, 2.97, cz);
+  scene.add(fixture);
+
+  return { light, fixtureMat };
 }
 const roomLights = {
-  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 0.6),
-  "Master Bed Room": addRoomLight("Master Bed Room", 0.4),
-  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 0.4),
-  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 0.4),
-  "玄関": addRoomLight("玄関", 0.4),
-  "浴室・洗面": addRoomLight("浴室・洗面", 0.45, 0xccddee),
-  "トイレ": addRoomLight("トイレ", 0.35, 0xccddee),
-  "納戸": addRoomLight("納戸", 0.3),
-  "W.I.C": addRoomLight("W.I.C", 0.3),
-  "廊下": addRoomLight("廊下", 0.3),
-  "Pantry": addRoomLight("Pantry", 0.3),
+  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 14),
+  "Master Bed Room": addRoomLight("Master Bed Room", 10),
+  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 9),
+  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 9),
+  "玄関": addRoomLight("玄関", 7),
+  "浴室・洗面": addRoomLight("浴室・洗面", 8, 0xdcecff),
+  "トイレ": addRoomLight("トイレ", 6, 0xdcecff),
+  "納戸": addRoomLight("納戸", 6),
+  "W.I.C": addRoomLight("W.I.C", 5),
+  "廊下": addRoomLight("廊下", 6),
+  "Pantry": addRoomLight("Pantry", 5),
 };
 
 // 各部屋の壁際にスイッチを設置(部屋の入口寄りの角、床上1.1m)
@@ -406,11 +418,12 @@ function addLightSwitch(roomName) {
   mesh.position.set(x, 1.1, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  lightSwitches.push({ x, z, light: roomLights[roomName], mat, on: true });
+  const rl = roomLights[roomName];
+  lightSwitches.push({ x, z, light: rl.light, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
 }
 rooms.forEach(r => addLightSwitch(r.name));
 
-// スイッチに近づいてクリックするとON/OFF切り替え
+// スイッチに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 document.addEventListener('click', () => {
   if (!controls.isLocked) return;
   let nearest = null, nearestDist = 1.4;
@@ -423,8 +436,9 @@ document.addEventListener('click', () => {
   if (nearest) {
     nearest.on = !nearest.on;
     nearest.light.visible = nearest.on;
-    nearest.mat.color.set(nearest.on ? 0xffffcc : 0x555555);
-    nearest.mat.emissiveIntensity = nearest.on ? 0.5 : 0;
+    nearest.fixtureMat.emissiveIntensity = nearest.on ? 1.2 : 0;
+    nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
+    nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
   }
 });
 
