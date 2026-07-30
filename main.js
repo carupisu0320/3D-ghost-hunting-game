@@ -38,7 +38,7 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(1.7, 1.6, 22.9); // テント付近からスタート(houseMaxZ + 6.5、テーブルより外側)
+camera.position.set(1.7, 1.6, 27.7); // テント付近からスタート(拡大・移動後のテーブルより外側)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -416,7 +416,7 @@ function placeForest(count) {
     const x = houseMinX - margin + Math.random() * (houseMaxX - houseMinX + margin * 2);
     const z = houseMinZ - margin + Math.random() * (houseMaxZ - houseMinZ + margin * 2);
     const nearHouse = x > houseMinX - buffer && x < houseMaxX + buffer && z > houseMinZ - buffer && z < houseMaxZ + buffer;
-    const nearEntrance = Math.abs(x - 1.7) < 3 && z > houseMaxZ && z < houseMaxZ + 7;
+    const nearEntrance = Math.abs(x - 1.7) < 4 && z > houseMaxZ && z < houseMaxZ + 13;
     if (nearHouse || nearEntrance) continue;
     addTree(x, z);
     placed++;
@@ -435,10 +435,10 @@ function addPickupItem(x, z, mesh, onCollect) {
   pickupItems.push({ x, z, mesh, collected: false, onCollect });
 }
 
-const tentX = 1.7, tentZ = houseMaxZ + 3.5;
+const tentX = 1.7, tentZ = houseMaxZ + 8;
 {
   const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
-  const halfWidth = 1.6, depth = 2.6, ridgeH = 1.8;
+  const halfWidth = 2.2, depth = 3.2, ridgeH = 2.4;
   const slopeLen = Math.sqrt(halfWidth * halfWidth + ridgeH * ridgeH);
   const angle = Math.atan2(ridgeH, halfWidth);
   [1, -1].forEach(xSign => {
@@ -451,6 +451,15 @@ const tentX = 1.7, tentZ = houseMaxZ + 3.5;
     scene.add(mesh);
   });
   wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2, maxZ: tentZ - depth / 2 + 0.2 });
+
+  // テント内のランタン
+  const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
+  lanternLight.position.set(tentX, ridgeH - 0.4, tentZ);
+  scene.add(lanternLight);
+  const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
+  lantern.position.copy(lanternLight.position);
+  scene.add(lantern);
 
   const tableZ = tentZ + depth / 2 + 0.6;
   const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
