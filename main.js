@@ -30,11 +30,12 @@ function getRoomAt(x, z) {
   return rooms.find(r =>
     x >= r.bounds.minX && x <= r.bounds.maxX &&
     z >= r.bounds.minZ && z <= r.bounds.maxZ
-  )?.name ?? "不明";
+  )?.name ?? "外";
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x000000, 6, 24);
+scene.background = new THREE.Color(0x03030a);
+scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(4, 1.6, 4);
@@ -140,6 +141,25 @@ function makeDoorTexture(baseColor = '#6b4022') {
   ctx.strokeRect(14, 142, 100, 96);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function makeGrassTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#2e3d24';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2500; i++) {
+    const v = Math.random();
+    ctx.fillStyle = v > 0.5
+      ? `rgba(110,130,80,${Math.random() * 0.5})`
+      : `rgba(15,20,10,${Math.random() * 0.5})`;
+    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 3);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   return texture;
 }
 
@@ -282,7 +302,7 @@ let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
 
   addWall('z', houseMinX, houseMinZ, houseMaxZ);
   addWall('z', houseMaxX, houseMinZ, houseMaxZ);
-  addWall('x', houseMaxZ, houseMinX, houseMaxX);
+  addWall('x', houseMaxZ, houseMinX, houseMaxX, 1.7); // 玄関側だけ外に出られるドアを開ける
   addWall('x', houseMinZ, houseMinX, houseMaxX);
 
   addWall('z', g.maxX, g.minZ, g.maxZ, (g.minZ + g.maxZ) / 2);
@@ -329,6 +349,55 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   ceiling.receiveShadow = true;
   scene.add(ceiling);
 }
+
+// 外の地面
+const groundTexture = scaled(makeGrassTexture(), 34, 34);
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 100),
+  new THREE.MeshStandardMaterial({ map: groundTexture, roughness: 0.95 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.set((houseMinX + houseMaxX) / 2, -0.02, (houseMinZ + houseMaxZ) / 2);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// 森の木(家の周り、玄関の外は少し広めに開けておく)
+function addTree(x, z) {
+  const trunkH = 3 + Math.random() * 2;
+  const trunkR = 0.15 + Math.random() * 0.1;
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.9 });
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(trunkR, trunkR * 1.3, trunkH, 8), trunkMat);
+  trunk.position.set(x, trunkH / 2, z);
+  trunk.castShadow = true;
+  trunk.receiveShadow = true;
+  scene.add(trunk);
+
+  const foliageH = 2.5 + Math.random() * 1.5;
+  const foliageMat = new THREE.MeshStandardMaterial({ color: 0x142414, roughness: 0.95 });
+  const foliage = new THREE.Mesh(new THREE.ConeGeometry(1.1 + Math.random() * 0.6, foliageH, 8), foliageMat);
+  foliage.position.set(x, trunkH + foliageH / 2 - 0.3, z);
+  foliage.castShadow = true;
+  scene.add(foliage);
+
+  wallBoxes.push({ minX: x - trunkR - 0.2, maxX: x + trunkR + 0.2, minZ: z - trunkR - 0.2, maxZ: z + trunkR + 0.2 });
+}
+
+function placeForest(count) {
+  const margin = 22;
+  const buffer = 1.5;
+  let placed = 0, attempts = 0;
+  while (placed < count && attempts < count * 6) {
+    attempts++;
+    const x = houseMinX - margin + Math.random() * (houseMaxX - houseMinX + margin * 2);
+    const z = houseMinZ - margin + Math.random() * (houseMaxZ - houseMinZ + margin * 2);
+    const nearHouse = x > houseMinX - buffer && x < houseMaxX + buffer && z > houseMinZ - buffer && z < houseMaxZ + buffer;
+    const nearEntrance = Math.abs(x - 1.7) < 3 && z > houseMaxZ && z < houseMaxZ + 5;
+    if (nearHouse || nearEntrance) continue;
+    addTree(x, z);
+    placed++;
+  }
+}
+placeForest(60);
 
 // ---- 家具の材質(木・陶器・布・金属) ----
 const woodFurnitureMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2), roughness: 0.7 });
@@ -602,8 +671,8 @@ function drawMap() {
     mapCtx.strokeRect(x0, y0, w, h);
   });
 
-  const px = toMapX(camera.position.x);
-  const py = toMapY(camera.position.z);
+  const px = Math.max(pad, Math.min(mapCanvas.width - pad, toMapX(camera.position.x)));
+  const py = Math.max(pad, Math.min(mapCanvas.height - pad, toMapY(camera.position.z)));
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   mapCtx.strokeStyle = '#0f0';
