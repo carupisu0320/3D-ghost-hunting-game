@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const rooms = [
   { name: "玄関",              bounds: { minX: 0,   maxX: 1.7, minZ: 6.3, maxZ: 8.2 } },
@@ -41,7 +42,7 @@ camera.position.set(4, 1.6, 4);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // ---- 手続き的テクスチャ(画像ファイルを使わず、その場で模様を描く) ----
@@ -173,8 +174,12 @@ rooms.forEach((r) => {
   scene.add(floor);
 });
 
-// 壁・ドア
+// 壁・ドア(描画は最後にまとめて1メッシュずつに結合する。当たり判定は今まで通りwallBoxesで個別管理)
 const wallBoxes = [];
+const wallGeometries = [];
+const doorPanelGeometries = [];
+const doorFrameGeometries = [];
+const doorHandleGeometries = [];
 const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
@@ -185,85 +190,67 @@ const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roug
 const doorHandleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.35, metalness: 0.6 });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ),
-    wallMaterial
-  );
-  mesh.position.set((minX + maxX) / 2, wallHeight / 2, (minZ + maxZ) / 2);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
+  const geo = new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ);
+  geo.translate((minX + maxX) / 2, wallHeight / 2, (minZ + maxZ) / 2);
+  wallGeometries.push(geo);
   wallBoxes.push({ minX, maxX, minZ, maxZ });
 }
 
 function addDoor(axis, fixedPos, doorAt) {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(
-      axis === 'x' ? doorWidth : wallThickness,
-      doorHeight,
-      axis === 'x' ? wallThickness : doorWidth
-    ),
-    doorMaterial
+  const panelGeo = new THREE.BoxGeometry(
+    axis === 'x' ? doorWidth : wallThickness,
+    doorHeight,
+    axis === 'x' ? wallThickness : doorWidth
   );
   const trimW = 0.06;
   const trimDepth = wallThickness + 0.04;
   const sideLen = doorHeight + trimW;
 
   if (axis === 'x') {
-    mesh.position.set(doorAt, doorHeight / 2, fixedPos);
+    panelGeo.translate(doorAt, doorHeight / 2, fixedPos);
+    doorPanelGeometries.push(panelGeo);
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(x => {
-      const side = new THREE.Mesh(new THREE.BoxGeometry(trimW, sideLen, trimDepth), doorFrameMaterial);
-      side.position.set(x, sideLen / 2, fixedPos);
-      side.castShadow = true; side.receiveShadow = true;
-      scene.add(side);
+      const side = new THREE.BoxGeometry(trimW, sideLen, trimDepth);
+      side.translate(x, sideLen / 2, fixedPos);
+      doorFrameGeometries.push(side);
     });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(doorWidth + trimW * 2, trimW, trimDepth), doorFrameMaterial);
-    top.position.set(doorAt, doorHeight + trimW / 2, fixedPos);
-    top.castShadow = true; top.receiveShadow = true;
-    scene.add(top);
+    const top = new THREE.BoxGeometry(doorWidth + trimW * 2, trimW, trimDepth);
+    top.translate(doorAt, doorHeight + trimW / 2, fixedPos);
+    doorFrameGeometries.push(top);
 
-    const header = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, wallHeight - doorHeight, wallThickness), wallMaterial);
-    header.position.set(doorAt, doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
-    header.castShadow = true; header.receiveShadow = true;
-    scene.add(header);
+    const header = new THREE.BoxGeometry(doorWidth, wallHeight - doorHeight, wallThickness);
+    header.translate(doorAt, doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
+    wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(zOff => {
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
-      handle.position.set(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + zOff);
-      handle.castShadow = true;
-      scene.add(handle);
+      const handle = new THREE.BoxGeometry(0.035, 0.14, 0.05);
+      handle.translate(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + zOff);
+      doorHandleGeometries.push(handle);
     });
   } else {
-    mesh.position.set(fixedPos, doorHeight / 2, doorAt);
+    panelGeo.translate(fixedPos, doorHeight / 2, doorAt);
+    doorPanelGeometries.push(panelGeo);
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(z => {
-      const side = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, sideLen, trimW), doorFrameMaterial);
-      side.position.set(fixedPos, sideLen / 2, z);
-      side.castShadow = true; side.receiveShadow = true;
-      scene.add(side);
+      const side = new THREE.BoxGeometry(trimDepth, sideLen, trimW);
+      side.translate(fixedPos, sideLen / 2, z);
+      doorFrameGeometries.push(side);
     });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(trimDepth, trimW, doorWidth + trimW * 2), doorFrameMaterial);
-    top.position.set(fixedPos, doorHeight + trimW / 2, doorAt);
-    top.castShadow = true; top.receiveShadow = true;
-    scene.add(top);
+    const top = new THREE.BoxGeometry(trimDepth, trimW, doorWidth + trimW * 2);
+    top.translate(fixedPos, doorHeight + trimW / 2, doorAt);
+    doorFrameGeometries.push(top);
 
-    const header = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight - doorHeight, doorWidth), wallMaterial);
-    header.position.set(fixedPos, doorHeight + (wallHeight - doorHeight) / 2, doorAt);
-    header.castShadow = true; header.receiveShadow = true;
-    scene.add(header);
+    const header = new THREE.BoxGeometry(wallThickness, wallHeight - doorHeight, doorWidth);
+    header.translate(fixedPos, doorHeight + (wallHeight - doorHeight) / 2, doorAt);
+    wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(xOff => {
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
-      handle.position.set(fixedPos + xOff, doorHeight * 0.45, doorAt + doorWidth * 0.36);
-      handle.castShadow = true;
-      scene.add(handle);
+      const handle = new THREE.BoxGeometry(0.05, 0.14, 0.035);
+      handle.translate(fixedPos + xOff, doorHeight * 0.45, doorAt + doorWidth * 0.36);
+      doorHandleGeometries.push(handle);
     });
   }
-
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
 }
 
 function addWall(axis, fixedPos, from, to, doorAt) {
@@ -316,6 +303,20 @@ let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
   addWall('x', s.minZ, s.minX, s.maxX);
   addWall('x', b50.maxZ, b45.minX, b45.maxX);
 }
+
+// 壁・ドアをまとめて1メッシュずつにする(個別に作るより描画負荷が大幅に軽い)
+function addMergedMesh(geometries, material) {
+  if (geometries.length === 0) return;
+  const merged = mergeGeometries(geometries);
+  const mesh = new THREE.Mesh(merged, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+addMergedMesh(wallGeometries, wallMaterial);
+addMergedMesh(doorPanelGeometries, doorMaterial);
+addMergedMesh(doorFrameGeometries, doorFrameMaterial);
+addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 
 // 天井
 {
@@ -541,9 +542,9 @@ document.addEventListener('click', () => {
 
 const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
 flashlight.castShadow = true;
-flashlight.shadow.mapSize.set(1024, 1024);
+flashlight.shadow.mapSize.set(512, 512);
 flashlight.shadow.camera.near = 0.1;
-flashlight.shadow.camera.far = 10;
+flashlight.shadow.camera.far = 8;
 camera.add(flashlight);
 scene.add(camera);
 
@@ -573,6 +574,50 @@ function emfLevelAt(distance, hasEMF5) {
   return level;
 }
 
+// 右上のミニマップ
+const mapCanvas = document.createElement('canvas');
+mapCanvas.width = 180;
+mapCanvas.height = 230;
+mapCanvas.style.cssText = 'position:fixed;top:8px;right:8px;background:rgba(0,0,0,0.6);border:1px solid #0f0;z-index:10;';
+document.body.appendChild(mapCanvas);
+const mapCtx = mapCanvas.getContext('2d');
+
+function drawMap() {
+  mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+  const pad = 6;
+  const scale = Math.min(
+    (mapCanvas.width - pad * 2) / (houseMaxX - houseMinX),
+    (mapCanvas.height - pad * 2) / (houseMaxZ - houseMinZ)
+  );
+  const toMapX = x => pad + (x - houseMinX) * scale;
+  const toMapY = z => pad + (houseMaxZ - z) * scale;
+
+  mapCtx.strokeStyle = '#0f0';
+  mapCtx.lineWidth = 1;
+  rooms.forEach(r => {
+    const x0 = toMapX(r.bounds.minX);
+    const y0 = toMapY(r.bounds.maxZ);
+    const w = (r.bounds.maxX - r.bounds.minX) * scale;
+    const h = (r.bounds.maxZ - r.bounds.minZ) * scale;
+    mapCtx.strokeRect(x0, y0, w, h);
+  });
+
+  const px = toMapX(camera.position.x);
+  const py = toMapY(camera.position.z);
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  mapCtx.strokeStyle = '#0f0';
+  mapCtx.beginPath();
+  mapCtx.moveTo(px, py);
+  mapCtx.lineTo(px + dir.x * 10, py - dir.z * 10);
+  mapCtx.stroke();
+  mapCtx.fillStyle = '#0f0';
+  mapCtx.beginPath();
+  mapCtx.arc(px, py, 4, 0, Math.PI * 2);
+  mapCtx.fill();
+}
+let mapUpdateTimer = 0;
+
 const speed = 4;
 const clock = new THREE.Clock();
 
@@ -593,6 +638,12 @@ function animate() {
       camera.position.z = prevZ;
     }
     info.textContent = `現在の部屋: ${getRoomAt(camera.position.x, camera.position.z)}`;
+
+    mapUpdateTimer += delta;
+    if (mapUpdateTimer > 0.1) {
+      mapUpdateTimer = 0;
+      drawMap();
+    }
 
     // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
     const toTarget = new THREE.Vector3().subVectors(ghostTarget, ghost.position);
