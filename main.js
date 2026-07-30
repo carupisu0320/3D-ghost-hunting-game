@@ -432,7 +432,7 @@ furnitureIn("浴室・洗面", 1.9, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
 toiletIn("トイレ", 1.0, 0.35);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
 furnitureIn("W.I.C", 0.6, 2.5, 0.8, 0.4, 1.8);
-furnitureIn("Pantry", 0.7, 0.5, 1.2, 0.4, 1.8);
+furnitureIn("Pantry", 0.7, 0.3, 1.2, 0.4, 1.8);
 
 {
   const ldk = room("Living Dining Kitchen");
