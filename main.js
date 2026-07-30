@@ -38,7 +38,7 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(1.7, 1.6, 27.7); // テント付近からスタート(拡大・移動後のテーブルより外側)
+camera.position.set(1.7, 1.6, 32.4); // テント入口の外側からスタート(houseMaxZ + 16)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -416,7 +416,7 @@ function placeForest(count) {
     const x = houseMinX - margin + Math.random() * (houseMaxX - houseMinX + margin * 2);
     const z = houseMinZ - margin + Math.random() * (houseMaxZ - houseMinZ + margin * 2);
     const nearHouse = x > houseMinX - buffer && x < houseMaxX + buffer && z > houseMinZ - buffer && z < houseMaxZ + buffer;
-    const nearEntrance = Math.abs(x - 1.7) < 4 && z > houseMaxZ && z < houseMaxZ + 13;
+    const nearEntrance = Math.abs(x - 1.7) < 4.5 && z > houseMaxZ && z < houseMaxZ + 19;
     if (nearHouse || nearEntrance) continue;
     addTree(x, z);
     placed++;
@@ -435,33 +435,49 @@ function addPickupItem(x, z, mesh, onCollect) {
   pickupItems.push({ x, z, mesh, collected: false, onCollect });
 }
 
-const tentX = 1.7, tentZ = houseMaxZ + 8;
+const tentX = 1.7, tentZ = houseMaxZ + 12;
 {
   const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
-  const halfWidth = 2.2, depth = 3.2, ridgeH = 2.4;
-  const slopeLen = Math.sqrt(halfWidth * halfWidth + ridgeH * ridgeH);
-  const angle = Math.atan2(ridgeH, halfWidth);
+  const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
+
+  // 側面の壁(左右)と背面の壁(家側)。入口は手前(+Z側)を開けておく
   [1, -1].forEach(xSign => {
-    const geo = new THREE.BoxGeometry(slopeLen, 0.08, depth);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.1, wallH, depth), tentMat);
+    wall.position.set(tentX + xSign * halfWidth, wallH / 2, tentZ);
+    wall.castShadow = true; wall.receiveShadow = true;
+    scene.add(wall);
+    wallBoxes.push({ minX: wall.position.x - 0.15, maxX: wall.position.x + 0.15, minZ: tentZ - depth / 2, maxZ: tentZ + depth / 2 });
+  });
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2, wallH, 0.1), tentMat);
+  backWall.position.set(tentX, wallH / 2, tentZ - depth / 2);
+  backWall.castShadow = true; backWall.receiveShadow = true;
+  scene.add(backWall);
+  wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
+
+  // 壁の上に乗る切妻屋根
+  const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise);
+  const angle = Math.atan2(rise, halfWidth);
+  [1, -1].forEach(xSign => {
+    const geo = new THREE.BoxGeometry(slopeLen, 0.08, depth + 0.3);
     const mesh = new THREE.Mesh(geo, tentMat);
     mesh.rotation.z = -xSign * angle;
-    mesh.position.set(tentX + xSign * halfWidth / 2, ridgeH / 2, tentZ);
+    mesh.position.set(tentX + xSign * halfWidth / 2, wallH + rise / 2, tentZ);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
   });
-  wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2, maxZ: tentZ - depth / 2 + 0.2 });
 
   // テント内のランタン
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
-  lanternLight.position.set(tentX, ridgeH - 0.4, tentZ);
+  lanternLight.position.set(tentX, wallH + 0.4, tentZ - 0.6);
   scene.add(lanternLight);
   const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
-  const tableZ = tentZ + depth / 2 + 0.6;
+  // テーブルと道具は、テントの内側(奥寄り)に設置
+  const tableZ = tentZ - 0.8;
   const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
   const table = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.6), tableMat);
   table.position.set(tentX, 0.375, tableZ);
