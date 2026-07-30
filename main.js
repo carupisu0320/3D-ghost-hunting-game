@@ -38,7 +38,7 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(4, 1.6, 4);
+camera.position.set(1.7, 1.6, 22.9); // テント付近からスタート(houseMaxZ + 6.5、テーブルより外側)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -350,6 +350,31 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   scene.add(ceiling);
 }
 
+// 屋根(切妻。外から見たときに屋根らしく見えるようにする)
+{
+  const overhang = 0.6;
+  const rise = 2.0;
+  const roofThickness = 0.15;
+  const midX = (houseMinX + houseMaxX) / 2;
+  const roofMinX = houseMinX - overhang;
+  const roofMaxX = houseMaxX + overhang;
+  const roofDepth = (houseMaxZ - houseMinZ) + overhang * 2;
+  const halfSpan = (roofMaxX - roofMinX) / 2;
+  const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise);
+  const angle = Math.atan2(rise, halfSpan);
+  const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2320, roughness: 0.85 });
+
+  [1, -1].forEach(xSign => {
+    const geo = new THREE.BoxGeometry(slopeLen, roofThickness, roofDepth);
+    const mesh = new THREE.Mesh(geo, roofMaterial);
+    mesh.rotation.z = -xSign * angle;
+    mesh.position.set(midX + xSign * halfSpan / 2, wallHeight + rise / 2, (houseMinZ + houseMaxZ) / 2);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  });
+}
+
 // 外の地面
 const groundTexture = scaled(makeGrassTexture(), 34, 34);
 const ground = new THREE.Mesh(
@@ -391,13 +416,79 @@ function placeForest(count) {
     const x = houseMinX - margin + Math.random() * (houseMaxX - houseMinX + margin * 2);
     const z = houseMinZ - margin + Math.random() * (houseMaxZ - houseMinZ + margin * 2);
     const nearHouse = x > houseMinX - buffer && x < houseMaxX + buffer && z > houseMinZ - buffer && z < houseMaxZ + buffer;
-    const nearEntrance = Math.abs(x - 1.7) < 3 && z > houseMaxZ && z < houseMaxZ + 5;
+    const nearEntrance = Math.abs(x - 1.7) < 3 && z > houseMaxZ && z < houseMaxZ + 7;
     if (nearHouse || nearEntrance) continue;
     addTree(x, z);
     placed++;
   }
 }
 placeForest(60);
+
+// 拠点のテント(懐中電灯・EMFリーダーはここで拾うまで使えない)
+let hasFlashlight = false;
+let hasEMF = false;
+const pickupItems = [];
+function addPickupItem(x, z, mesh, onCollect) {
+  mesh.position.x = x;
+  mesh.position.z = z;
+  scene.add(mesh);
+  pickupItems.push({ x, z, mesh, collected: false, onCollect });
+}
+
+const tentX = 1.7, tentZ = houseMaxZ + 3.5;
+{
+  const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
+  const halfWidth = 1.6, depth = 2.6, ridgeH = 1.8;
+  const slopeLen = Math.sqrt(halfWidth * halfWidth + ridgeH * ridgeH);
+  const angle = Math.atan2(ridgeH, halfWidth);
+  [1, -1].forEach(xSign => {
+    const geo = new THREE.BoxGeometry(slopeLen, 0.08, depth);
+    const mesh = new THREE.Mesh(geo, tentMat);
+    mesh.rotation.z = -xSign * angle;
+    mesh.position.set(tentX + xSign * halfWidth / 2, ridgeH / 2, tentZ);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  });
+  wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2, maxZ: tentZ - depth / 2 + 0.2 });
+
+  const tableZ = tentZ + depth / 2 + 0.6;
+  const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.6), tableMat);
+  table.position.set(tentX, 0.375, tableZ);
+  table.castShadow = true;
+  table.receiveShadow = true;
+  scene.add(table);
+  wallBoxes.push({ minX: tentX - 0.6, maxX: tentX + 0.6, minZ: tableZ - 0.3, maxZ: tableZ + 0.3 });
+
+  const flashlightMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 });
+  const flashlightItem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), flashlightMat);
+  flashlightItem.rotation.z = Math.PI / 2;
+  flashlightItem.position.y = 0.75 + 0.04;
+  addPickupItem(tentX - 0.25, tableZ, flashlightItem, () => {
+    hasFlashlight = true;
+    flashlight.intensity = 1.2;
+    showPickupNotice('懐中電灯を入手した');
+  });
+
+  const emfMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+  const emfItem = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), emfMat);
+  emfItem.position.y = 0.75 + 0.1;
+  addPickupItem(tentX + 0.25, tableZ, emfItem, () => {
+    hasEMF = true;
+    showPickupNotice('EMFリーダーを入手した');
+  });
+}
+
+// 道具入手時の通知
+const pickupNotice = document.createElement('div');
+pickupNotice.style.cssText = 'position:fixed;top:56px;left:8px;color:#ff0;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(pickupNotice);
+let pickupNoticeTimer = 0;
+function showPickupNotice(text) {
+  pickupNotice.textContent = text;
+  pickupNoticeTimer = 2.5;
+}
 
 // ---- 家具の材質(木・陶器・布・金属) ----
 const woodFurnitureMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2), roughness: 0.7 });
@@ -593,6 +684,18 @@ rooms.forEach(r => addLightSwitch(r.name));
 // スイッチに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 document.addEventListener('click', () => {
   if (!controls.isLocked) return;
+
+  for (const item of pickupItems) {
+    if (item.collected) continue;
+    const dx = camera.position.x - item.x, dz = camera.position.z - item.z;
+    if (Math.sqrt(dx * dx + dz * dz) < 1.2) {
+      item.collected = true;
+      scene.remove(item.mesh);
+      item.onCollect();
+      return;
+    }
+  }
+
   let nearest = null, nearestDist = 1.4;
   for (const sw of lightSwitches) {
     const dx = camera.position.x - sw.x;
@@ -609,7 +712,7 @@ document.addEventListener('click', () => {
   }
 });
 
-const flashlight = new THREE.PointLight(0xffeecc, 1.2, 8);
+const flashlight = new THREE.PointLight(0xffeecc, 0, 8); // 懐中電灯を拾うまで光量0
 flashlight.castShadow = true;
 flashlight.shadow.mapSize.set(512, 512);
 flashlight.shadow.camera.near = 0.1;
@@ -630,7 +733,7 @@ let emfActive = false;
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
-  if (e.code === 'KeyE') {
+  if (e.code === 'KeyE' && hasEMF) {
     emfActive = !emfActive;
     if (!emfActive) emfDisplay.textContent = '';
   }
@@ -706,12 +809,14 @@ function animate() {
       camera.position.x = prevX;
       camera.position.z = prevZ;
     }
-    info.textContent = `現在の部屋: ${getRoomAt(camera.position.x, camera.position.z)}`;
+    const currentRoomName = getRoomAt(camera.position.x, camera.position.z);
+    info.textContent = `現在の部屋: ${currentRoomName}`;
+    mapCanvas.style.display = currentRoomName === "外" ? 'none' : 'block';
 
     mapUpdateTimer += delta;
     if (mapUpdateTimer > 0.1) {
       mapUpdateTimer = 0;
-      drawMap();
+      if (currentRoomName !== "外") drawMap();
     }
 
     // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
@@ -736,7 +841,12 @@ function animate() {
     const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
     ghostMaterial.opacity = lookingAtGhost ? 0.75 : 0.35;
 
-    // EMFリーダー(Eキーでオン/オフ)
+    if (pickupNoticeTimer > 0) {
+      pickupNoticeTimer -= delta;
+      if (pickupNoticeTimer <= 0) pickupNotice.textContent = '';
+    }
+
+    // EMFリーダー(Eキーでオン/オフ、入手済みの場合のみ)
     if (emfActive) {
       const level = emfLevelAt(ghostDist, currentGhost.evidence.includes("EMF5"));
       emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
