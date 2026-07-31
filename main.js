@@ -38,7 +38,7 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(1.7, 1.6, 32.4); // テント入口の外側からスタート(houseMaxZ + 16)
+camera.position.set(7, 1.6, 35.9); // テント入口の外側からスタート(houseMaxZ + 19.5)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -360,7 +360,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   const roofMaxX = houseMaxX + overhang;
   const roofDepth = (houseMaxZ - houseMinZ) + overhang * 2;
   const halfSpan = (roofMaxX - roofMinX) / 2;
-  const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise);
+  const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise) + 0.3; // 棟ですき間が出ないよう少し長めに
   const angle = Math.atan2(rise, halfSpan);
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2320, roughness: 0.85 });
 
@@ -416,8 +416,9 @@ function placeForest(count) {
     const x = houseMinX - margin + Math.random() * (houseMaxX - houseMinX + margin * 2);
     const z = houseMinZ - margin + Math.random() * (houseMaxZ - houseMinZ + margin * 2);
     const nearHouse = x > houseMinX - buffer && x < houseMaxX + buffer && z > houseMinZ - buffer && z < houseMaxZ + buffer;
-    const nearEntrance = Math.abs(x - 1.7) < 4.5 && z > houseMaxZ && z < houseMaxZ + 19;
-    if (nearHouse || nearEntrance) continue;
+    const nearEntranceDoor = Math.abs(x - 1.7) < 2.2 && z > houseMaxZ && z < houseMaxZ + 3.5;
+    const nearTent = Math.abs(x - 7) < 4.5 && z > houseMaxZ + 10.5 && z < houseMaxZ + 20;
+    if (nearHouse || nearEntranceDoor || nearTent) continue;
     addTree(x, z);
     placed++;
   }
@@ -435,7 +436,7 @@ function addPickupItem(x, z, mesh, onCollect) {
   pickupItems.push({ x, z, mesh, collected: false, onCollect });
 }
 
-const tentX = 1.7, tentZ = houseMaxZ + 12;
+const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ寄せつつ、さらに家から離す
 {
   const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
   const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
@@ -455,7 +456,7 @@ const tentX = 1.7, tentZ = houseMaxZ + 12;
   wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
 
   // 壁の上に乗る切妻屋根
-  const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise);
+  const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.3; // 棟ですき間が出ないよう少し長めに
   const angle = Math.atan2(rise, halfWidth);
   [1, -1].forEach(xSign => {
     const geo = new THREE.BoxGeometry(slopeLen, 0.08, depth + 0.3);
