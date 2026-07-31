@@ -354,13 +354,13 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 {
   const overhang = 0.6;
   const rise = 2.0;
-  const roofThickness = 0.15;
+  const roofThickness = 0.3;
   const midX = (houseMinX + houseMaxX) / 2;
   const roofMinX = houseMinX - overhang;
   const roofMaxX = houseMaxX + overhang;
   const roofDepth = (houseMaxZ - houseMinZ) + overhang * 2;
   const halfSpan = (roofMaxX - roofMinX) / 2;
-  const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise) + 0.3; // 棟ですき間が出ないよう少し長めに
+  const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise) + 0.5; // 棟ですき間が出ないよう長めに
   const angle = Math.atan2(rise, halfSpan);
   const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2320, roughness: 0.85 });
 
@@ -456,10 +456,10 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
 
   // 壁の上に乗る切妻屋根
-  const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.3; // 棟ですき間が出ないよう少し長めに
+  const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.5; // 棟ですき間が出ないよう長めに
   const angle = Math.atan2(rise, halfWidth);
   [1, -1].forEach(xSign => {
-    const geo = new THREE.BoxGeometry(slopeLen, 0.08, depth + 0.3);
+    const geo = new THREE.BoxGeometry(slopeLen, 0.25, depth + 0.3);
     const mesh = new THREE.Mesh(geo, tentMat);
     mesh.rotation.z = -xSign * angle;
     mesh.position.set(tentX + xSign * halfWidth / 2, wallH + rise / 2, tentZ);
