@@ -403,22 +403,22 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 // 森の木(家の周り、玄関の外は少し広めに開けておく)
+const trunkGeometries = [];
+const foliageGeometries = [];
+const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.9 });
+const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x142414, roughness: 0.95 });
+
 function addTree(x, z) {
   const trunkH = 3 + Math.random() * 2;
   const trunkR = 0.15 + Math.random() * 0.1;
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.9 });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(trunkR, trunkR * 1.3, trunkH, 8), trunkMat);
-  trunk.position.set(x, trunkH / 2, z);
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
-  scene.add(trunk);
+  const trunkGeo = new THREE.CylinderGeometry(trunkR, trunkR * 1.3, trunkH, 8);
+  trunkGeo.translate(x, trunkH / 2, z);
+  trunkGeometries.push(trunkGeo);
 
   const foliageH = 2.5 + Math.random() * 1.5;
-  const foliageMat = new THREE.MeshStandardMaterial({ color: 0x142414, roughness: 0.95 });
-  const foliage = new THREE.Mesh(new THREE.ConeGeometry(1.1 + Math.random() * 0.6, foliageH, 8), foliageMat);
-  foliage.position.set(x, trunkH + foliageH / 2 - 0.3, z);
-  foliage.castShadow = true;
-  scene.add(foliage);
+  const foliageGeo = new THREE.ConeGeometry(1.1 + Math.random() * 0.6, foliageH, 8);
+  foliageGeo.translate(x, trunkH + foliageH / 2 - 0.3, z);
+  foliageGeometries.push(foliageGeo);
 
   wallBoxes.push({ minX: x - trunkR - 0.2, maxX: x + trunkR + 0.2, minZ: z - trunkR - 0.2, maxZ: z + trunkR + 0.2 });
 }
@@ -441,6 +441,18 @@ function placeForest(count) {
 }
 placeForest(60);
 
+// 木をまとめて2メッシュ(幹・葉)にする
+{
+  const trunkMesh = new THREE.Mesh(mergeGeometries(trunkGeometries), trunkMaterial);
+  trunkMesh.castShadow = true;
+  trunkMesh.receiveShadow = true;
+  scene.add(trunkMesh);
+
+  const foliageMesh = new THREE.Mesh(mergeGeometries(foliageGeometries), foliageMaterial);
+  foliageMesh.castShadow = true;
+  scene.add(foliageMesh);
+}
+
 // 拠点のテント(懐中電灯・EMFリーダーはここで拾うまで使えない)
 let hasFlashlight = false;
 let hasEMF = false;
@@ -453,7 +465,7 @@ function addPickupItem(x, z, mesh, onCollect) {
 }
 
 // 監視カメラ(Living Dining Kitchenに設置し、テントのモニターへ映像を送る)
-const monitorRT = new THREE.WebGLRenderTarget(256, 192);
+const monitorRT = new THREE.WebGLRenderTarget(192, 144);
 const monitorMaterial = new THREE.MeshBasicMaterial({ map: monitorRT.texture });
 const videoCam = new THREE.PerspectiveCamera(60, 256 / 192, 0.1, 30);
 videoCam.layers.enable(1);
@@ -469,34 +481,34 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
   const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
 
-  // 側面の壁(左右)と背面の壁(家側)。入口は手前(+Z側)を開けておく
-  [1, -1].forEach(xSign => {
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.1, wallH, depth), tentMat);
-    wall.position.set(tentX + xSign * halfWidth, wallH / 2, tentZ);
+  // 90度回転版: 入口は+X側(横向き)。側面の壁はX方向に、背面の壁はテントの-X側に
+  [1, -1].forEach(zSign => {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(depth, wallH, 0.1), tentMat);
+    wall.position.set(tentX, wallH / 2, tentZ + zSign * halfWidth);
     wall.castShadow = true; wall.receiveShadow = true;
     scene.add(wall);
-    wallBoxes.push({ minX: wall.position.x - 0.15, maxX: wall.position.x + 0.15, minZ: tentZ - depth / 2, maxZ: tentZ + depth / 2 });
+    wallBoxes.push({ minX: tentX - depth / 2, maxX: tentX + depth / 2, minZ: wall.position.z - 0.15, maxZ: wall.position.z + 0.15 });
   });
-  const backWall = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2, wallH, 0.1), tentMat);
-  backWall.position.set(tentX, wallH / 2, tentZ - depth / 2);
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, wallH, halfWidth * 2), tentMat);
+  backWall.position.set(tentX - depth / 2, wallH / 2, tentZ);
   backWall.castShadow = true; backWall.receiveShadow = true;
   scene.add(backWall);
-  wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
+  wallBoxes.push({ minX: tentX - depth / 2 - 0.15, maxX: tentX - depth / 2 + 0.15, minZ: tentZ - halfWidth, maxZ: tentZ + halfWidth });
 
-  // 壁の上に乗る切妻屋根
+  // 壁の上に乗る切妻屋根(棟はX方向)
   const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.5; // 棟ですき間が出ないよう長めに
   const angle = Math.atan2(rise, halfWidth);
-  [1, -1].forEach(xSign => {
-    const geo = new THREE.BoxGeometry(slopeLen, 0.25, depth + 0.3);
+  [1, -1].forEach(zSign => {
+    const geo = new THREE.BoxGeometry(depth + 0.3, 0.25, slopeLen);
     const mesh = new THREE.Mesh(geo, tentMat);
-    mesh.rotation.z = -xSign * angle;
-    mesh.position.set(tentX + xSign * halfWidth / 2, wallH + rise / 2, tentZ);
+    mesh.rotation.x = zSign * angle;
+    mesh.position.set(tentX, wallH + rise / 2, tentZ + zSign * halfWidth / 2);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
   });
 
-  // 背面(奥)の妻側のすき間を三角の板で塞ぐ(入口側は開けたままにする)
+  // 背面(-X側)の妻側のすき間を三角の板で塞ぐ(入口の+X側は開けたままにする)
   {
     const gableShape = new THREE.Shape();
     gableShape.moveTo(-halfWidth, 0);
@@ -505,36 +517,37 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     gableShape.closePath();
     const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
     const gable = new THREE.Mesh(gableGeo, tentMat);
-    gable.position.set(tentX, wallH, tentZ - depth / 2 - 0.06);
+    gable.rotation.y = Math.PI / 2;
+    gable.position.set(tentX - depth / 2 - 0.06, wallH, tentZ);
     gable.castShadow = true;
     gable.receiveShadow = true;
     scene.add(gable);
   }
 
-  // テント内のランタン
+  // テント内のランタン(奥=-X側寄り)
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
-  lanternLight.position.set(tentX, wallH + 0.4, tentZ - 0.6);
+  lanternLight.position.set(tentX - 0.6, wallH + 0.4, tentZ);
   scene.add(lanternLight);
   const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
-  // テーブルと道具は、テントの内側(奥寄り)に設置
-  const tableZ = tentZ - 0.8;
+  // テーブルと道具は、テントの内側(奥寄り=-X側)に設置
+  const tableX = tentX - 0.8;
   const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
   const table = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.6), tableMat);
-  table.position.set(tentX, 0.375, tableZ);
+  table.position.set(tableX, 0.375, tentZ);
   table.castShadow = true;
   table.receiveShadow = true;
   scene.add(table);
-  wallBoxes.push({ minX: tentX - 0.6, maxX: tentX + 0.6, minZ: tableZ - 0.3, maxZ: tableZ + 0.3 });
+  wallBoxes.push({ minX: tableX - 0.6, maxX: tableX + 0.6, minZ: tentZ - 0.3, maxZ: tentZ + 0.3 });
 
   const flashlightMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 });
   const flashlightItem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), flashlightMat);
   flashlightItem.rotation.z = Math.PI / 2;
   flashlightItem.position.y = 0.75 + 0.04;
-  addPickupItem(tentX - 0.25, tableZ, flashlightItem, () => {
+  addPickupItem(tableX, tentZ - 0.25, flashlightItem, () => {
     hasFlashlight = true;
     flashlight.intensity = 1.2;
     currentTool = 'flashlight';
@@ -544,21 +557,22 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   const emfMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
   const emfItem = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), emfMat);
   emfItem.position.y = 0.75 + 0.1;
-  addPickupItem(tentX + 0.25, tableZ, emfItem, () => {
+  addPickupItem(tableX, tentZ + 0.25, emfItem, () => {
     hasEMF = true;
     currentTool = 'emf';
     emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
   });
 
-  // 監視カメラの映像を映すモニター(テーブル脇に設置)
+  // 監視カメラの映像を映すモニター(テーブル脇、入口側を向く)
   const monitorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
-  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), monitorFrameMat);
-  monitorFrame.position.set(tentX + 0.75, 0.75 + 0.25, tableZ);
+  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.5), monitorFrameMat);
+  monitorFrame.position.set(tableX, 0.75 + 0.25, tentZ + 0.75);
   monitorFrame.castShadow = true;
   scene.add(monitorFrame);
   const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), monitorMaterial);
-  monitorScreen.position.set(tentX + 0.75, 0.75 + 0.25, tableZ + 0.026);
+  monitorScreen.rotation.y = Math.PI / 2;
+  monitorScreen.position.set(tableX + 0.026, 0.75 + 0.25, tentZ + 0.75);
   scene.add(monitorScreen);
 }
 
@@ -779,15 +793,15 @@ const roomLights = {
   "納戸": addRoomLight("納戸", 6),
   "W.I.C": addRoomLight("W.I.C", 5),
   "廊下": addRoomLight("廊下", 6),
-  "Pantry": addRoomLight("Pantry", 5),
+  // Pantryは壁で仕切られておらずLDKと同じ空間なので、専用の照明は持たない
 };
 
-// 各部屋の壁際にスイッチを設置(部屋の入口寄りの角、床上1.1m)
+// 各部屋の壁際にスイッチを設置(部屋の入口寄りの角、床上1.1m)。位置を指定すればそこに設置する
 const lightSwitches = [];
-function addLightSwitch(roomName) {
+function addLightSwitch(roomName, customX, customZ) {
   const r = room(roomName);
-  const x = r.maxX - 0.15;
-  const z = r.maxZ - 0.6;
+  const x = customX !== undefined ? customX : r.maxX - 0.15;
+  const z = customZ !== undefined ? customZ : r.maxZ - 0.6;
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5, roughness: 0.4 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
   mesh.position.set(x, 1.1, z);
@@ -796,7 +810,14 @@ function addLightSwitch(roomName) {
   const rl = roomLights[roomName];
   lightSwitches.push({ x, z, light: rl.light, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
 }
-rooms.forEach(r => addLightSwitch(r.name));
+rooms.forEach(r => {
+  if (r.name === "Pantry") return; // 専用の照明がないので、スイッチも設置しない
+  if (r.name === "Living Dining Kitchen") {
+    addLightSwitch(r.name, 6.3, 9.5); // W.I.C側の扉付近(廊下・玄関に近い側)
+  } else {
+    addLightSwitch(r.name);
+  }
+});
 
 // スイッチに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 function tryInteract() {
@@ -1045,7 +1066,7 @@ function animate() {
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、間隔を空けて低フレームレートで更新)
   monitorTimer += delta;
-  if (monitorTimer > 0.15) {
+  if (monitorTimer > 0.35) {
     monitorTimer = 0;
     renderer.setRenderTarget(monitorRT);
     renderer.render(scene, videoCam);
