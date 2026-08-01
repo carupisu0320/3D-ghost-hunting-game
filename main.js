@@ -452,6 +452,18 @@ function addPickupItem(x, z, mesh, onCollect) {
   pickupItems.push({ x, z, mesh, collected: false, onCollect });
 }
 
+// 監視カメラ(Living Dining Kitchenに設置し、テントのモニターへ映像を送る)
+const monitorRT = new THREE.WebGLRenderTarget(256, 192);
+const monitorMaterial = new THREE.MeshBasicMaterial({ map: monitorRT.texture });
+const videoCam = new THREE.PerspectiveCamera(60, 256 / 192, 0.1, 30);
+videoCam.layers.enable(1);
+{
+  const ldkForCam = room("Living Dining Kitchen");
+  videoCam.position.set(ldkForCam.minX + 1.0, 2.4, ldkForCam.minZ + 1.0);
+  videoCam.lookAt(ldkForCam.maxX - 1.0, 1.0, ldkForCam.maxZ - 1.0);
+  scene.add(videoCam);
+}
+
 const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ寄せつつ、さらに家から離す
 {
   const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
@@ -538,6 +550,16 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
   });
+
+  // 監視カメラの映像を映すモニター(テーブル脇に設置)
+  const monitorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), monitorFrameMat);
+  monitorFrame.position.set(tentX + 0.75, 0.75 + 0.25, tableZ);
+  monitorFrame.castShadow = true;
+  scene.add(monitorFrame);
+  const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), monitorMaterial);
+  monitorScreen.position.set(tentX + 0.75, 0.75 + 0.25, tableZ + 0.026);
+  scene.add(monitorScreen);
 }
 
 // 道具入手時の通知
@@ -665,8 +687,8 @@ furnitureIn("Pantry", 0.7, 0.3, 1.2, 0.4, 1.8);
 // 幽霊(証拠システムの土台込み)
 const ghostTypes = [
   { name: "Spirit", evidence: ["EMF5", "スピリットボックス", "ゴーストライティング"] },
-  { name: "Wraith", evidence: ["EMF5", "スピリットボックス", "UV痕跡"] },
-  { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "UV痕跡"] },
+  { name: "Wraith", evidence: ["EMF5", "スピリットボックス", "オーブ"] },
+  { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "オーブ"] },
 ];
 const currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
 const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry");
@@ -689,6 +711,41 @@ const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.2, 4, 8), ghostMat
 let ghostTarget = randomPointInRoom(hauntedRoom);
 ghost.position.copy(ghostTarget);
 scene.add(ghost);
+
+// ゴーストオーブ(オーブを証拠に持つ幽霊のときだけ出現。肉眼では見えず、監視カメラの映像でのみ見える)
+const orbMaterial = new THREE.MeshBasicMaterial({ color: 0xddeeff, transparent: true, opacity: 0.85 });
+const orb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), orbMaterial);
+orb.layers.set(1);
+orb.visible = false;
+scene.add(orb);
+
+const orbRoom = room("Living Dining Kitchen");
+let orbSpawnTimer = 6 + Math.random() * 12;
+let orbVisibleTimer = 0;
+function updateOrb(delta) {
+  if (!currentGhost.evidence.includes("オーブ")) return;
+  if (orb.visible) {
+    orbVisibleTimer -= delta;
+    orb.position.x += (Math.random() - 0.5) * 0.6 * delta;
+    orb.position.z += (Math.random() - 0.5) * 0.6 * delta;
+    orb.position.y += (Math.random() - 0.5) * 0.4 * delta;
+    if (orbVisibleTimer <= 0) {
+      orb.visible = false;
+      orbSpawnTimer = 8 + Math.random() * 18;
+    }
+  } else {
+    orbSpawnTimer -= delta;
+    if (orbSpawnTimer <= 0) {
+      orb.position.set(
+        orbRoom.minX + 0.8 + Math.random() * (orbRoom.maxX - orbRoom.minX - 1.6),
+        0.9 + Math.random() * 1.2,
+        orbRoom.minZ + 0.8 + Math.random() * (orbRoom.maxZ - orbRoom.minZ - 1.6)
+      );
+      orb.visible = true;
+      orbVisibleTimer = 2 + Math.random() * 3;
+    }
+  }
+}
 
 // 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
@@ -886,6 +943,7 @@ function drawMap() {
   mapCtx.fill();
 }
 let mapUpdateTimer = 0;
+let monitorTimer = 0;
 
 const speed = 4;
 const clock = new THREE.Clock();
@@ -981,6 +1039,17 @@ function animate() {
       const level = emfLevelAt(ghostDist, currentGhost.evidence.includes("EMF5"));
       emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
     }
+
+    updateOrb(delta);
+  }
+
+  // 監視カメラの映像をモニターへ(負荷を抑えるため、間隔を空けて低フレームレートで更新)
+  monitorTimer += delta;
+  if (monitorTimer > 0.15) {
+    monitorTimer = 0;
+    renderer.setRenderTarget(monitorRT);
+    renderer.render(scene, videoCam);
+    renderer.setRenderTarget(null);
   }
 
   renderer.render(scene, camera);
