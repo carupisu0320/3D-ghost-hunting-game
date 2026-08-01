@@ -373,6 +373,22 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
     mesh.receiveShadow = true;
     scene.add(mesh);
   });
+
+  // 妻側(壁の上、屋根の三角の下)のすき間を三角の板で塞ぐ
+  const gableHalfWidth = (houseMaxX - houseMinX) / 2;
+  const gableShape = new THREE.Shape();
+  gableShape.moveTo(-gableHalfWidth, 0);
+  gableShape.lineTo(gableHalfWidth, 0);
+  gableShape.lineTo(0, rise);
+  gableShape.closePath();
+  [houseMinZ, houseMaxZ].forEach(z => {
+    const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
+    const gable = new THREE.Mesh(gableGeo, roofMaterial);
+    gable.position.set(midX, wallHeight, z - 0.06);
+    gable.castShadow = true;
+    gable.receiveShadow = true;
+    scene.add(gable);
+  });
 }
 
 // 外の地面
@@ -467,6 +483,21 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     mesh.receiveShadow = true;
     scene.add(mesh);
   });
+
+  // 背面(奥)の妻側のすき間を三角の板で塞ぐ(入口側は開けたままにする)
+  {
+    const gableShape = new THREE.Shape();
+    gableShape.moveTo(-halfWidth, 0);
+    gableShape.lineTo(halfWidth, 0);
+    gableShape.lineTo(0, rise);
+    gableShape.closePath();
+    const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
+    const gable = new THREE.Mesh(gableGeo, tentMat);
+    gable.position.set(tentX, wallH, tentZ - depth / 2 - 0.06);
+    gable.castShadow = true;
+    gable.receiveShadow = true;
+    scene.add(gable);
+  }
 
   // テント内のランタン
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
@@ -708,9 +739,7 @@ function addLightSwitch(roomName) {
 rooms.forEach(r => addLightSwitch(r.name));
 
 // スイッチに近づいてクリックするとON/OFF切り替え(天井照明ごと)
-document.addEventListener('click', () => {
-  if (!controls.isLocked) return;
-
+function tryInteract() {
   for (const item of pickupItems) {
     if (item.collected) continue;
     const dx = camera.position.x - item.x, dz = camera.position.z - item.z;
@@ -736,6 +765,10 @@ document.addEventListener('click', () => {
     nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
     nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
   }
+}
+document.addEventListener('click', () => {
+  if (!controls.isLocked) return;
+  tryInteract();
 });
 
 const flashlight = new THREE.PointLight(0xffeecc, 0, 8); // 懐中電灯を拾うまで光量0
@@ -756,15 +789,28 @@ emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-fam
 document.body.appendChild(emfDisplay);
 
 let emfActive = false;
+function toggleEMF() {
+  if (!hasEMF) return;
+  emfActive = !emfActive;
+  if (!emfActive) emfDisplay.textContent = '';
+}
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
-  if (e.code === 'KeyE' && hasEMF) {
-    emfActive = !emfActive;
-    if (!emfActive) emfDisplay.textContent = '';
-  }
+  if (e.code === 'KeyE') toggleEMF();
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+// ゲームパッド対応(接続されていれば移動・視点・ボタンに使う)
+const gpPrevButtons = {};
+function pollGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const pad of pads) if (pad) return pad;
+  return null;
+}
+function deadzone(v, dz = 0.15) {
+  return Math.abs(v) < dz ? 0 : v;
+}
 
 function emfLevelAt(distance, hasEMF5) {
   let level = distance < 1 ? 5 : distance < 2 ? 4 : distance < 3.5 ? 3 : distance < 5 ? 2 : distance < 8 ? 1 : 0;
@@ -831,6 +877,27 @@ function animate() {
     if (keys['KeyS']) controls.moveForward(-move);
     if (keys['KeyA']) controls.moveRight(-move);
     if (keys['KeyD']) controls.moveRight(move);
+
+    const pad = pollGamepad();
+    if (pad) {
+      const lx = deadzone(pad.axes[0] || 0);
+      const ly = deadzone(pad.axes[1] || 0);
+      const rx = deadzone(pad.axes[2] || 0);
+      const ry = deadzone(pad.axes[3] || 0);
+      if (ly !== 0) controls.moveForward(-ly * move);
+      if (lx !== 0) controls.moveRight(lx * move);
+      camera.rotation.y -= rx * 2.0 * delta;
+      camera.rotation.x = Math.max(-1.3, Math.min(1.3, camera.rotation.x - ry * 1.5 * delta));
+
+      const aPressed = !!(pad.buttons[0] && pad.buttons[0].pressed);
+      if (aPressed && !gpPrevButtons[0]) tryInteract();
+      gpPrevButtons[0] = aPressed;
+
+      const xPressed = !!(pad.buttons[2] && pad.buttons[2].pressed);
+      if (xPressed && !gpPrevButtons[2]) toggleEMF();
+      gpPrevButtons[2] = xPressed;
+    }
+
     if (collidesWithWalls(camera.position.x, camera.position.z)) {
       camera.position.x = prevX;
       camera.position.z = prevZ;
