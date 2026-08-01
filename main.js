@@ -383,7 +383,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   gableShape.closePath();
   [houseMinZ, houseMaxZ].forEach(z => {
     const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
-    const gable = new THREE.Mesh(gableGeo, roofMaterial);
+    const gable = new THREE.Mesh(gableGeo, wallMaterial);
     gable.position.set(midX, wallHeight, z - 0.06);
     gable.castShadow = true;
     gable.receiveShadow = true;
