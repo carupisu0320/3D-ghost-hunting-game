@@ -525,6 +525,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   addPickupItem(tentX - 0.25, tableZ, flashlightItem, () => {
     hasFlashlight = true;
     flashlight.intensity = 1.2;
+    currentTool = 'flashlight';
     showPickupNotice('懐中電灯を入手した');
   });
 
@@ -533,6 +534,8 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   emfItem.position.y = 0.75 + 0.1;
   addPickupItem(tentX + 0.25, tableZ, emfItem, () => {
     hasEMF = true;
+    currentTool = 'emf';
+    emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
   });
 }
@@ -789,10 +792,32 @@ emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-fam
 document.body.appendChild(emfDisplay);
 
 let emfActive = false;
+let currentTool = null; // 'flashlight' か 'emf'。持ち替えで切り替える
 function toggleEMF() {
   if (!hasEMF) return;
   emfActive = !emfActive;
   if (!emfActive) emfDisplay.textContent = '';
+}
+function switchTool() {
+  if (hasFlashlight && hasEMF) {
+    currentTool = currentTool === 'emf' ? 'flashlight' : 'emf';
+  } else if (hasEMF) {
+    currentTool = 'emf';
+  } else if (hasFlashlight) {
+    currentTool = 'flashlight';
+  } else {
+    return;
+  }
+  // フラッシュライトは持ち替えても常時点灯のまま。EMFだけ、持っている間だけオンになる
+  emfActive = (currentTool === 'emf');
+  if (!emfActive) emfDisplay.textContent = '';
+}
+function toggleCurrentTool() {
+  if (currentTool === 'emf') {
+    toggleEMF();
+  } else if (currentTool === 'flashlight') {
+    flashlight.intensity = flashlight.intensity > 0 ? 0 : 1.2;
+  }
 }
 const keys = {};
 document.addEventListener('keydown', (e) => {
@@ -896,6 +921,18 @@ function animate() {
       const xPressed = !!(pad.buttons[2] && pad.buttons[2].pressed);
       if (xPressed && !gpPrevButtons[2]) toggleEMF();
       gpPrevButtons[2] = xPressed;
+
+      const lPressed = !!(pad.buttons[4] && pad.buttons[4].pressed);
+      if (lPressed && !gpPrevButtons[4]) switchTool();
+      gpPrevButtons[4] = lPressed;
+
+      const rPressed = !!(pad.buttons[5] && pad.buttons[5].pressed);
+      if (rPressed && !gpPrevButtons[5]) switchTool();
+      gpPrevButtons[5] = rPressed;
+
+      const zrPressed = !!(pad.buttons[7] && pad.buttons[7].pressed);
+      if (zrPressed && !gpPrevButtons[7]) toggleCurrentTool();
+      gpPrevButtons[7] = zrPressed;
     }
 
     if (collidesWithWalls(camera.position.x, camera.position.z)) {
