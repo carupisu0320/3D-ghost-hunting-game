@@ -38,7 +38,8 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(7, 1.6, 35.9); // テント入口の外側からスタート(houseMaxZ + 19.5)
+camera.position.set(8.2, 1.6, 31.4); // テント内部、入口を入ってすぐの位置からスタート
+camera.rotation.y = Math.PI / 2; // テーブル・モニターのある奥(-X側)を向く
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -524,30 +525,31 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     scene.add(gable);
   }
 
-  // テント内のランタン(奥=-X側寄り)
+  // テント内のランタン(テーブル・モニターの上あたりを照らす)
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
-  lanternLight.position.set(tentX - 0.6, wallH + 0.4, tentZ);
+  lanternLight.position.set(tentX - 1.6, wallH + 0.4, tentZ);
   scene.add(lanternLight);
   const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
-  // テーブルと道具は、テントの内側(奥寄り=-X側)に設置
-  const tableX = tentX - 0.8;
+  // テーブルは奥の壁際に、壁と平行(Z方向)に幅を持たせて設置。入口から見て正面に見える向き
+  const tableX = tentX - depth / 2 + 0.6;
   const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
-  const table = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.6), tableMat);
+  const table = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 1.4), tableMat);
   table.position.set(tableX, 0.375, tentZ);
   table.castShadow = true;
   table.receiveShadow = true;
   scene.add(table);
-  wallBoxes.push({ minX: tableX - 0.6, maxX: tableX + 0.6, minZ: tentZ - 0.3, maxZ: tentZ + 0.3 });
+  wallBoxes.push({ minX: tableX - 0.3, maxX: tableX + 0.3, minZ: tentZ - 0.7, maxZ: tentZ + 0.7 });
 
+  // 道具はテーブルの上に、左右に並べて置く
   const flashlightMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 });
   const flashlightItem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), flashlightMat);
-  flashlightItem.rotation.z = Math.PI / 2;
+  flashlightItem.rotation.x = Math.PI / 2;
   flashlightItem.position.y = 0.75 + 0.04;
-  addPickupItem(tableX, tentZ - 0.25, flashlightItem, () => {
+  addPickupItem(tableX, tentZ - 0.4, flashlightItem, () => {
     hasFlashlight = true;
     flashlight.intensity = 1.2;
     currentTool = 'flashlight';
@@ -557,22 +559,22 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   const emfMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
   const emfItem = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), emfMat);
   emfItem.position.y = 0.75 + 0.1;
-  addPickupItem(tableX, tentZ + 0.25, emfItem, () => {
+  addPickupItem(tableX, tentZ + 0.4, emfItem, () => {
     hasEMF = true;
     currentTool = 'emf';
     emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
   });
 
-  // 監視カメラの映像を映すモニター(テーブル脇、入口側を向く)
+  // 監視カメラの映像を映すモニターは、テーブルの奥、背面の壁に据え付ける
   const monitorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
-  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.5), monitorFrameMat);
-  monitorFrame.position.set(tableX, 0.75 + 0.25, tentZ + 0.75);
+  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.5), monitorFrameMat);
+  monitorFrame.position.set(tentX - depth / 2 + 0.06, 1.5, tentZ);
   monitorFrame.castShadow = true;
   scene.add(monitorFrame);
   const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), monitorMaterial);
   monitorScreen.rotation.y = Math.PI / 2;
-  monitorScreen.position.set(tableX + 0.026, 0.75 + 0.25, tentZ + 0.75);
+  monitorScreen.position.set(tentX - depth / 2 + 0.09, 1.5, tentZ);
   scene.add(monitorScreen);
 }
 
