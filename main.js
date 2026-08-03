@@ -38,8 +38,8 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(8.2, 1.6, 31.4); // テント内部、入口を入ってすぐの位置からスタート
-camera.rotation.y = Math.PI / 2; // テーブル・モニターのある奥(-X側)を向く
+camera.position.set(5.8, 1.6, 31.4); // テント内部、反転後の入口を入ってすぐの位置からスタート
+camera.rotation.y = -Math.PI / 2; // テーブル・モニターのある奥(+X側)を向く
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -491,10 +491,10 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     wallBoxes.push({ minX: tentX - depth / 2, maxX: tentX + depth / 2, minZ: wall.position.z - 0.15, maxZ: wall.position.z + 0.15 });
   });
   const backWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, wallH, halfWidth * 2), tentMat);
-  backWall.position.set(tentX - depth / 2, wallH / 2, tentZ);
+  backWall.position.set(tentX + depth / 2, wallH / 2, tentZ);
   backWall.castShadow = true; backWall.receiveShadow = true;
   scene.add(backWall);
-  wallBoxes.push({ minX: tentX - depth / 2 - 0.15, maxX: tentX - depth / 2 + 0.15, minZ: tentZ - halfWidth, maxZ: tentZ + halfWidth });
+  wallBoxes.push({ minX: tentX + depth / 2 - 0.15, maxX: tentX + depth / 2 + 0.15, minZ: tentZ - halfWidth, maxZ: tentZ + halfWidth });
 
   // 壁の上に乗る切妻屋根(棟はX方向)
   const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.5; // 棟ですき間が出ないよう長めに
@@ -509,7 +509,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     scene.add(mesh);
   });
 
-  // 背面(-X側)の妻側のすき間を三角の板で塞ぐ(入口の+X側は開けたままにする)
+  // 妻側のすき間を三角の板で塞ぐ(向きを反転したので+X側が背面、-X側が入口)
   {
     const gableShape = new THREE.Shape();
     gableShape.moveTo(-halfWidth, 0);
@@ -519,7 +519,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
     const gable = new THREE.Mesh(gableGeo, tentMat);
     gable.rotation.y = Math.PI / 2;
-    gable.position.set(tentX - depth / 2 - 0.06, wallH, tentZ);
+    gable.position.set(tentX + depth / 2 + 0.06, wallH, tentZ);
     gable.castShadow = true;
     gable.receiveShadow = true;
     scene.add(gable);
@@ -527,15 +527,15 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
 
   // テント内のランタン(テーブル・モニターの上あたりを照らす)
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
-  lanternLight.position.set(tentX - 1.6, wallH + 0.4, tentZ);
+  lanternLight.position.set(tentX + 1.6, wallH + 0.4, tentZ);
   scene.add(lanternLight);
   const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
-  // テーブルは奥の壁際に、壁と平行(Z方向)に幅を持たせて設置。入口から見て正面に見える向き
-  const tableX = tentX - depth / 2 + 0.6;
+  // テーブルは奥の壁際(+X側)に設置
+  const tableX = tentX + depth / 2 - 0.6;
   const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
   const table = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 1.4), tableMat);
   table.position.set(tableX, 0.375, tentZ);
@@ -566,15 +566,15 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     showPickupNotice('EMFリーダーを入手した');
   });
 
-  // 監視カメラの映像を映すモニターは、テーブルの奥、背面の壁に据え付ける
+  // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に据え付ける。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
   const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.5), monitorFrameMat);
-  monitorFrame.position.set(tentX - depth / 2 + 0.06, 1.5, tentZ);
+  monitorFrame.position.set(tentX + depth / 2 - 0.06, 1.5, tentZ);
   monitorFrame.castShadow = true;
   scene.add(monitorFrame);
   const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), monitorMaterial);
-  monitorScreen.rotation.y = Math.PI / 2;
-  monitorScreen.position.set(tentX - depth / 2 + 0.09, 1.5, tentZ);
+  monitorScreen.rotation.y = -Math.PI / 2;
+  monitorScreen.position.set(tentX + depth / 2 - 0.14, 1.5, tentZ);
   scene.add(monitorScreen);
 }
 
