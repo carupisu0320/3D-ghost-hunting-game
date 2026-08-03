@@ -1024,6 +1024,14 @@ function animate() {
     info.textContent = `現在の部屋: ${currentRoomName}`;
     mapCanvas.style.display = currentRoomName === "外" ? 'none' : 'block';
 
+    // 遠い部屋の照明は、スイッチがONでも一時的に消灯扱いにして負荷を減らす
+    lightSwitches.forEach(sw => {
+      if (!sw.on) { sw.light.visible = false; return; }
+      const ldx = camera.position.x - sw.light.position.x;
+      const ldz = camera.position.z - sw.light.position.z;
+      sw.light.visible = Math.sqrt(ldx * ldx + ldz * ldz) < 14;
+    });
+
     mapUpdateTimer += delta;
     if (mapUpdateTimer > 0.1) {
       mapUpdateTimer = 0;
@@ -1077,7 +1085,7 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-// 起動時に一度、全体のシェーダー準備を済ませてからスタートする(プレイ中のカクつきを減らす)
+// 起動時に一度、家全体を巡回しながら描画しておく(影を含めた準備を済ませ、プレイ中のカクつきを減らす)
 const loadingDiv = document.createElement('div');
 loadingDiv.style.cssText = 'position:fixed;inset:0;background:#000;color:#0f0;font-family:monospace;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:100;';
 loadingDiv.textContent = '読み込み中...';
@@ -1085,11 +1093,34 @@ document.body.appendChild(loadingDiv);
 info.style.display = 'none';
 
 setTimeout(() => {
+  const savedX = camera.position.x, savedY = camera.position.y, savedZ = camera.position.z;
+  const savedRotY = camera.rotation.y;
+  const savedFlashIntensity = flashlight.intensity;
+  flashlight.intensity = 1.2; // 影のシェーダーも温めるため、巡回中だけ点灯させておく
+
+  const warmupRoomNames = [
+    "Living Dining Kitchen", "Master Bed Room", "浴室・洗面", "トイレ",
+    "Bed Room(4.5畳)", "Bed Room(5.0畳)", "玄関", "納戸", "W.I.C", "廊下"
+  ];
+  warmupRoomNames.forEach(name => {
+    const r = room(name);
+    camera.position.set((r.minX + r.maxX) / 2, 1.6, (r.minZ + r.maxZ) / 2);
+    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(ry => {
+      camera.rotation.y = ry;
+      renderer.render(scene, camera);
+    });
+  });
+
+  camera.position.set(savedX, savedY, savedZ);
+  camera.rotation.y = savedRotY;
+  flashlight.intensity = savedFlashIntensity;
+
   renderer.compile(scene, camera);
   renderer.render(scene, camera);
   renderer.setRenderTarget(monitorRT);
   renderer.render(scene, videoCam);
   renderer.setRenderTarget(null);
+
   loadingDiv.remove();
   info.style.display = 'block';
   animate();
