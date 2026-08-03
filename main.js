@@ -1077,7 +1077,23 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-animate();
+// 起動時に一度、全体のシェーダー準備を済ませてからスタートする(プレイ中のカクつきを減らす)
+const loadingDiv = document.createElement('div');
+loadingDiv.style.cssText = 'position:fixed;inset:0;background:#000;color:#0f0;font-family:monospace;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:100;';
+loadingDiv.textContent = '読み込み中...';
+document.body.appendChild(loadingDiv);
+info.style.display = 'none';
+
+setTimeout(() => {
+  renderer.compile(scene, camera);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(monitorRT);
+  renderer.render(scene, videoCam);
+  renderer.setRenderTarget(null);
+  loadingDiv.remove();
+  info.style.display = 'block';
+  animate();
+}, 50);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
