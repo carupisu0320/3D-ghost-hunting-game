@@ -44,7 +44,7 @@ camera.rotation.y = -Math.PI / 2; // テーブル・モニターのある奥(+X�
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.shadowMap.type = THREE.BasicShadowMap; // 一番軽い影の種類に変更
 document.body.appendChild(renderer.domElement);
 
 // ---- 手続き的テクスチャ(画像ファイルを使わず、その場で模様を描く) ----
@@ -442,15 +442,15 @@ function placeForest(count) {
 }
 placeForest(60);
 
-// 木をまとめて2メッシュ(幹・葉)にする
+// 木をまとめて2メッシュ(幹・葉)にする(屋外の木は影を落とさず負荷を抑える)
 {
   const trunkMesh = new THREE.Mesh(mergeGeometries(trunkGeometries), trunkMaterial);
-  trunkMesh.castShadow = true;
+  trunkMesh.castShadow = false;
   trunkMesh.receiveShadow = true;
   scene.add(trunkMesh);
 
   const foliageMesh = new THREE.Mesh(mergeGeometries(foliageGeometries), foliageMaterial);
-  foliageMesh.castShadow = true;
+  foliageMesh.castShadow = false;
   scene.add(foliageMesh);
 }
 
@@ -597,11 +597,11 @@ const mattressMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e2d0, rough
 const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.5 });
 const countertopMaterial = new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.3 });
 
-// 見た目だけの飾りパーツ(当たり判定には登録しない)
+// 見た目だけの飾りパーツ(当たり判定には登録しない。細かい部品なので影は落とさず、受けるだけにして負荷を抑える)
 function addDetailMesh(x, y, z, w, h, d, material) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   mesh.position.set(x, y, z);
-  mesh.castShadow = true;
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
   scene.add(mesh);
 }
@@ -856,7 +856,7 @@ document.addEventListener('click', () => {
 
 const flashlight = new THREE.PointLight(0xffeecc, 0, 8); // 懐中電灯を拾うまで光量0
 flashlight.castShadow = true;
-flashlight.shadow.mapSize.set(512, 512);
+flashlight.shadow.mapSize.set(256, 256);
 flashlight.shadow.camera.near = 0.1;
 flashlight.shadow.camera.far = 8;
 camera.add(flashlight);
@@ -1023,14 +1023,6 @@ function animate() {
     const currentRoomName = getRoomAt(camera.position.x, camera.position.z);
     info.textContent = `現在の部屋: ${currentRoomName}`;
     mapCanvas.style.display = currentRoomName === "外" ? 'none' : 'block';
-
-    // 遠い部屋の照明は、スイッチがONでも一時的に消灯扱いにして負荷を減らす
-    lightSwitches.forEach(sw => {
-      if (!sw.on) { sw.light.visible = false; return; }
-      const ldx = camera.position.x - sw.light.position.x;
-      const ldz = camera.position.z - sw.light.position.z;
-      sw.light.visible = Math.sqrt(ldx * ldx + ldz * ldz) < 14;
-    });
 
     mapUpdateTimer += delta;
     if (mapUpdateTimer > 0.1) {
