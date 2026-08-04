@@ -187,7 +187,7 @@ rooms.forEach((r) => {
   const tex = isWet ? scaled(tileBase, w / 0.5, d / 0.5) : scaled(woodBase, w / 1.5, d / 1.5);
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(w, d),
-    new THREE.MeshStandardMaterial({ map: tex, roughness: isWet ? 0.35 : 0.8 })
+    new THREE.MeshLambertMaterial({ map: tex })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0, cz);
@@ -205,10 +205,10 @@ const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
 const doorHeight = 2.1;
-const wallMaterial = new THREE.MeshStandardMaterial({ map: scaled(wallBase, 4, 2), roughness: 0.9 });
-const doorMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeDoorTexture(), 1, 1), roughness: 0.5 });
-const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.7 });
-const doorHandleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.35, metalness: 0.6 });
+const wallMaterial = new THREE.MeshLambertMaterial({ map: scaled(wallBase, 4, 2) });
+const doorMaterial = new THREE.MeshLambertMaterial({ map: scaled(makeDoorTexture(), 1, 1) });
+const doorFrameMaterial = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+const doorHandleMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
   const geo = new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ);
@@ -343,7 +343,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 {
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(houseMaxX - houseMinX, houseMaxZ - houseMinZ),
-    new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.95, side: THREE.DoubleSide })
+    new THREE.MeshLambertMaterial({ color: 0x1c1c1c, side: THREE.DoubleSide })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set((houseMinX + houseMaxX) / 2, wallHeight, (houseMinZ + houseMaxZ) / 2);
@@ -363,7 +363,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   const halfSpan = (roofMaxX - roofMinX) / 2;
   const slopeLen = Math.sqrt(halfSpan * halfSpan + rise * rise) + 0.5; // 棟ですき間が出ないよう長めに
   const angle = Math.atan2(rise, halfSpan);
-  const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x2b2320, roughness: 0.85 });
+  const roofMaterial = new THREE.MeshLambertMaterial({ color: 0x2b2320 });
 
   [1, -1].forEach(xSign => {
     const geo = new THREE.BoxGeometry(slopeLen, roofThickness, roofDepth);
@@ -396,7 +396,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 const groundTexture = scaled(makeGrassTexture(), 34, 34);
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(100, 100),
-  new THREE.MeshStandardMaterial({ map: groundTexture, roughness: 0.95 })
+  new THREE.MeshLambertMaterial({ map: groundTexture })
 );
 ground.rotation.x = -Math.PI / 2;
 ground.position.set((houseMinX + houseMaxX) / 2, -0.02, (houseMinZ + houseMaxZ) / 2);
@@ -406,8 +406,8 @@ scene.add(ground);
 // 森の木(家の周り、玄関の外は少し広めに開けておく)
 const trunkGeometries = [];
 const foliageGeometries = [];
-const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.9 });
-const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x142414, roughness: 0.95 });
+const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
+const foliageMaterial = new THREE.MeshLambertMaterial({ color: 0x142414 });
 
 function addTree(x, z) {
   const trunkH = 3 + Math.random() * 2;
@@ -479,7 +479,7 @@ videoCam.layers.enable(1);
 
 const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ寄せつつ、さらに家から離す
 {
-  const tentMat = new THREE.MeshStandardMaterial({ color: 0x4a5540, roughness: 0.9 });
+  const tentMat = new THREE.MeshLambertMaterial({ color: 0x4a5540 });
   const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
 
   // 90度回転版: 入口は+X側(横向き)。側面の壁はX方向に、背面の壁はテントの-X側に
@@ -529,14 +529,14 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
   lanternLight.position.set(tentX + 1.6, wallH + 0.4, tentZ);
   scene.add(lanternLight);
-  const lanternMat = new THREE.MeshStandardMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5, roughness: 0.5 });
+  const lanternMat = new THREE.MeshLambertMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5 });
   const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
   // テーブルは奥の壁際(+X側)に設置
   const tableX = tentX + depth / 2 - 0.6;
-  const tableMat = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1), roughness: 0.7 });
+  const tableMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1) });
   const table = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 1.4), tableMat);
   table.position.set(tableX, 0.375, tentZ);
   table.castShadow = true;
@@ -545,7 +545,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   wallBoxes.push({ minX: tableX - 0.3, maxX: tableX + 0.3, minZ: tentZ - 0.7, maxZ: tentZ + 0.7 });
 
   // 道具はテーブルの上に、左右に並べて置く
-  const flashlightMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.4, metalness: 0.5 });
+  const flashlightMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
   const flashlightItem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), flashlightMat);
   flashlightItem.rotation.x = Math.PI / 2;
   flashlightItem.position.y = 0.75 + 0.04;
@@ -556,7 +556,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     showPickupNotice('懐中電灯を入手した');
   });
 
-  const emfMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+  const emfMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
   const emfItem = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), emfMat);
   emfItem.position.y = 0.75 + 0.1;
   addPickupItem(tableX, tentZ + 0.4, emfItem, () => {
@@ -567,7 +567,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   });
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に据え付ける。画面はフレームから離して点滅(Zファイティング)を防ぐ
-  const monitorFrameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+  const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
   const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.5), monitorFrameMat);
   monitorFrame.position.set(tentX + depth / 2 - 0.06, 1.5, tentZ);
   monitorFrame.castShadow = true;
@@ -589,13 +589,13 @@ function showPickupNotice(text) {
 }
 
 // ---- 家具の材質(木・陶器・布・金属) ----
-const woodFurnitureMaterial = new THREE.MeshStandardMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2), roughness: 0.7 });
-const ceramicMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e6e0, roughness: 0.25 });
-const fabricMaterial = new THREE.MeshStandardMaterial({ color: 0x4a4550, roughness: 0.95 });
-const metalMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.35, metalness: 0.6 });
-const mattressMaterial = new THREE.MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.85 });
-const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.5 });
-const countertopMaterial = new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.3 });
+const woodFurnitureMaterial = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2) });
+const ceramicMaterial = new THREE.MeshLambertMaterial({ color: 0xe8e6e0 });
+const fabricMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4550 });
+const metalMaterial = new THREE.MeshLambertMaterial({ color: 0xc8ccd0 });
+const mattressMaterial = new THREE.MeshLambertMaterial({ color: 0xe8e2d0 });
+const handleMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+const countertopMaterial = new THREE.MeshLambertMaterial({ color: 0xb8b4ac });
 
 // 見た目だけの飾りパーツ(当たり判定には登録しない。細かい部品なので影は落とさず、受けるだけにして負荷を抑える)
 function addDetailMesh(x, y, z, w, h, d, material) {
@@ -719,7 +719,7 @@ function randomPointInRoom(r, margin = 0.6) {
   );
 }
 
-const ghostMaterial = new THREE.MeshStandardMaterial({
+const ghostMaterial = new THREE.MeshLambertMaterial({
   color: 0xaad4ff, transparent: true, opacity: 0.35,
   emissive: 0x335577, emissiveIntensity: 0.6
 });
@@ -775,8 +775,8 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 13) {
   light.position.set(cx, 2.85, cz);
   scene.add(light);
 
-  const fixtureMat = new THREE.MeshStandardMaterial({
-    color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 1.2, roughness: 0.6
+  const fixtureMat = new THREE.MeshLambertMaterial({
+    color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 1.2
   });
   const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 16), fixtureMat);
   fixture.position.set(cx, 2.97, cz);
@@ -804,7 +804,7 @@ function addLightSwitch(roomName, customX, customZ) {
   const r = room(roomName);
   const x = customX !== undefined ? customX : r.maxX - 0.15;
   const z = customZ !== undefined ? customZ : r.maxZ - 0.6;
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5, roughness: 0.4 });
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
   mesh.position.set(x, 1.1, z);
   mesh.castShadow = true;
