@@ -41,7 +41,8 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 camera.position.set(5.8, 1.6, 31.4); // テント内部、反転後の入口を入ってすぐの位置からスタート
 camera.rotation.y = -Math.PI / 2; // テーブル・モニターのある奥(+X側)を向く
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(1);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.BasicShadowMap; // 一番軽い影の種類に変更
