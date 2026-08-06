@@ -27,10 +27,36 @@ function room(name) {
 }
 
 function getRoomAt(x, z) {
+  if (!onGroundFloor) return "地下室";
   return rooms.find(r =>
     x >= r.bounds.minX && x <= r.bounds.maxX &&
     z >= r.bounds.minZ && z <= r.bounds.maxZ
   )?.name ?? "外";
+}
+
+// 地下室・階段の寸法(1階の床=Y0、地下の床=basementFloorY)。廊下の西側(壁際)を使う
+const basement = { minX: 0, maxX: 6.4, minZ: 9.8, maxZ: 12.6 }; // 廊下+納戸の直下
+const basementFloorY = -2.4;
+const basementWallHeight = 2.4;
+const stairs = { minX: 0.2, maxX: 1.0, topZ: 12.4, bottomZ: 10.2, steps: 10 };
+
+let onGroundFloor = true; // 階段を上り下りして今いる階を判定するためのフラグ
+
+// 床・天井に矩形の穴を開けて、その周囲を4枚の板で埋める(階段の吹き抜け用)
+function addFramedPlane(outer, hole, y, material, facingUp) {
+  const pieces = [];
+  if (outer.maxZ > hole.maxZ) pieces.push({ minX: outer.minX, maxX: outer.maxX, minZ: hole.maxZ, maxZ: outer.maxZ });
+  if (hole.minZ > outer.minZ) pieces.push({ minX: outer.minX, maxX: outer.maxX, minZ: outer.minZ, maxZ: hole.minZ });
+  if (hole.minX > outer.minX) pieces.push({ minX: outer.minX, maxX: hole.minX, minZ: hole.minZ, maxZ: hole.maxZ });
+  if (outer.maxX > hole.maxX) pieces.push({ minX: hole.maxX, maxX: outer.maxX, minZ: hole.minZ, maxZ: hole.maxZ });
+  pieces.forEach(p => {
+    const w = p.maxX - p.minX, d = p.maxZ - p.minZ;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
+    mesh.rotation.x = facingUp ? -Math.PI / 2 : Math.PI / 2;
+    mesh.position.set((p.minX + p.maxX) / 2, y, (p.minZ + p.maxZ) / 2);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  });
 }
 
 const scene = new THREE.Scene();
@@ -123,6 +149,45 @@ function makeWallTexture(baseColor = '#767676') {
   return texture;
 }
 
+function makeConcreteTexture(baseColor = '#9a9c9a') {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, 256, 256);
+  // 打ちっ放しコンクリートのパネル目地(大きめのグリッド)
+  const cols = 2, rows = 3;
+  const cw = 256 / cols, ch = 256 / rows;
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i <= cols; i++) {
+    ctx.beginPath(); ctx.moveTo(i * cw, 0); ctx.lineTo(i * cw, 256); ctx.stroke();
+  }
+  for (let j = 0; j <= rows; j++) {
+    ctx.beginPath(); ctx.moveTo(0, j * ch); ctx.lineTo(256, j * ch); ctx.stroke();
+  }
+  // セパレーター(型枠の丸い跡)をパネルの四隅寄りに配置
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      [[0.18, 0.18], [0.82, 0.18], [0.18, 0.82], [0.82, 0.82]].forEach(([fx, fy]) => {
+        const cx = i * cw + cw * fx, cy = j * ch + ch * fy;
+        ctx.beginPath(); ctx.arc(cx, cy, 2.4, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+  }
+  // 色ムラ・シミ
+  for (let i = 0; i < 2000; i++) {
+    const v = Math.random() * 22 - 11;
+    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 200})` : `rgba(0,0,0,${-v / 200})`;
+    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
 function makeDoorTexture(baseColor = '#6b4022') {
   const canvas = document.createElement('canvas');
   canvas.width = 128; canvas.height = 256;
@@ -180,6 +245,7 @@ const wallBase = makeWallTexture();
 // 床(水回りはタイル、それ以外は木目)
 const wetRooms = new Set(["浴室・洗面", "トイレ", "玄関"]);
 rooms.forEach((r) => {
+  if (r.name === "廊下") return; // 地下への階段の穴を開けるため、専用の処理で床を張る
   const w = r.bounds.maxX - r.bounds.minX;
   const d = r.bounds.maxZ - r.bounds.minZ;
   const cx = (r.bounds.maxX + r.bounds.minX) / 2;
@@ -196,8 +262,17 @@ rooms.forEach((r) => {
   scene.add(floor);
 });
 
+// 廊下の床は階段の吹き抜け分だけ穴を開けて張る
+{
+  const h = room("廊下");
+  const hw = h.maxX - h.minX, hd = h.maxZ - h.minZ;
+  const corridorFloorMat = new THREE.MeshLambertMaterial({ map: scaled(woodBase, hw / 1.5, hd / 1.5) });
+  addFramedPlane(h, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, 0, corridorFloorMat, true);
+}
+
 // 壁・ドア(描画は最後にまとめて1メッシュずつに結合する。当たり判定は今まで通りwallBoxesで個別管理)
 const wallBoxes = [];
+const basementWallBoxes = []; // 地下室の壁(1階にいる間は無視する)
 const wallGeometries = [];
 const doorPanelGeometries = [];
 const doorFrameGeometries = [];
@@ -289,7 +364,8 @@ function addWall(axis, fixedPos, from, to, doorAt) {
 }
 
 function collidesWithWalls(x, z, radius = 0.3) {
-  return wallBoxes.some(b =>
+  const boxes = onGroundFloor ? wallBoxes : basementWallBoxes;
+  return boxes.some(b =>
     x + radius > b.minX && x - radius < b.maxX &&
     z + radius > b.minZ && z - radius < b.maxZ
   );
@@ -350,6 +426,151 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   ceiling.position.set((houseMinX + houseMaxX) / 2, wallHeight, (houseMinZ + houseMaxZ) / 2);
   ceiling.receiveShadow = true;
   scene.add(ceiling);
+}
+
+// ---- 地下室(コンクリート壁+木の床、廊下からの階段でつながる) ----
+const concreteMat = new THREE.MeshLambertMaterial({ map: scaled(makeConcreteTexture(), 3, 1.2) });
+const basementFloorMat = new THREE.MeshLambertMaterial({
+  map: scaled(makeWoodTexture('#7a5a3a'), (basement.maxX - basement.minX) / 1.5, (basement.maxZ - basement.minZ) / 1.5)
+});
+
+// 地下の床
+{
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(basement.maxX - basement.minX, basement.maxZ - basement.minZ),
+    basementFloorMat
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set((basement.minX + basement.maxX) / 2, basementFloorY, (basement.minZ + basement.maxZ) / 2);
+  floor.receiveShadow = true;
+  scene.add(floor);
+}
+
+// 地下の天井(1階の廊下の床の裏側にあたる。階段の吹き抜け分だけ穴を開ける)
+{
+  const ceilingMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
+  addFramedPlane(basement, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, -0.02, ceilingMat, false);
+}
+
+// 地下の壁(四方を囲むだけ。出入りは階段のみ)
+{
+  const geometries = [];
+  function addBasementWallSegment(minX, maxX, minZ, maxZ) {
+    const geo = new THREE.BoxGeometry(maxX - minX, basementWallHeight, maxZ - minZ);
+    geo.translate((minX + maxX) / 2, basementFloorY + basementWallHeight / 2, (minZ + maxZ) / 2);
+    geometries.push(geo);
+    basementWallBoxes.push({ minX, maxX, minZ, maxZ });
+  }
+  addBasementWallSegment(basement.minX - wallThickness / 2, basement.minX + wallThickness / 2, basement.minZ, basement.maxZ);
+  addBasementWallSegment(basement.maxX - wallThickness / 2, basement.maxX + wallThickness / 2, basement.minZ, basement.maxZ);
+  addBasementWallSegment(basement.minX, basement.maxX, basement.minZ - wallThickness / 2, basement.minZ + wallThickness / 2);
+  // 北壁(階段側)は階段の幅ぶんだけ開口を空けて2つに分ける(ふさぐと階段を上りきれない)
+  addBasementWallSegment(basement.minX, stairs.minX, basement.maxZ - wallThickness / 2, basement.maxZ + wallThickness / 2);
+  addBasementWallSegment(stairs.maxX, basement.maxX, basement.maxZ - wallThickness / 2, basement.maxZ + wallThickness / 2);
+  const mesh = new THREE.Mesh(mergeGeometries(geometries), concreteMat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+// 階段(踏み面を積み重ねた無垢のブロックとして表現)
+const stepRise = -basementFloorY / stairs.steps;
+const stepRun = (stairs.topZ - stairs.bottomZ) / stairs.steps;
+{
+  const stepMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 1, 1) });
+  const stepGeometries = [];
+  for (let i = 0; i < stairs.steps - 1; i++) {
+    const topY = -stepRise * (i + 1);
+    const zFar = stairs.topZ - stepRun * i;
+    const zNear = stairs.topZ - stepRun * (i + 1);
+    const h = topY - basementFloorY;
+    const geo = new THREE.BoxGeometry(stairs.maxX - stairs.minX, h, zFar - zNear);
+    geo.translate((stairs.minX + stairs.maxX) / 2, basementFloorY + h / 2, (zNear + zFar) / 2);
+    stepGeometries.push(geo);
+  }
+  const stepsMesh = new THREE.Mesh(mergeGeometries(stepGeometries), stepMat);
+  stepsMesh.castShadow = true;
+  stepsMesh.receiveShadow = true;
+  scene.add(stepsMesh);
+
+  // 手すり(開口側に沿った1本の金属パイプ+支柱3本)
+  const railMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+  const railX = stairs.maxX + 0.04;
+  const p1 = new THREE.Vector3(railX, 0.9, stairs.topZ);
+  const p2 = new THREE.Vector3(railX, basementFloorY + 0.9, stairs.bottomZ);
+  const dir = p2.clone().sub(p1);
+  const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, dir.length(), 8), railMat);
+  rail.position.copy(p1).add(p2).multiplyScalar(0.5);
+  rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  rail.castShadow = true;
+  scene.add(rail);
+
+  const postGeometries = [];
+  [0, Math.floor(stairs.steps / 2), stairs.steps - 1].forEach(i => {
+    const z = stairs.topZ - stepRun * i;
+    const floorY = -stepRise * i;
+    const geo = new THREE.CylinderGeometry(0.02, 0.02, 0.9, 8);
+    geo.translate(railX, floorY + 0.45, z);
+    postGeometries.push(geo);
+  });
+  const postsMesh = new THREE.Mesh(mergeGeometries(postGeometries), railMat);
+  postsMesh.castShadow = true;
+  scene.add(postsMesh);
+}
+
+// 地下の照明(壁付けのブラケットライト。ブレーカーが入っているときだけ点灯)
+let basementLight, basementFixtureMat;
+{
+  basementLight = new THREE.PointLight(0xffdca8, 9, 10);
+  basementLight.position.set(basement.minX + 0.3, 2.0, (stairs.bottomZ + basement.minZ) / 2);
+  basementLight.visible = false;
+  scene.add(basementLight);
+  basementFixtureMat = new THREE.MeshLambertMaterial({ color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0 });
+  const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 16), basementFixtureMat);
+  fixture.rotation.z = Math.PI / 2;
+  fixture.position.copy(basementLight.position);
+  scene.add(fixture);
+}
+
+// ブレーカー(階段を降りてすぐの壁に設置。近づいてクリックでON/OFF)
+let breakerOn = false; // ゲーム開始時は電気が落ちている想定(地下で入れるまで家中真っ暗)
+let breakerLeverMat;
+const breakerBox = { x: basement.minX + 0.1, z: stairs.bottomZ + 0.3 };
+{
+  const panelMat = new THREE.MeshLambertMaterial({ color: 0x2e2e2e });
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.32), panelMat);
+  panel.position.set(breakerBox.x + 0.03, 1.3, breakerBox.z);
+  panel.castShadow = true;
+  scene.add(panel);
+  breakerLeverMat = new THREE.MeshLambertMaterial({ color: 0x552222, emissive: 0x220000, emissiveIntensity: 0.4 });
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.05), breakerLeverMat);
+  lever.position.set(breakerBox.x + 0.07, 1.3, breakerBox.z - 0.08);
+  scene.add(lever);
+}
+
+// ブレーカーの状態を全ての照明に反映する
+function applyBreakerState() {
+  lightSwitches.forEach(sw => {
+    sw.light.visible = sw.on && breakerOn;
+    sw.fixtureMat.emissiveIntensity = (sw.on && breakerOn) ? 1.2 : 0;
+  });
+  basementLight.visible = breakerOn;
+  basementFixtureMat.emissiveIntensity = breakerOn ? 1.2 : 0;
+  breakerLeverMat.color.set(breakerOn ? 0x2f6b2f : 0x552222);
+  breakerLeverMat.emissive.set(breakerOn ? 0x113311 : 0x220000);
+}
+
+// 階段の範囲にいればYを補間し、いなければ現在の階の高さに合わせる
+function updateFloorHeight() {
+  const x = camera.position.x, z = camera.position.z;
+  const inStairs = x >= stairs.minX && x <= stairs.maxX && z <= stairs.topZ && z >= stairs.bottomZ;
+  if (inStairs) {
+    const t = (stairs.topZ - z) / (stairs.topZ - stairs.bottomZ); // 0(上)〜1(下)
+    camera.position.y = basementFloorY * t + 1.6;
+    onGroundFloor = t < 0.5;
+  } else {
+    camera.position.y = (onGroundFloor ? 0 : basementFloorY) + 1.6;
+  }
 }
 
 // 屋根(切妻。外から見たときに屋根らしく見えるようにする)
@@ -821,8 +1042,9 @@ rooms.forEach(r => {
     addLightSwitch(r.name);
   }
 });
+applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の照明がここで消灯される
 
-// スイッチに近づいてクリックするとON/OFF切り替え(天井照明ごと)
+// スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 function tryInteract() {
   for (const item of pickupItems) {
     if (item.collected) continue;
@@ -835,6 +1057,14 @@ function tryInteract() {
     }
   }
 
+  const dbx = camera.position.x - breakerBox.x, dbz = camera.position.z - breakerBox.z;
+  if (Math.sqrt(dbx * dbx + dbz * dbz) < 1.2) {
+    breakerOn = !breakerOn;
+    applyBreakerState();
+    showPickupNotice(breakerOn ? 'ブレーカーを入れた' : 'ブレーカーを落とした');
+    return;
+  }
+
   let nearest = null, nearestDist = 1.4;
   for (const sw of lightSwitches) {
     const dx = camera.position.x - sw.x;
@@ -844,8 +1074,8 @@ function tryInteract() {
   }
   if (nearest) {
     nearest.on = !nearest.on;
-    nearest.light.visible = nearest.on;
-    nearest.fixtureMat.emissiveIntensity = nearest.on ? 1.2 : 0;
+    nearest.light.visible = nearest.on && breakerOn;
+    nearest.fixtureMat.emissiveIntensity = (nearest.on && breakerOn) ? 1.2 : 0;
     nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
     nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
   }
@@ -1021,6 +1251,7 @@ function animate() {
       camera.position.x = prevX;
       camera.position.z = prevZ;
     }
+    updateFloorHeight(); // 階段の範囲にいればYを補間し、onGroundFloorも更新する
     const currentRoomName = getRoomAt(camera.position.x, camera.position.z);
     info.textContent = `現在の部屋: ${currentRoomName}`;
     mapCanvas.style.display = currentRoomName === "外" ? 'none' : 'block';
