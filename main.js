@@ -34,11 +34,11 @@ function getRoomAt(x, z) {
   )?.name ?? "外";
 }
 
-// 地下室・階段の寸法(1階の床=Y0、地下の床=basementFloorY)。廊下の西側(壁際)を使う
+// 地下室・階段の寸法(1階の床=Y0、地下の床=basementFloorY)。階段は納戸の東側(壁際、家具・ドアを避けた位置)を使う
 const basement = { minX: 0, maxX: 6.4, minZ: 9.8, maxZ: 12.6 }; // 廊下+納戸の直下
 const basementFloorY = -2.4;
 const basementWallHeight = 2.4;
-const stairs = { minX: 0.2, maxX: 1.0, topZ: 12.4, bottomZ: 10.2, steps: 10 };
+const stairs = { minX: 5.2, maxX: 6.0, topZ: 12.5, bottomZ: 10.3, steps: 10 };
 
 let onGroundFloor = true; // 階段を上り下りして今いる階を判定するためのフラグ
 
@@ -245,7 +245,7 @@ const wallBase = makeWallTexture();
 // 床(水回りはタイル、それ以外は木目)
 const wetRooms = new Set(["浴室・洗面", "トイレ", "玄関"]);
 rooms.forEach((r) => {
-  if (r.name === "廊下") return; // 地下への階段の穴を開けるため、専用の処理で床を張る
+  if (r.name === "納戸") return; // 地下への階段の穴を開けるため、専用の処理で床を張る
   const w = r.bounds.maxX - r.bounds.minX;
   const d = r.bounds.maxZ - r.bounds.minZ;
   const cx = (r.bounds.maxX + r.bounds.minX) / 2;
@@ -262,12 +262,12 @@ rooms.forEach((r) => {
   scene.add(floor);
 });
 
-// 廊下の床は階段の吹き抜け分だけ穴を開けて張る
+// 納戸の床は階段の吹き抜け分だけ穴を開けて張る
 {
-  const h = room("廊下");
-  const hw = h.maxX - h.minX, hd = h.maxZ - h.minZ;
-  const corridorFloorMat = new THREE.MeshLambertMaterial({ map: scaled(woodBase, hw / 1.5, hd / 1.5) });
-  addFramedPlane(h, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, 0, corridorFloorMat, true);
+  const s2 = room("納戸");
+  const sw = s2.maxX - s2.minX, sd = s2.maxZ - s2.minZ;
+  const storageFloorMat = new THREE.MeshLambertMaterial({ map: scaled(woodBase, sw / 1.5, sd / 1.5) });
+  addFramedPlane(s2, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, 0, storageFloorMat, true);
 }
 
 // 壁・ドア(描画は最後にまとめて1メッシュずつに結合する。当たり判定は今まで通りwallBoxesで個別管理)
@@ -428,7 +428,7 @@ addMergedMesh(doorHandleGeometries, doorHandleMaterial);
   scene.add(ceiling);
 }
 
-// ---- 地下室(コンクリート壁+木の床、廊下からの階段でつながる) ----
+// ---- 地下室(コンクリート壁+木の床、納戸からの階段でつながる) ----
 const concreteMat = new THREE.MeshLambertMaterial({ map: scaled(makeConcreteTexture(), 3, 1.2) });
 const basementFloorMat = new THREE.MeshLambertMaterial({
   map: scaled(makeWoodTexture('#7a5a3a'), (basement.maxX - basement.minX) / 1.5, (basement.maxZ - basement.minZ) / 1.5)
@@ -446,10 +446,11 @@ const basementFloorMat = new THREE.MeshLambertMaterial({
   scene.add(floor);
 }
 
-// 地下の天井(1階の廊下の床の裏側にあたる。階段の吹き抜け分だけ穴を開ける)
+// 地下の天井(1階の床の裏側にあたる。階段の吹き抜け分だけ穴を開ける)
+// ※ 屋外の地面もY=-0.02にあるため、それと重ならないよう少し下げてある(Z-fighting対策)
 {
   const ceilingMat = new THREE.MeshLambertMaterial({ color: 0x1c1c1c });
-  addFramedPlane(basement, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, -0.02, ceilingMat, false);
+  addFramedPlane(basement, { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ }, -0.06, ceilingMat, false);
 }
 
 // 地下の壁(四方を囲むだけ。出入りは階段のみ)
@@ -493,9 +494,9 @@ const stepRun = (stairs.topZ - stairs.bottomZ) / stairs.steps;
   stepsMesh.receiveShadow = true;
   scene.add(stepsMesh);
 
-  // 手すり(開口側に沿った1本の金属パイプ+支柱3本)
+  // 手すり(開口側=部屋の中央寄りに沿った1本の金属パイプ+支柱3本)
   const railMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
-  const railX = stairs.maxX + 0.04;
+  const railX = stairs.minX - 0.04;
   const p1 = new THREE.Vector3(railX, 0.9, stairs.topZ);
   const p2 = new THREE.Vector3(railX, basementFloorY + 0.9, stairs.bottomZ);
   const dir = p2.clone().sub(p1);
@@ -518,11 +519,11 @@ const stepRun = (stairs.topZ - stairs.bottomZ) / stairs.steps;
   scene.add(postsMesh);
 }
 
-// 地下の照明(壁付けのブラケットライト。ブレーカーが入っているときだけ点灯)
+// 地下の照明(壁付けのブラケットライト。ブレーカーが入っているときだけ点灯)。西側の壁、ブレーカーのそば
 let basementLight, basementFixtureMat;
 {
   basementLight = new THREE.PointLight(0xffdca8, 9, 10);
-  basementLight.position.set(basement.minX + 0.3, 2.0, (stairs.bottomZ + basement.minZ) / 2);
+  basementLight.position.set(basement.minX + 0.3, 2.0, (basement.minZ + basement.maxZ) / 2);
   basementLight.visible = false;
   scene.add(basementLight);
   basementFixtureMat = new THREE.MeshLambertMaterial({ color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0 });
@@ -532,10 +533,10 @@ let basementLight, basementFixtureMat;
   scene.add(fixture);
 }
 
-// ブレーカー(階段を降りてすぐの壁に設置。近づいてクリックでON/OFF)
+// ブレーカー(地下室内、西側の壁の中央に設置。近づいてクリックでON/OFF)
 let breakerOn = false; // ゲーム開始時は電気が落ちている想定(地下で入れるまで家中真っ暗)
 let breakerLeverMat;
-const breakerBox = { x: basement.minX + 0.1, z: stairs.bottomZ + 0.3 };
+const breakerBox = { x: basement.minX + 0.1, z: (basement.minZ + basement.maxZ) / 2 };
 {
   const panelMat = new THREE.MeshLambertMaterial({ color: 0x2e2e2e });
   const panel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.32), panelMat);
