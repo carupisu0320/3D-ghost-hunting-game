@@ -680,6 +680,7 @@ placeForest(60);
 // 拠点のテント(懐中電灯・EMFリーダーはここで拾うまで使えない)
 let hasFlashlight = false;
 let hasEMF = false;
+let hasThermometer = false;
 const pickupItems = [];
 function addPickupItem(x, z, mesh, onCollect) {
   mesh.position.x = x;
@@ -787,6 +788,20 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     currentTool = 'emf';
     emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
+  });
+
+  // 温度計はテーブル中央(懐中電灯とEMFの間)に置く
+  const thermoItem = new THREE.Group();
+  const thermoTube = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 8), new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }));
+  const thermoBulb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), new THREE.MeshLambertMaterial({ color: 0xcc2222, emissive: 0x330000, emissiveIntensity: 0.3 }));
+  thermoBulb.position.y = -0.1;
+  thermoItem.add(thermoTube, thermoBulb);
+  thermoItem.position.y = 0.75 + 0.12;
+  addPickupItem(tableX, tentZ, thermoItem, () => {
+    hasThermometer = true;
+    currentTool = 'thermometer';
+    thermometerActive = true;
+    showPickupNotice('温度計を入手した');
   });
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に据え付ける。画面はフレームから離して点滅(Zファイティング)を防ぐ
@@ -926,11 +941,11 @@ furnitureIn("Pantry", 0.7, 0.3, 1.2, 0.4, 1.8);
 // 幽霊(証拠システムの土台込み)
 const ghostTypes = [
   { name: "Spirit", evidence: ["EMF5", "スピリットボックス", "ゴーストライティング"] },
-  { name: "Wraith", evidence: ["EMF5", "スピリットボックス", "オーブ"] },
-  { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "オーブ"] },
+  { name: "Wraith", evidence: ["EMF5", "オーブ", "冷えた温度"] },
+  { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "冷えた温度"] },
 ];
 const currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
-const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry");
+const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry" && r.name !== "納戸"); // 納戸は階段の穴があるため除外
 const hauntedRoom = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)].bounds;
 console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
 
@@ -1047,8 +1062,10 @@ applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の
 
 // スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 function tryInteract() {
+  const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0);
   for (const item of pickupItems) {
     if (item.collected) continue;
+    if (heldCount >= 3) break; // インベントリは3つまで
     const dx = camera.position.x - item.x, dz = camera.position.z - item.z;
     if (Math.sqrt(dx * dx + dz * dz) < 1.2) {
       item.collected = true;
@@ -1103,40 +1120,88 @@ const emfDisplay = document.createElement('div');
 emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-family:monospace;font-size:14px;z-index:10;';
 document.body.appendChild(emfDisplay);
 
+const thermoDisplay = document.createElement('div');
+thermoDisplay.style.cssText = 'position:fixed;top:52px;left:8px;color:#0ff;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(thermoDisplay);
+
+// マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで)
+const toolOrder = ['flashlight', 'emf', 'thermometer'];
+const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️' };
+const hotbar = document.createElement('div');
+hotbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
+document.body.appendChild(hotbar);
+const hotbarSlots = toolOrder.map((tool, i) => {
+  const slot = document.createElement('div');
+  slot.style.cssText = 'width:52px;height:52px;background:rgba(20,20,20,0.6);border:2px solid rgba(255,255,255,0.25);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:24px;position:relative;box-sizing:border-box;transition:border-color 0.1s;';
+  const num = document.createElement('div');
+  num.textContent = i + 1;
+  num.style.cssText = 'position:absolute;top:1px;left:3px;font-size:10px;color:#ccc;font-family:monospace;';
+  const icon = document.createElement('span');
+  slot.appendChild(num);
+  slot.appendChild(icon);
+  hotbar.appendChild(slot);
+  return { el: slot, icon };
+});
+function updateHotbar() {
+  const owned = { flashlight: hasFlashlight, emf: hasEMF, thermometer: hasThermometer };
+  toolOrder.forEach((tool, i) => {
+    const has = owned[tool];
+    hotbarSlots[i].icon.textContent = has ? toolIcons[tool] : '';
+    hotbarSlots[i].el.style.opacity = has ? '1' : '0.35';
+    const selected = has && tool === currentTool;
+    hotbarSlots[i].el.style.borderColor = selected ? '#fff' : 'rgba(255,255,255,0.25)';
+    hotbarSlots[i].el.style.boxShadow = selected ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
+  });
+}
+
 let emfActive = false;
-let currentTool = null; // 'flashlight' か 'emf'。持ち替えで切り替える
+let thermometerActive = false;
+let currentTool = null; // 'flashlight' / 'emf' / 'thermometer'。持ち替えで切り替える
 function toggleEMF() {
   if (!hasEMF) return;
   emfActive = !emfActive;
   if (!emfActive) emfDisplay.textContent = '';
 }
-function switchTool() {
-  if (hasFlashlight && hasEMF) {
-    currentTool = currentTool === 'emf' ? 'flashlight' : 'emf';
-  } else if (hasEMF) {
-    currentTool = 'emf';
-  } else if (hasFlashlight) {
-    currentTool = 'flashlight';
-  } else {
-    return;
-  }
-  // フラッシュライトは持ち替えても常時点灯のまま。EMFだけ、持っている間だけオンになる
-  emfActive = (currentTool === 'emf');
+function toggleThermometer() {
+  if (!hasThermometer) return;
+  thermometerActive = !thermometerActive;
+  if (!thermometerActive) thermoDisplay.textContent = '';
+}
+// 数字キー(1/2/3)やゲームパッドのL/Rから、持っている道具を直接選ぶ
+function selectTool(tool) {
+  currentTool = tool;
+  // フラッシュライトは持ち替えても常時点灯のまま。EMF・温度計は選んだときだけオンになる
+  emfActive = (tool === 'emf');
+  thermometerActive = (tool === 'thermometer');
   if (!emfActive) emfDisplay.textContent = '';
+  if (!thermometerActive) thermoDisplay.textContent = '';
+  updateHotbar();
+}
+function switchTool() {
+  const owned = toolOrder.filter(tool => (tool === 'flashlight' && hasFlashlight) || (tool === 'emf' && hasEMF) || (tool === 'thermometer' && hasThermometer));
+  if (owned.length === 0) return;
+  const idx = owned.indexOf(currentTool);
+  selectTool(owned[(idx + 1) % owned.length]);
 }
 function toggleCurrentTool() {
   if (currentTool === 'emf') {
     toggleEMF();
   } else if (currentTool === 'flashlight') {
     flashlight.intensity = flashlight.intensity > 0 ? 0 : 1.2;
+  } else if (currentTool === 'thermometer') {
+    toggleThermometer();
   }
 }
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyE') toggleEMF();
+  if (e.code === 'Digit1' && hasFlashlight) selectTool('flashlight');
+  if (e.code === 'Digit2' && hasEMF) selectTool('emf');
+  if (e.code === 'Digit3' && hasThermometer) selectTool('thermometer');
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
+
 
 // ゲームパッド対応(接続されていれば移動・視点・ボタンに使う)
 const gpPrevButtons = {};
@@ -1153,6 +1218,16 @@ function emfLevelAt(distance, hasEMF5) {
   let level = distance < 1 ? 5 : distance < 2 ? 4 : distance < 3.5 ? 3 : distance < 5 ? 2 : distance < 8 ? 1 : 0;
   if (level === 5 && !hasEMF5) level = 4;
   return level;
+}
+
+// 幽霊の部屋(hauntedRoom)の中だけ気温が下がる。「冷えた温度」を証拠に持つ幽霊のときだけ氷点下まで下がる
+function temperatureAt(x, z, t) {
+  const inHauntedRoom = x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
+  const wobble = Math.sin(t * 0.6) * 0.4; // 表示がぴたっと止まって見えないよう、ごくゆっくり揺らす
+  if (inHauntedRoom) {
+    return (currentGhost.evidence.includes("冷えた温度") ? -1 : 13) + wobble;
+  }
+  return 19 + wobble;
 }
 
 // 右上のミニマップ
@@ -1296,6 +1371,13 @@ function animate() {
       emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
     }
 
+    // 温度計(持ち替え/3キーでオン、入手済みの場合のみ)
+    if (thermometerActive) {
+      const temp = temperatureAt(camera.position.x, camera.position.z, clock.elapsedTime);
+      thermoDisplay.textContent = `温度: ${temp.toFixed(1)}°C${temp <= 0 ? ' (氷点下!)' : ''}`;
+    }
+
+    updateHotbar();
     updateOrb(delta);
   }
 
