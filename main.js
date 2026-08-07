@@ -523,7 +523,7 @@ const stepRun = (stairs.topZ - stairs.bottomZ) / stairs.steps;
 let basementLight, basementFixtureMat;
 {
   basementLight = new THREE.PointLight(0xffdca8, 9, 10);
-  basementLight.position.set(basement.minX + 0.3, 2.0, (basement.minZ + basement.maxZ) / 2);
+  basementLight.position.set(basement.minX + 0.3, basementFloorY + 2.0, (basement.minZ + basement.maxZ) / 2);
   basementLight.visible = false;
   scene.add(basementLight);
   basementFixtureMat = new THREE.MeshLambertMaterial({ color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0 });
@@ -540,12 +540,12 @@ const breakerBox = { x: basement.minX + 0.1, z: (basement.minZ + basement.maxZ) 
 {
   const panelMat = new THREE.MeshLambertMaterial({ color: 0x2e2e2e });
   const panel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.32), panelMat);
-  panel.position.set(breakerBox.x + 0.03, 1.3, breakerBox.z);
+  panel.position.set(breakerBox.x + 0.03, basementFloorY + 1.3, breakerBox.z);
   panel.castShadow = true;
   scene.add(panel);
   breakerLeverMat = new THREE.MeshLambertMaterial({ color: 0x552222, emissive: 0x220000, emissiveIntensity: 0.4 });
   const lever = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.05), breakerLeverMat);
-  lever.position.set(breakerBox.x + 0.07, 1.3, breakerBox.z - 0.08);
+  lever.position.set(breakerBox.x + 0.07, basementFloorY + 1.3, breakerBox.z - 0.08);
   scene.add(lever);
 }
 
@@ -814,6 +814,72 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   monitorScreen.rotation.y = -Math.PI / 2;
   monitorScreen.position.set(tentX + depth / 2 - 0.14, 1.5, tentZ);
   scene.add(monitorScreen);
+}
+
+// テントから玄関までの導線を照らす作業灯(三脚+2灯式。ブレーカーとは無関係に常時点灯)
+{
+  const legMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+  const headMat = new THREE.MeshLambertMaterial({ color: 0x2d5c3f });
+  const lensMat = new THREE.MeshLambertMaterial({ color: 0xfffbe0, emissive: 0xfffbe0, emissiveIntensity: 1.4 });
+
+  function addLegBetween(group, from, to) {
+    const dir = to.clone().sub(from);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, dir.length(), 6), legMat);
+    leg.position.copy(from).add(to).multiplyScalar(0.5);
+    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    group.add(leg);
+  }
+
+  function addWorkLight(x, z, facingAngle) {
+    const group = new THREE.Group();
+
+    // 三脚(3本の脚をハブから均等に開く)
+    const hub = new THREE.Vector3(0, 0.55, 0);
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2;
+      addLegBetween(group, hub, new THREE.Vector3(Math.cos(angle) * 0.4, 0, Math.sin(angle) * 0.4));
+    }
+
+    // 伸縮ポール+上部の横バー
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.026, 1.2, 8), legMat);
+    pole.position.y = 1.15;
+    group.add(pole);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), legMat);
+    bar.position.y = 1.75;
+    group.add(bar);
+
+    // ライトヘッド2灯(緑の筐体+発光面)
+    [-0.18, 0.18].forEach(dx => {
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.06), headMat);
+      head.position.set(dx, 1.75, 0.045);
+      group.add(head);
+      const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.11), lensMat);
+      lens.position.set(dx, 1.75, 0.076);
+      group.add(lens);
+    });
+
+    group.position.set(x, 0, z);
+    group.rotation.y = facingAngle;
+    group.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    scene.add(group);
+
+    // 光源はlightSwitches/breakerには登録しない = 常時点灯
+    const light = new THREE.PointLight(0xfff6e0, 6, 11);
+    light.position.set(x, 1.75, z);
+    scene.add(light);
+
+    wallBoxes.push({ minX: x - 0.42, maxX: x + 0.42, minZ: z - 0.42, maxZ: z + 0.42 });
+  }
+
+  // テント入口(-X側)から玄関の扉まで、道の両脇に4本立てる
+  const pathStands = [
+    { x: 3.30, z: 29.03 },
+    { x: 4.68, z: 25.27 },
+    { x: 1.77, z: 22.53 },
+    { x: 3.15, z: 18.77 },
+  ];
+  const pathFacing = -2.9111; // テント側から玄関側を向く角度(ラジアン)
+  pathStands.forEach(p => addWorkLight(p.x, p.z, pathFacing));
 }
 
 // 道具入手時の通知
