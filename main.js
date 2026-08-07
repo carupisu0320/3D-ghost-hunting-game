@@ -1261,7 +1261,7 @@ function toggleCurrentTool() {
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
-  if (e.code === 'KeyE') toggleEMF();
+  if (e.code === 'KeyE') toggleCurrentTool();
   if (e.code === 'Digit1' && hasFlashlight) selectTool('flashlight');
   if (e.code === 'Digit2' && hasEMF) selectTool('emf');
   if (e.code === 'Digit3' && hasThermometer) selectTool('thermometer');
