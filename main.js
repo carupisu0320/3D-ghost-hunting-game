@@ -721,6 +721,72 @@ addSurveillanceCamera("Master Bed Room");
 addSurveillanceCamera("Bed Room(5.0畳)");
 addSurveillanceCamera("玄関");
 
+// 道具のメッシュ生成・収集・所持解除は、拾うときと捨てるときの両方で使い回す
+function makeFlashlightItemMesh() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), mat);
+  mesh.rotation.x = Math.PI / 2;
+  return mesh;
+}
+function makeEMFItemMesh() {
+  const mat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+  return new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), mat);
+}
+function makeThermoItemMesh() {
+  const group = new THREE.Group();
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 8), new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }));
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), new THREE.MeshLambertMaterial({ color: 0xcc2222, emissive: 0x330000, emissiveIntensity: 0.3 }));
+  bulb.position.y = -0.1;
+  group.add(tube, bulb);
+  return group;
+}
+function makeNotebookItemMesh() {
+  const group = new THREE.Group();
+  const cover = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.18), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
+  const pages = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.16), new THREE.MeshLambertMaterial({ color: 0xf2ecd8 }));
+  pages.position.y = -0.005;
+  group.add(cover, pages);
+  return group;
+}
+// 各道具の「置き場の面から自分の原点までの高さ」。テーブル(0.75)でも床(0)でも、この分だけ浮かせて自然に載せる
+const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.12, notebook: 0.03 };
+const toolMeshMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, notebook: makeNotebookItemMesh };
+const toolNames = { flashlight: '懐中電灯', emf: 'EMFリーダー', thermometer: '温度計', notebook: 'ノート' };
+
+function collectTool(tool) {
+  heldOrder.push(tool);
+  currentTool = tool;
+  if (tool === 'flashlight') { hasFlashlight = true; flashlight.intensity = 1.2; }
+  else if (tool === 'emf') { hasEMF = true; emfActive = true; }
+  else if (tool === 'thermometer') { hasThermometer = true; thermometerActive = true; }
+  else if (tool === 'notebook') { hasNotebook = true; notebookActive = true; }
+  showPickupNotice(`${toolNames[tool]}を入手した`);
+  updateHotbar();
+}
+
+// 今持っている道具を、今いるその場に置いて手放す(Qキー/ゲームパッド十字キー下)
+function dropCurrentTool() {
+  if (!currentTool) return;
+  const tool = currentTool;
+  if (tool === 'flashlight') { hasFlashlight = false; flashlight.intensity = 0; }
+  else if (tool === 'emf') { hasEMF = false; emfActive = false; emfDisplay.textContent = ''; }
+  else if (tool === 'thermometer') { hasThermometer = false; thermometerActive = false; thermoDisplay.textContent = ''; }
+  else if (tool === 'notebook') { hasNotebook = false; notebookActive = false; notebookDisplay.textContent = ''; }
+  heldOrder = heldOrder.filter(t => t !== tool);
+
+  const mesh = toolMeshMakers[tool]();
+  mesh.position.y = 0.03 + toolRestOffset[tool]; // 床置き(床=Y0の少し上)
+  addPickupItem(camera.position.x, camera.position.z, mesh, () => collectTool(tool));
+
+  if (heldOrder.length > 0) {
+    selectTool(heldOrder[0]);
+  } else {
+    currentTool = null;
+    updateHotbar();
+  }
+  showPickupNotice(`${toolNames[tool]}を置いた`);
+}
+
 const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ寄せつつ、さらに家から離す
 {
   const tentMat = new THREE.MeshLambertMaterial({ color: 0x4a5540 });
@@ -788,59 +854,24 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   scene.add(table);
   wallBoxes.push({ minX: tableX - 0.3, maxX: tableX + 0.3, minZ: tentZ - 0.7, maxZ: tentZ + 0.7 });
 
-  // 道具はテーブルの上に、左右に並べて置く
-  const flashlightMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-  const flashlightItem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 8), flashlightMat);
-  flashlightItem.rotation.x = Math.PI / 2;
-  flashlightItem.position.y = 0.75 + 0.04;
-  addPickupItem(tableX, tentZ - 0.4, flashlightItem, () => {
-    hasFlashlight = true;
-    heldOrder.push('flashlight');
-    flashlight.intensity = 1.2;
-    currentTool = 'flashlight';
-    showPickupNotice('懐中電灯を入手した');
-  });
+  // 道具はテーブルの上に、左右に並べて置く(メッシュ生成・収集処理は上でモジュール直下に定義済み。捨てたときの再配置にも使い回す)
+  const flashlightItem = makeFlashlightItemMesh();
+  flashlightItem.position.y = 0.75 + toolRestOffset.flashlight;
+  addPickupItem(tableX, tentZ - 0.4, flashlightItem, () => collectTool('flashlight'));
 
-  const emfMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
-  const emfItem = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), emfMat);
-  emfItem.position.y = 0.75 + 0.1;
-  addPickupItem(tableX, tentZ + 0.4, emfItem, () => {
-    hasEMF = true;
-    heldOrder.push('emf');
-    currentTool = 'emf';
-    emfActive = true;
-    showPickupNotice('EMFリーダーを入手した');
-  });
+  const emfItem = makeEMFItemMesh();
+  emfItem.position.y = 0.75 + toolRestOffset.emf;
+  addPickupItem(tableX, tentZ + 0.4, emfItem, () => collectTool('emf'));
 
   // 温度計はテーブル中央(懐中電灯とEMFの間)に置く
-  const thermoItem = new THREE.Group();
-  const thermoTube = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 8), new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }));
-  const thermoBulb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), new THREE.MeshLambertMaterial({ color: 0xcc2222, emissive: 0x330000, emissiveIntensity: 0.3 }));
-  thermoBulb.position.y = -0.1;
-  thermoItem.add(thermoTube, thermoBulb);
-  thermoItem.position.y = 0.75 + 0.12;
-  addPickupItem(tableX, tentZ, thermoItem, () => {
-    hasThermometer = true;
-    heldOrder.push('thermometer');
-    currentTool = 'thermometer';
-    thermometerActive = true;
-    showPickupNotice('温度計を入手した');
-  });
+  const thermoItem = makeThermoItemMesh();
+  thermoItem.position.y = 0.75 + toolRestOffset.thermometer;
+  addPickupItem(tableX, tentZ, thermoItem, () => collectTool('thermometer'));
 
   // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、テーブルの端に置く
-  const notebookItem = new THREE.Group();
-  const notebookCover = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.18), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
-  const notebookPages = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.16), new THREE.MeshLambertMaterial({ color: 0xf2ecd8 }));
-  notebookPages.position.y = -0.005;
-  notebookItem.add(notebookCover, notebookPages);
-  notebookItem.position.y = 0.75 + 0.03;
-  addPickupItem(tableX, tentZ + 0.6, notebookItem, () => {
-    hasNotebook = true;
-    heldOrder.push('notebook');
-    currentTool = 'notebook';
-    notebookActive = true;
-    showPickupNotice('ノートを入手した');
-  });
+  const notebookItem = makeNotebookItemMesh();
+  notebookItem.position.y = 0.75 + toolRestOffset.notebook;
+  addPickupItem(tableX, tentZ + 0.6, notebookItem, () => collectTool('notebook'));
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
@@ -1323,6 +1354,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
   if (e.code === 'Digit3' && heldOrder[2]) selectTool(heldOrder[2]);
+  if (e.code === 'KeyQ') dropCurrentTool();
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
 
@@ -1432,7 +1464,7 @@ function animate() {
       gpPrevButtons[0] = aPressed;
 
       const xPressed = !!(pad.buttons[2] && pad.buttons[2].pressed);
-      if (xPressed && !gpPrevButtons[2]) toggleEMF();
+      if (xPressed && !gpPrevButtons[2]) toggleCurrentTool();
       gpPrevButtons[2] = xPressed;
 
       const lPressed = !!(pad.buttons[4] && pad.buttons[4].pressed);
@@ -1446,6 +1478,10 @@ function animate() {
       const zrPressed = !!(pad.buttons[7] && pad.buttons[7].pressed);
       if (zrPressed && !gpPrevButtons[7]) toggleCurrentTool();
       gpPrevButtons[7] = zrPressed;
+
+      const dpadDownPressed = !!(pad.buttons[13] && pad.buttons[13].pressed);
+      if (dpadDownPressed && !gpPrevButtons[13]) dropCurrentTool();
+      gpPrevButtons[13] = dpadDownPressed;
     }
 
     if (collidesWithWalls(camera.position.x, camera.position.z)) {
