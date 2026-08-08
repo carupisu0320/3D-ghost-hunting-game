@@ -694,6 +694,7 @@ placeForest(60);
 let hasFlashlight = false;
 let hasEMF = false;
 let hasThermometer = false;
+let hasNotebook = false;
 const pickupItems = [];
 function addPickupItem(x, z, mesh, onCollect) {
   mesh.position.x = x;
@@ -824,6 +825,21 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     currentTool = 'thermometer';
     thermometerActive = true;
     showPickupNotice('温度計を入手した');
+  });
+
+  // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、テーブルの端に置く
+  const notebookItem = new THREE.Group();
+  const notebookCover = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.18), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
+  const notebookPages = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.16), new THREE.MeshLambertMaterial({ color: 0xf2ecd8 }));
+  notebookPages.position.y = -0.005;
+  notebookItem.add(notebookCover, notebookPages);
+  notebookItem.position.y = 0.75 + 0.03;
+  addPickupItem(tableX, tentZ + 0.6, notebookItem, () => {
+    hasNotebook = true;
+    heldOrder.push('notebook');
+    currentTool = 'notebook';
+    notebookActive = true;
+    showPickupNotice('ノートを入手した');
   });
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
@@ -1041,6 +1057,10 @@ const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pant
 const hauntedRoom = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)].bounds;
 console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
 
+// ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、しばらく持ち歩くと一度だけ書かれる)
+let notebookWritten = false;
+let notebookTimer = 15 + Math.random() * 30; // 15〜45秒後に一度だけ判定
+
 function randomPointInRoom(r, margin = 0.6) {
   return new THREE.Vector3(
     r.minX + margin + Math.random() * Math.max(0.1, r.maxX - r.minX - margin * 2),
@@ -1154,7 +1174,7 @@ applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の
 
 // スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 function tryInteract() {
-  const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0);
+  const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0);
   for (const item of pickupItems) {
     if (item.collected) continue;
     if (heldCount >= 3) break; // インベントリは3つまで
@@ -1216,9 +1236,13 @@ const thermoDisplay = document.createElement('div');
 thermoDisplay.style.cssText = 'position:fixed;top:52px;left:8px;color:#0ff;font-family:monospace;font-size:14px;z-index:10;';
 document.body.appendChild(thermoDisplay);
 
+const notebookDisplay = document.createElement('div');
+notebookDisplay.style.cssText = 'position:fixed;top:72px;left:8px;color:#e8c060;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(notebookDisplay);
+
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
 let heldOrder = []; // 拾った道具名を、拾った順に積んでいく
-const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️' };
+const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️', notebook: '📓' };
 const hotbar = document.createElement('div');
 hotbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
 document.body.appendChild(hotbar);
@@ -1247,6 +1271,7 @@ function updateHotbar() {
 
 let emfActive = false;
 let thermometerActive = false;
+let notebookActive = false;
 let currentTool = null; // 'flashlight' / 'emf' / 'thermometer'。持ち替えで切り替える
 function toggleEMF() {
   if (!hasEMF) return;
@@ -1258,14 +1283,21 @@ function toggleThermometer() {
   thermometerActive = !thermometerActive;
   if (!thermometerActive) thermoDisplay.textContent = '';
 }
+function toggleNotebook() {
+  if (!hasNotebook) return;
+  notebookActive = !notebookActive;
+  if (!notebookActive) notebookDisplay.textContent = '';
+}
 // 数字キー(1/2/3)やゲームパッドのL/Rから、持っている道具を直接選ぶ
 function selectTool(tool) {
   currentTool = tool;
-  // フラッシュライトは持ち替えても常時点灯のまま。EMF・温度計は選んだときだけオンになる
+  // フラッシュライトは持ち替えても常時点灯のまま。EMF・温度計・ノートは選んだときだけオンになる
   emfActive = (tool === 'emf');
   thermometerActive = (tool === 'thermometer');
+  notebookActive = (tool === 'notebook');
   if (!emfActive) emfDisplay.textContent = '';
   if (!thermometerActive) thermoDisplay.textContent = '';
+  if (!notebookActive) notebookDisplay.textContent = '';
   updateHotbar();
 }
 function switchTool() {
@@ -1280,6 +1312,8 @@ function toggleCurrentTool() {
     flashlight.intensity = flashlight.intensity > 0 ? 0 : 1.2;
   } else if (currentTool === 'thermometer') {
     toggleThermometer();
+  } else if (currentTool === 'notebook') {
+    toggleNotebook();
   }
 }
 const keys = {};
@@ -1466,6 +1500,17 @@ function animate() {
     if (thermometerActive) {
       const temp = temperatureAt(camera.position.x, camera.position.z, clock.elapsedTime);
       thermoDisplay.textContent = `温度: ${temp.toFixed(1)}°C${temp <= 0 ? ' (氷点下!)' : ''}`;
+    }
+
+    // ノート(ゴーストライティングが証拠の幽霊なら、時間経過で一度だけ書き込みが現れる)
+    if (!notebookWritten && notebookTimer > 0) {
+      notebookTimer -= delta;
+      if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
+        notebookWritten = true;
+      }
+    }
+    if (notebookActive) {
+      notebookDisplay.textContent = `ノート: ${notebookWritten ? '何か書かれている…' : '白紙'}`;
     }
 
     updateHotbar();
