@@ -615,16 +615,29 @@ function updateFloorHeight() {
   });
 }
 
-// 外の地面
-const groundTexture = scaled(makeGrassTexture(), 34, 34);
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(100, 100),
-  new THREE.MeshLambertMaterial({ map: groundTexture })
-);
-ground.rotation.x = -Math.PI / 2;
-ground.position.set((houseMinX + houseMaxX) / 2, -0.02, (houseMinZ + houseMaxZ) / 2);
-ground.receiveShadow = true;
-scene.add(ground);
+// 外の地面(納戸の階段の吹き抜け分だけ穴を開ける。地下から見上げたときに屋外の地面が透けて見えるのを防ぐ)
+const grassBase = makeGrassTexture();
+{
+  const groundOuter = { minX: (houseMinX + houseMaxX) / 2 - 50, maxX: (houseMinX + houseMaxX) / 2 + 50, minZ: (houseMinZ + houseMaxZ) / 2 - 50, maxZ: (houseMinZ + houseMaxZ) / 2 + 50 };
+  const groundHole = { minX: stairs.minX, maxX: stairs.maxX, minZ: stairs.bottomZ, maxZ: stairs.topZ };
+  const tileSize = 100 / 34; // 元の地面(100角、34回リピート)と同じ目の細かさに揃える
+  [
+    { minX: groundOuter.minX, maxX: groundOuter.maxX, minZ: groundHole.maxZ, maxZ: groundOuter.maxZ },
+    { minX: groundOuter.minX, maxX: groundOuter.maxX, minZ: groundOuter.minZ, maxZ: groundHole.minZ },
+    { minX: groundOuter.minX, maxX: groundHole.minX, minZ: groundHole.minZ, maxZ: groundHole.maxZ },
+    { minX: groundHole.maxX, maxX: groundOuter.maxX, minZ: groundHole.minZ, maxZ: groundHole.maxZ },
+  ].forEach(p => {
+    const w = p.maxX - p.minX, d = p.maxZ - p.minZ;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, d),
+      new THREE.MeshLambertMaterial({ map: scaled(grassBase, w / tileSize, d / tileSize) })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set((p.minX + p.maxX) / 2, -0.02, (p.minZ + p.maxZ) / 2);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  });
+}
 
 // 森の木(家の周り、玄関の外は少し広めに開けておく)
 const trunkGeometries = [];
@@ -775,6 +788,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   flashlightItem.position.y = 0.75 + 0.04;
   addPickupItem(tableX, tentZ - 0.4, flashlightItem, () => {
     hasFlashlight = true;
+    heldOrder.push('flashlight');
     flashlight.intensity = 1.2;
     currentTool = 'flashlight';
     showPickupNotice('懐中電灯を入手した');
@@ -785,6 +799,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   emfItem.position.y = 0.75 + 0.1;
   addPickupItem(tableX, tentZ + 0.4, emfItem, () => {
     hasEMF = true;
+    heldOrder.push('emf');
     currentTool = 'emf';
     emfActive = true;
     showPickupNotice('EMFリーダーを入手した');
@@ -799,6 +814,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   thermoItem.position.y = 0.75 + 0.12;
   addPickupItem(tableX, tentZ, thermoItem, () => {
     hasThermometer = true;
+    heldOrder.push('thermometer');
     currentTool = 'thermometer';
     thermometerActive = true;
     showPickupNotice('温度計を入手した');
@@ -1190,13 +1206,13 @@ const thermoDisplay = document.createElement('div');
 thermoDisplay.style.cssText = 'position:fixed;top:52px;left:8px;color:#0ff;font-family:monospace;font-size:14px;z-index:10;';
 document.body.appendChild(thermoDisplay);
 
-// マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで)
-const toolOrder = ['flashlight', 'emf', 'thermometer'];
+// マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
+let heldOrder = []; // 拾った道具名を、拾った順に積んでいく
 const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️' };
 const hotbar = document.createElement('div');
 hotbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
 document.body.appendChild(hotbar);
-const hotbarSlots = toolOrder.map((tool, i) => {
+const hotbarSlots = Array.from({ length: 3 }, (_, i) => {
   const slot = document.createElement('div');
   slot.style.cssText = 'width:52px;height:52px;background:rgba(20,20,20,0.6);border:2px solid rgba(255,255,255,0.25);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:24px;position:relative;box-sizing:border-box;transition:border-color 0.1s;';
   const num = document.createElement('div');
@@ -1209,15 +1225,14 @@ const hotbarSlots = toolOrder.map((tool, i) => {
   return { el: slot, icon };
 });
 function updateHotbar() {
-  const owned = { flashlight: hasFlashlight, emf: hasEMF, thermometer: hasThermometer };
-  toolOrder.forEach((tool, i) => {
-    const has = owned[tool];
-    hotbarSlots[i].icon.textContent = has ? toolIcons[tool] : '';
-    hotbarSlots[i].el.style.opacity = has ? '1' : '0.35';
-    const selected = has && tool === currentTool;
+  for (let i = 0; i < 3; i++) {
+    const tool = heldOrder[i];
+    hotbarSlots[i].icon.textContent = tool ? toolIcons[tool] : '';
+    hotbarSlots[i].el.style.opacity = tool ? '1' : '0.35';
+    const selected = tool && tool === currentTool;
     hotbarSlots[i].el.style.borderColor = selected ? '#fff' : 'rgba(255,255,255,0.25)';
     hotbarSlots[i].el.style.boxShadow = selected ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
-  });
+  }
 }
 
 let emfActive = false;
@@ -1244,10 +1259,9 @@ function selectTool(tool) {
   updateHotbar();
 }
 function switchTool() {
-  const owned = toolOrder.filter(tool => (tool === 'flashlight' && hasFlashlight) || (tool === 'emf' && hasEMF) || (tool === 'thermometer' && hasThermometer));
-  if (owned.length === 0) return;
-  const idx = owned.indexOf(currentTool);
-  selectTool(owned[(idx + 1) % owned.length]);
+  if (heldOrder.length === 0) return;
+  const idx = heldOrder.indexOf(currentTool);
+  selectTool(heldOrder[(idx + 1) % heldOrder.length]);
 }
 function toggleCurrentTool() {
   if (currentTool === 'emf') {
@@ -1262,9 +1276,9 @@ const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyE') toggleCurrentTool();
-  if (e.code === 'Digit1' && hasFlashlight) selectTool('flashlight');
-  if (e.code === 'Digit2' && hasEMF) selectTool('emf');
-  if (e.code === 'Digit3' && hasThermometer) selectTool('thermometer');
+  if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
+  if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
+  if (e.code === 'Digit3' && heldOrder[2]) selectTool(heldOrder[2]);
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
 
