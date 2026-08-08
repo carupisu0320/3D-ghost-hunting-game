@@ -702,17 +702,23 @@ function addPickupItem(x, z, mesh, onCollect) {
   pickupItems.push({ x, z, mesh, collected: false, onCollect });
 }
 
-// 監視カメラ(Living Dining Kitchenに設置し、テントのモニターへ映像を送る)
-const monitorRT = new THREE.WebGLRenderTarget(192, 144);
-const monitorMaterial = new THREE.MeshBasicMaterial({ map: monitorRT.texture });
-const videoCam = new THREE.PerspectiveCamera(60, 256 / 192, 0.1, 30);
-videoCam.layers.enable(1);
-{
-  const ldkForCam = room("Living Dining Kitchen");
-  videoCam.position.set(ldkForCam.minX + 1.0, 2.4, ldkForCam.minZ + 1.0);
-  videoCam.lookAt(ldkForCam.maxX - 1.0, 1.0, ldkForCam.maxZ - 1.0);
-  scene.add(videoCam);
+// 監視カメラ(複数の部屋に設置し、テントの複数モニターへ映像を送る)
+const videoCams = []; // { camera, rt, material, roomName }
+function addSurveillanceCamera(roomName) {
+  const r = room(roomName);
+  const rt = new THREE.WebGLRenderTarget(192, 144);
+  const material = new THREE.MeshBasicMaterial({ map: rt.texture });
+  const cam = new THREE.PerspectiveCamera(60, 256 / 192, 0.1, 30);
+  cam.layers.enable(1);
+  cam.position.set(r.minX + 1.0, 2.4, r.minZ + 1.0);
+  cam.lookAt(r.maxX - 1.0, 1.0, r.maxZ - 1.0);
+  scene.add(cam);
+  videoCams.push({ camera: cam, rt, material, roomName });
 }
+addSurveillanceCamera("Living Dining Kitchen");
+addSurveillanceCamera("Master Bed Room");
+addSurveillanceCamera("Bed Room(5.0畳)");
+addSurveillanceCamera("玄関");
 
 const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ寄せつつ、さらに家から離す
 {
@@ -820,16 +826,20 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     showPickupNotice('温度計を入手した');
   });
 
-  // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に据え付ける。画面はフレームから離して点滅(Zファイティング)を防ぐ
+  // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-  const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.5), monitorFrameMat);
-  monitorFrame.position.set(tentX + depth / 2 - 0.06, 1.5, tentZ);
-  monitorFrame.castShadow = true;
-  scene.add(monitorFrame);
-  const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), monitorMaterial);
-  monitorScreen.rotation.y = -Math.PI / 2;
-  monitorScreen.position.set(tentX + depth / 2 - 0.14, 1.5, tentZ);
-  scene.add(monitorScreen);
+  const monitorW = 0.6, monitorH = 0.45, monitorSpacing = 0.75;
+  videoCams.forEach((cam, i) => {
+    const zOffset = (i - (videoCams.length - 1) / 2) * monitorSpacing;
+    const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, monitorH + 0.08, monitorW + 0.08), monitorFrameMat);
+    monitorFrame.position.set(tentX + depth / 2 - 0.06, 1.5, tentZ + zOffset);
+    monitorFrame.castShadow = true;
+    scene.add(monitorFrame);
+    const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(monitorW, monitorH), cam.material);
+    monitorScreen.rotation.y = -Math.PI / 2;
+    monitorScreen.position.set(tentX + depth / 2 - 0.14, 1.5, tentZ + zOffset);
+    scene.add(monitorScreen);
+  });
 }
 
 // テントから玄関までの導線を照らす作業灯(三脚+2灯式。ブレーカーとは無関係に常時点灯)
@@ -1354,6 +1364,7 @@ function drawMap() {
 }
 let mapUpdateTimer = 0;
 let monitorTimer = 0;
+let monitorCycleIndex = 0; // 監視カメラは毎回1台ずつ順番に描画する(全台同時だと負荷が増えるため)
 
 const speed = 4;
 const clock = new THREE.Clock();
@@ -1461,13 +1472,15 @@ function animate() {
     updateOrb(delta);
   }
 
-  // 監視カメラの映像をモニターへ(負荷を抑えるため、間隔を空けて低フレームレートで更新)
+  // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)
   monitorTimer += delta;
   if (monitorTimer > 0.35) {
     monitorTimer = 0;
-    renderer.setRenderTarget(monitorRT);
-    renderer.render(scene, videoCam);
+    const cam = videoCams[monitorCycleIndex];
+    renderer.setRenderTarget(cam.rt);
+    renderer.render(scene, cam.camera);
     renderer.setRenderTarget(null);
+    monitorCycleIndex = (monitorCycleIndex + 1) % videoCams.length;
   }
 
   renderer.render(scene, camera);
@@ -1504,8 +1517,10 @@ setTimeout(() => {
 
   renderer.compile(scene, camera);
   renderer.render(scene, camera);
-  renderer.setRenderTarget(monitorRT);
-  renderer.render(scene, videoCam);
+  videoCams.forEach(cam => {
+    renderer.setRenderTarget(cam.rt);
+    renderer.render(scene, cam.camera);
+  });
   renderer.setRenderTarget(null);
 
   loadingDiv.remove();
