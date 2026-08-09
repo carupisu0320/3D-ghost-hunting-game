@@ -1335,15 +1335,25 @@ camera.add(flashlight);
 scene.add(camera);
 
 // 持っている道具を画面右下に表示するビューモデル本体(4種類ぶん作り、選択中の1つだけ表示する)
+// 道具本体はラッパーGroupに入れる。直接rotationを上書きすると、各メッシュ自身が持つ向き(懐中電灯を寝かせる回転など)が
+// 消えてしまうため、ラッパー側だけを回して「元の向き+構え角度」が足し合わさるようにする
+const viewmodelBase = { position: [0.34, -0.2, -0.62], rotation: [0.12, -0.4, 0.05], scale: 1.4 };
+const viewmodelOverrides = {
+  flashlight: { rotation: [0.55, -0.4, 0.05] }, // もう少し手前(下向き)に傾ける
+};
 Object.keys(toolMeshMakers).forEach(tool => {
-  const mesh = toolMeshMakers[tool]();
-  mesh.position.set(0.32, -0.26, -0.5);
-  mesh.rotation.set(0.3, -0.55, 0.15); // 右下に構えているように角度を付ける
-  mesh.scale.setScalar(1.8);
-  mesh.visible = false;
-  mesh.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
-  camera.add(mesh);
-  viewmodels[tool] = mesh;
+  const inner = toolMeshMakers[tool]();
+  const wrapper = new THREE.Group();
+  wrapper.add(inner);
+  wrapper.userData = inner.userData; // LED/キャンバスの参照はラッパー側からも同じものを使えるようにする
+  const t = { ...viewmodelBase, ...(viewmodelOverrides[tool] || {}) };
+  wrapper.position.set(...t.position);
+  wrapper.rotation.set(...t.rotation);
+  wrapper.scale.setScalar(t.scale);
+  wrapper.visible = false;
+  wrapper.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  camera.add(wrapper);
+  viewmodels[tool] = wrapper;
 });
 
 const controls = new PointerLockControls(camera, document.body);
