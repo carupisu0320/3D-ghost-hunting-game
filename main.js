@@ -729,8 +729,19 @@ function makeFlashlightItemMesh() {
   return mesh;
 }
 function makeEMFItemMesh() {
-  const mat = new THREE.MeshLambertMaterial({ color: 0x222222 });
-  return new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), mat);
+  // 本体+縦に並んだ5個のLED(userData.ledsに入れておき、レベルに応じて後から光らせる)
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  group.add(body);
+  const leds = [];
+  for (let i = 0; i < 5; i++) {
+    const led = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.018, 0.012), new THREE.MeshBasicMaterial({ color: 0x2a1010 }));
+    led.position.set(0, -0.07 + i * 0.033, 0.028);
+    group.add(led);
+    leds.push(led);
+  }
+  group.userData.leds = leds;
+  return group;
 }
 function makeThermoItemMesh() {
   // 放射温度計(グリップ+本体+先端センサー+レーザー点)。原点はグリップの下端
@@ -746,10 +757,16 @@ function makeThermoItemMesh() {
   nose.rotation.x = Math.PI / 2;
   nose.position.set(0, gripH + 0.018, -0.1);
   group.add(nose);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.016), new THREE.MeshLambertMaterial({ color: 0x8fffb0, emissive: 0x3a8f55, emissiveIntensity: 0.7 }));
+  // 画面は書き換え可能なキャンバスにして、実際の温度の数字を表示できるようにする
+  const screenCanvas = document.createElement('canvas');
+  screenCanvas.width = 64; screenCanvas.height = 32;
+  const screenTexture = new THREE.CanvasTexture(screenCanvas);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.026, 0.016), new THREE.MeshBasicMaterial({ map: screenTexture }));
   screen.position.set(0, gripH + 0.04, 0.005);
   screen.rotation.x = -Math.PI / 2 + 0.25;
   group.add(screen);
+  group.userData.screenCanvas = screenCanvas;
+  group.userData.screenTexture = screenTexture;
   const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff3333 }));
   laserDot.position.set(0, gripH + 0.018, -0.112);
   group.add(laserDot);
@@ -758,10 +775,48 @@ function makeThermoItemMesh() {
 function makeNotebookItemMesh() {
   const group = new THREE.Group();
   const cover = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.18), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
-  const pages = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.16), new THREE.MeshLambertMaterial({ color: 0xf2ecd8 }));
-  pages.position.y = -0.005;
-  group.add(cover, pages);
+  group.add(cover);
+  // ページも書き換え可能なキャンバスにして、白紙/書き込みありを見た目で区別できるようにする
+  const pageCanvas = document.createElement('canvas');
+  pageCanvas.width = 96; pageCanvas.height = 128;
+  drawNotebookPage(pageCanvas, false);
+  const pageTexture = new THREE.CanvasTexture(pageCanvas);
+  const pages = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.16), new THREE.MeshBasicMaterial({ map: pageTexture }));
+  pages.rotation.x = -Math.PI / 2;
+  pages.position.y = -0.008;
+  group.add(pages);
+  group.userData.pageCanvas = pageCanvas;
+  group.userData.pageTexture = pageTexture;
   return group;
+}
+// ノートのページを描き直す(白紙、または幽霊が書いたような判読できない走り書き)
+function drawNotebookPage(canvas, written) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.fillStyle = '#f2ecd8';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(120,140,170,0.5)';
+  ctx.lineWidth = 1;
+  for (let y = 14; y < h; y += 12) {
+    ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(w - 6, y); ctx.stroke();
+  }
+  if (written) {
+    ctx.strokeStyle = 'rgba(20,15,10,0.85)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 6; i++) {
+      const y = 18 + i * 18 + (Math.random() * 4 - 2);
+      ctx.beginPath();
+      let x = 10;
+      ctx.moveTo(x, y);
+      while (x < w - 12) {
+        const nx = x + 5 + Math.random() * 8;
+        const ny = y + (Math.random() * 8 - 4);
+        ctx.lineTo(nx, ny);
+        x = nx;
+      }
+      ctx.stroke();
+    }
+  }
 }
 // 各道具の「置き場の面から自分の原点までの高さ」。テーブル(0.75)でも床(0)でも、この分だけ浮かせて自然に載せる
 const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.005, notebook: 0.03 };
@@ -1568,12 +1623,27 @@ function animate() {
     if (emfActive) {
       const level = emfLevelAt(ghostDist, currentGhost.evidence.includes("EMF5"));
       emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
+      if (viewmodels.emf && viewmodels.emf.userData.leds) {
+        viewmodels.emf.userData.leds.forEach((led, i) => led.material.color.set(i < level ? 0x44ff44 : 0x2a1010));
+      }
     }
 
     // 温度計(持ち替え/3キーでオン、入手済みの場合のみ)
     if (thermometerActive) {
       const temp = temperatureAt(camera.position.x, camera.position.z, clock.elapsedTime);
       thermoDisplay.textContent = `温度: ${temp.toFixed(1)}°C${temp <= 0 ? ' (氷点下!)' : ''}`;
+      if (viewmodels.thermometer && viewmodels.thermometer.userData.screenCanvas) {
+        const canvas = viewmodels.thermometer.userData.screenCanvas;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#0a2a12';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = temp <= 0 ? '#ff7a7a' : '#7fffa0';
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${temp.toFixed(1)}°C`, canvas.width / 2, canvas.height / 2);
+        viewmodels.thermometer.userData.screenTexture.needsUpdate = true;
+      }
     }
 
     // ノート(ゴーストライティングが証拠の幽霊なら、時間経過で一度だけ書き込みが現れる)
@@ -1581,6 +1651,10 @@ function animate() {
       notebookTimer -= delta;
       if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
         notebookWritten = true;
+        if (viewmodels.notebook && viewmodels.notebook.userData.pageCanvas) {
+          drawNotebookPage(viewmodels.notebook.userData.pageCanvas, true);
+          viewmodels.notebook.userData.pageTexture.needsUpdate = true;
+        }
       }
     }
     if (notebookActive) {
