@@ -733,11 +733,26 @@ function makeEMFItemMesh() {
   return new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.05), mat);
 }
 function makeThermoItemMesh() {
+  // 放射温度計(グリップ+本体+先端センサー+レーザー点)。原点はグリップの下端
   const group = new THREE.Group();
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 8), new THREE.MeshLambertMaterial({ color: 0xe8e8e8 }));
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.025, 8, 6), new THREE.MeshLambertMaterial({ color: 0xcc2222, emissive: 0x330000, emissiveIntensity: 0.3 }));
-  bulb.position.y = -0.1;
-  group.add(tube, bulb);
+  const gripH = 0.1;
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.032, gripH, 0.045), new THREE.MeshLambertMaterial({ color: 0x1c1c1c }));
+  grip.position.set(0, gripH / 2, 0);
+  group.add(grip);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.04, 0.12), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+  body.position.set(0, gripH + 0.018, -0.035);
+  group.add(body);
+  const nose = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.017, 0.022, 10), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+  nose.rotation.x = Math.PI / 2;
+  nose.position.set(0, gripH + 0.018, -0.1);
+  group.add(nose);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.016), new THREE.MeshLambertMaterial({ color: 0x8fffb0, emissive: 0x3a8f55, emissiveIntensity: 0.7 }));
+  screen.position.set(0, gripH + 0.04, 0.005);
+  screen.rotation.x = -Math.PI / 2 + 0.25;
+  group.add(screen);
+  const laserDot = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff3333 }));
+  laserDot.position.set(0, gripH + 0.018, -0.112);
+  group.add(laserDot);
   return group;
 }
 function makeNotebookItemMesh() {
@@ -749,9 +764,17 @@ function makeNotebookItemMesh() {
   return group;
 }
 // 各道具の「置き場の面から自分の原点までの高さ」。テーブル(0.75)でも床(0)でも、この分だけ浮かせて自然に載せる
-const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.12, notebook: 0.03 };
+const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.005, notebook: 0.03 };
 const toolMeshMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, notebook: makeNotebookItemMesh };
 const toolNames = { flashlight: '懐中電灯', emf: 'EMFリーダー', thermometer: '温度計', notebook: 'ノート' };
+
+// 手元に持っている道具を画面右下に表示するビューモデル(実体はカメラの子として後で作る。ここでは表示切り替えだけ用意)
+let viewmodels = {};
+function updateViewmodel() {
+  Object.keys(viewmodels).forEach(tool => {
+    viewmodels[tool].visible = (tool === currentTool);
+  });
+}
 
 function collectTool(tool) {
   heldOrder.push(tool);
@@ -762,6 +785,7 @@ function collectTool(tool) {
   else if (tool === 'notebook') { hasNotebook = true; notebookActive = true; }
   showPickupNotice(`${toolNames[tool]}を入手した`);
   updateHotbar();
+  updateViewmodel();
 }
 
 // 今持っている道具を、今いるその場に置いて手放す(Qキー/ゲームパッド十字キー下)
@@ -784,6 +808,7 @@ function dropCurrentTool() {
     currentTool = null;
     updateHotbar();
   }
+  updateViewmodel();
   showPickupNotice(`${toolNames[tool]}を置いた`);
 }
 
@@ -1254,6 +1279,18 @@ flashlight.shadow.camera.far = 8;
 camera.add(flashlight);
 scene.add(camera);
 
+// 持っている道具を画面右下に表示するビューモデル本体(4種類ぶん作り、選択中の1つだけ表示する)
+Object.keys(toolMeshMakers).forEach(tool => {
+  const mesh = toolMeshMakers[tool]();
+  mesh.position.set(0.32, -0.26, -0.5);
+  mesh.rotation.set(0.3, -0.55, 0.15); // 右下に構えているように角度を付ける
+  mesh.scale.setScalar(1.8);
+  mesh.visible = false;
+  mesh.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  camera.add(mesh);
+  viewmodels[tool] = mesh;
+});
+
 const controls = new PointerLockControls(camera, document.body);
 const info = document.getElementById('info');
 info.addEventListener('click', () => controls.lock());
@@ -1330,6 +1367,7 @@ function selectTool(tool) {
   if (!thermometerActive) thermoDisplay.textContent = '';
   if (!notebookActive) notebookDisplay.textContent = '';
   updateHotbar();
+  updateViewmodel();
 }
 function switchTool() {
   if (heldOrder.length === 0) return;
