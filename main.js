@@ -1340,6 +1340,9 @@ scene.add(camera);
 const viewmodelBase = { position: [0.34, -0.2, -0.62], rotation: [0.12, -0.4, 0.05], scale: 1.4 };
 const viewmodelOverrides = {
   flashlight: { rotation: [0.55, -0.4, 0.05] }, // もう少し手前(下向き)に傾ける
+  // 温度計・ノートは元々クリップしていなかったので、以前の距離感(近く・大きく)に戻す
+  thermometer: { position: [0.32, -0.26, -0.5], rotation: [0.3, -0.55, 0.15], scale: 1.8 },
+  notebook: { position: [0.32, -0.26, -0.5], rotation: [0.3, -0.55, 0.15], scale: 1.8 },
 };
 Object.keys(toolMeshMakers).forEach(tool => {
   const inner = toolMeshMakers[tool]();
