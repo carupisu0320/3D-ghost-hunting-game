@@ -839,6 +839,7 @@ const toolNames = { flashlight: '懐中電灯', emf: 'EMFリーダー', thermome
 
 // 手元に持っている道具を画面右下に表示するビューモデル(実体はカメラの子として後で作る。ここでは表示切り替えだけ用意)
 let viewmodels = {};
+let notebookWorldMesh = null; // 今、床やテーブルに置かれているノートのメッシュ(あれば)。書き込み発生時にここも更新する
 function updateViewmodel() {
   Object.keys(viewmodels).forEach(tool => {
     viewmodels[tool].visible = (tool === currentTool);
@@ -851,7 +852,7 @@ function collectTool(tool) {
   if (tool === 'flashlight') { hasFlashlight = true; flashlight.intensity = 1.2; }
   else if (tool === 'emf') { hasEMF = true; emfActive = true; }
   else if (tool === 'thermometer') { hasThermometer = true; thermometerActive = true; }
-  else if (tool === 'notebook') { hasNotebook = true; notebookActive = true; }
+  else if (tool === 'notebook') { hasNotebook = true; notebookActive = true; notebookWorldMesh = null; }
   showPickupNotice(`${toolNames[tool]}を入手した`);
   updateHotbar();
   updateViewmodel();
@@ -869,6 +870,13 @@ function dropCurrentTool() {
 
   const mesh = toolMeshMakers[tool]();
   mesh.position.y = 0.03 + toolRestOffset[tool]; // 床置き(床=Y0の少し上)
+  if (tool === 'notebook') {
+    notebookWorldMesh = mesh;
+    if (notebookWritten) { // 既に書き込み済みなら、置いた状態でも白紙に戻さず反映する
+      drawNotebookPage(mesh.userData.pageCanvas, true);
+      mesh.userData.pageTexture.needsUpdate = true;
+    }
+  }
   addPickupItem(camera.position.x, camera.position.z, mesh, () => collectTool(tool));
 
   if (heldOrder.length > 0) {
@@ -965,6 +973,7 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、テーブルの端に置く
   const notebookItem = makeNotebookItemMesh();
   notebookItem.position.y = 0.75 + toolRestOffset.notebook;
+  notebookWorldMesh = notebookItem; // まだ拾われていない間も、書き込み発生時にここへ反映する
   addPickupItem(tableX, tentZ + 0.6, notebookItem, () => collectTool('notebook'));
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
@@ -1179,8 +1188,9 @@ const ghostTypes = [
 ];
 const currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
 const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry" && r.name !== "納戸"); // 納戸は階段の穴があるため除外
-const hauntedRoom = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)].bounds;
-console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
+const hauntedRoomEntry = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)];
+const hauntedRoom = hauntedRoomEntry.bounds;
+console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence, "出没部屋:", hauntedRoomEntry.name);
 
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
 let notebookWritten = false;
@@ -1681,10 +1691,12 @@ function animate() {
         notebookTimer -= delta;
         if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
           notebookWritten = true;
-          if (viewmodels.notebook && viewmodels.notebook.userData.pageCanvas) {
-            drawNotebookPage(viewmodels.notebook.userData.pageCanvas, true);
-            viewmodels.notebook.userData.pageTexture.needsUpdate = true;
-          }
+          [viewmodels.notebook, notebookWorldMesh].forEach(m => {
+            if (m && m.userData.pageCanvas) {
+              drawNotebookPage(m.userData.pageCanvas, true);
+              m.userData.pageTexture.needsUpdate = true;
+            }
+          });
         }
       }
     }
