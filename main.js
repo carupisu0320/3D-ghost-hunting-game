@@ -1260,16 +1260,16 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 13) {
   return { light, fixtureMat };
 }
 const roomLights = {
-  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 14),
-  "Master Bed Room": addRoomLight("Master Bed Room", 10),
-  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 9),
-  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 9),
-  "玄関": addRoomLight("玄関", 7),
-  "浴室・洗面": addRoomLight("浴室・洗面", 8, 0xdcecff),
-  "トイレ": addRoomLight("トイレ", 6, 0xdcecff),
-  "納戸": addRoomLight("納戸", 6),
-  "W.I.C": addRoomLight("W.I.C", 5),
-  "廊下": addRoomLight("廊下", 6),
+  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 10),
+  "Master Bed Room": addRoomLight("Master Bed Room", 7),
+  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 6),
+  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 6),
+  "玄関": addRoomLight("玄関", 5),
+  "浴室・洗面": addRoomLight("浴室・洗面", 6, 0xdcecff),
+  "トイレ": addRoomLight("トイレ", 4, 0xdcecff),
+  "納戸": addRoomLight("納戸", 4),
+  "W.I.C": addRoomLight("W.I.C", 3.5),
+  "廊下": addRoomLight("廊下", 4),
   // Pantryは壁で仕切られておらずLDKと同じ空間なので、専用の照明は持たない
 };
 
