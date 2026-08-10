@@ -773,23 +773,25 @@ function makeThermoItemMesh() {
   return group;
 }
 function makeNotebookItemMesh() {
+  // 手持ち表示では開いた状態に見えるよう、ページを表紙より上に、はっきり見える高さで重ねる
   const group = new THREE.Group();
-  const cover = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.18), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
+  const cover = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.008, 0.19), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
+  cover.position.y = -0.006;
   group.add(cover);
   // ページも書き換え可能なキャンバスにして、白紙/書き込みありを見た目で区別できるようにする
   const pageCanvas = document.createElement('canvas');
-  pageCanvas.width = 96; pageCanvas.height = 128;
+  pageCanvas.width = 128; pageCanvas.height = 160;
   drawNotebookPage(pageCanvas, false);
   const pageTexture = new THREE.CanvasTexture(pageCanvas);
-  const pages = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.16), new THREE.MeshBasicMaterial({ map: pageTexture }));
+  const pages = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.17), new THREE.MeshBasicMaterial({ map: pageTexture }));
   pages.rotation.x = -Math.PI / 2;
-  pages.position.y = -0.008;
+  pages.position.y = 0.001;
   group.add(pages);
   group.userData.pageCanvas = pageCanvas;
   group.userData.pageTexture = pageTexture;
   return group;
 }
-// ノートのページを描き直す(白紙、または幽霊が書いたような判読できない走り書き)
+// ノートのページを描き直す(白紙、または幽霊が書き込んだ魔法陣)
 function drawNotebookPage(canvas, written) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -801,19 +803,31 @@ function drawNotebookPage(canvas, written) {
     ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(w - 6, y); ctx.stroke();
   }
   if (written) {
-    ctx.strokeStyle = 'rgba(20,15,10,0.85)';
+    const cx = w / 2, cy = h / 2;
+    const r = Math.min(w, h) * 0.4;
+    ctx.strokeStyle = 'rgba(100,10,10,0.85)';
     ctx.lineWidth = 1.5;
-    for (let i = 0; i < 6; i++) {
-      const y = 18 + i * 18 + (Math.random() * 4 - 2);
+    // 二重の円
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2); ctx.stroke();
+    // 内側の五芒星
+    ctx.beginPath();
+    for (let i = 0; i <= 5; i++) {
+      const a = Math.PI * 2 * ((i * 2) % 5) / 5 - Math.PI / 2;
+      const x = cx + Math.cos(a) * r * 0.8;
+      const y = cy + Math.sin(a) * r * 0.8;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    // 円周を囲む小さな印(ルーンのような十字の刻み)
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI * 2 * i) / 8;
+      const x = cx + Math.cos(a) * r * 0.93;
+      const y = cy + Math.sin(a) * r * 0.93;
       ctx.beginPath();
-      let x = 10;
-      ctx.moveTo(x, y);
-      while (x < w - 12) {
-        const nx = x + 5 + Math.random() * 8;
-        const ny = y + (Math.random() * 8 - 4);
-        ctx.lineTo(nx, ny);
-        x = nx;
-      }
+      ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y);
+      ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3);
       ctx.stroke();
     }
   }
