@@ -1182,9 +1182,9 @@ const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pant
 const hauntedRoom = hauntableRooms[Math.floor(Math.random() * hauntableRooms.length)].bounds;
 console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
 
-// ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、しばらく持ち歩くと一度だけ書かれる)
+// ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
 let notebookWritten = false;
-let notebookTimer = 15 + Math.random() * 30; // 15〜45秒後に一度だけ判定
+let notebookTimer = 15 + Math.random() * 30;
 
 function randomPointInRoom(r, margin = 0.6) {
   return new THREE.Vector3(
@@ -1673,14 +1673,18 @@ function animate() {
       }
     }
 
-    // ノート(ゴーストライティングが証拠の幽霊なら、時間経過で一度だけ書き込みが現れる)
+    // ノート(ゴーストライティングが証拠の幽霊なら、幽霊のいる部屋に滞在した時間の合計で一度だけ書き込みが現れる)
     if (!notebookWritten && notebookTimer > 0) {
-      notebookTimer -= delta;
-      if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
-        notebookWritten = true;
-        if (viewmodels.notebook && viewmodels.notebook.userData.pageCanvas) {
-          drawNotebookPage(viewmodels.notebook.userData.pageCanvas, true);
-          viewmodels.notebook.userData.pageTexture.needsUpdate = true;
+      const inHauntedRoomForNotebook = camera.position.x >= hauntedRoom.minX && camera.position.x <= hauntedRoom.maxX &&
+        camera.position.z >= hauntedRoom.minZ && camera.position.z <= hauntedRoom.maxZ;
+      if (inHauntedRoomForNotebook) {
+        notebookTimer -= delta;
+        if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
+          notebookWritten = true;
+          if (viewmodels.notebook && viewmodels.notebook.userData.pageCanvas) {
+            drawNotebookPage(viewmodels.notebook.userData.pageCanvas, true);
+            viewmodels.notebook.userData.pageTexture.needsUpdate = true;
+          }
         }
       }
     }
