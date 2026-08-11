@@ -695,6 +695,35 @@ let hasFlashlight = false;
 let hasEMF = false;
 let hasThermometer = false;
 let hasNotebook = false;
+// 正気度(0〜100)。家の中(地下含む)にいる間だけ減っていき、30以下になると幽霊が襲ってくることがある
+let sanity = 100;
+let huntActive = false;
+let huntTimer = 0;
+let huntCheckTimer = 8; // 最初の判定までの猶予
+const sanityCanvas = document.createElement('canvas');
+sanityCanvas.width = 128; sanityCanvas.height = 96;
+const sanityTexture = new THREE.CanvasTexture(sanityCanvas);
+function drawSanityScreen(value) {
+  const ctx = sanityCanvas.getContext('2d');
+  const w = sanityCanvas.width, h = sanityCanvas.height;
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = 'bold 15px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('SANITY', w / 2, 20);
+  const barX = 10, barY = 32, barW = w - 20, barH = 18;
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(barX, barY, barW, barH);
+  const fillW = Math.max(0, barW * (value / 100));
+  ctx.fillStyle = value <= 30 ? '#ff3838' : value <= 60 ? '#ffaa33' : '#4fdc6a';
+  ctx.fillRect(barX, barY, fillW, barH);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText(`${Math.round(value)}%`, w / 2, h - 12);
+  sanityTexture.needsUpdate = true;
+}
 const pickupItems = [];
 function addPickupItem(x, z, mesh, onCollect) {
   mesh.position.x = x;
@@ -906,6 +935,16 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   backWall.position.set(tentX + depth / 2, wallH / 2, tentZ);
   backWall.castShadow = true; backWall.receiveShadow = true;
   scene.add(backWall);
+
+  // 正気度モニター(入口(-X側)を入ってすぐ左の壁。入口を向いて進む方向(+X)から見て左は-Z側の壁)
+  drawSanityScreen(sanity);
+  const sanityFrame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+  sanityFrame.position.set(tentX - 1.6, 1.5, tentZ - halfWidth + 0.03);
+  sanityFrame.castShadow = true;
+  scene.add(sanityFrame);
+  const sanityScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), new THREE.MeshBasicMaterial({ map: sanityTexture }));
+  sanityScreen.position.set(tentX - 1.6, 1.5, tentZ - halfWidth + 0.06);
+  scene.add(sanityScreen);
   wallBoxes.push({ minX: tentX + depth / 2 - 0.15, maxX: tentX + depth / 2 + 0.15, minZ: tentZ - halfWidth, maxZ: tentZ + halfWidth });
 
   // 壁の上に乗る切妻屋根(棟はX方向)
@@ -1559,6 +1598,7 @@ function drawMap() {
   mapCtx.fill();
 }
 let mapUpdateTimer = 0;
+let sanityScreenTimer = 0;
 let monitorTimer = 0;
 let monitorCycleIndex = 0; // 監視カメラは毎回1台ずつ順番に描画する(全台同時だと負荷が増えるため)
 
@@ -1629,15 +1669,36 @@ function animate() {
       if (currentRoomName !== "外") drawMap();
     }
 
+    // 正気度: 家の中(地下含む。テントや屋外は対象外)にいる間、じわじわ減っていく
+    if (currentRoomName !== "外") {
+      sanity = Math.max(0, sanity - (100 / 300) * delta); // 約5分で0まで減る計算
+    }
+    sanityScreenTimer += delta;
+    if (sanityScreenTimer > 0.5) {
+      sanityScreenTimer = 0;
+      drawSanityScreen(sanity);
+    }
+
     // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
-    const toTarget = new THREE.Vector3().subVectors(ghostTarget, ghost.position);
-    toTarget.y = 0;
-    if (toTarget.length() < 0.2) {
-      ghostTarget = randomPointInRoom(hauntedRoom);
+    // 通常は自分の部屋の中だけ徘徊。正気度が低くハント中はプレイヤーへ直進する
+    if (huntActive) {
+      const toPlayer = new THREE.Vector3().subVectors(camera.position, ghost.position);
+      toPlayer.y = 0;
+      if (toPlayer.length() > 0.1) {
+        toPlayer.normalize();
+        ghost.position.x += toPlayer.x * 2.2 * delta;
+        ghost.position.z += toPlayer.z * 2.2 * delta;
+      }
     } else {
-      toTarget.normalize();
-      ghost.position.x += toTarget.x * 1.0 * delta;
-      ghost.position.z += toTarget.z * 1.0 * delta;
+      const toTarget = new THREE.Vector3().subVectors(ghostTarget, ghost.position);
+      toTarget.y = 0;
+      if (toTarget.length() < 0.2) {
+        ghostTarget = randomPointInRoom(hauntedRoom);
+      } else {
+        toTarget.normalize();
+        ghost.position.x += toTarget.x * 1.0 * delta;
+        ghost.position.z += toTarget.z * 1.0 * delta;
+      }
     }
     ghost.position.y = 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
     ghost.rotation.y += delta * 0.5;
@@ -1649,7 +1710,34 @@ function animate() {
     const ghostDist = toGhost.length();
     toGhost.normalize();
     const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
-    ghostMaterial.opacity = lookingAtGhost ? 0.75 : 0.35;
+
+    // 正気度が30以下の間、幽霊がプレイヤーを襲いに来ることがある
+    if (sanity <= 30) {
+      if (huntActive) {
+        huntTimer -= delta;
+        if (ghostDist < 1.0) {
+          huntActive = false;
+          ghostTarget = randomPointInRoom(hauntedRoom);
+          showPickupNotice('幽霊に襲われた…');
+        } else if (huntTimer <= 0) {
+          huntActive = false;
+          ghostTarget = randomPointInRoom(hauntedRoom);
+        }
+      } else {
+        huntCheckTimer -= delta;
+        if (huntCheckTimer <= 0) {
+          huntCheckTimer = 8 + Math.random() * 10; // 次の判定まで8〜18秒
+          if (Math.random() < 0.35) {
+            huntActive = true;
+            huntTimer = 12;
+          }
+        }
+      }
+    } else if (huntActive) {
+      huntActive = false; // 正気度が30を超えていれば、進行中のハントも打ち切る
+    }
+
+    ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
 
     if (pickupNoticeTimer > 0) {
       pickupNoticeTimer -= delta;
