@@ -274,9 +274,9 @@ rooms.forEach((r) => {
 const wallBoxes = [];
 const basementWallBoxes = []; // 地下室の壁(1階にいる間は無視する)
 const wallGeometries = [];
-const doorPanelGeometries = [];
 const doorFrameGeometries = [];
 const doorHandleGeometries = [];
+const doors = []; // { hinge, isOpen, targetRotation, box, center } 開閉・当たり判定用に個別管理する
 const wallHeight = 3;
 const wallThickness = 0.2;
 const doorWidth = 1.2;
@@ -293,19 +293,26 @@ function addWallSegment(minX, maxX, minZ, maxZ) {
   wallBoxes.push({ minX, maxX, minZ, maxZ });
 }
 
+// 開け閉めできる扉(蝶番=doorAt-doorWidth/2の側。ちょうつがいのGroupごと回して開閉する)
 function addDoor(axis, fixedPos, doorAt) {
-  const panelGeo = new THREE.BoxGeometry(
-    axis === 'x' ? doorWidth : wallThickness,
-    doorHeight,
-    axis === 'x' ? wallThickness : doorWidth
-  );
   const trimW = 0.06;
   const trimDepth = wallThickness + 0.04;
   const sideLen = doorHeight + trimW;
 
   if (axis === 'x') {
-    panelGeo.translate(doorAt, doorHeight / 2, fixedPos);
-    doorPanelGeometries.push(panelGeo);
+    const hinge = new THREE.Group();
+    hinge.position.set(doorAt - doorWidth / 2, 0, fixedPos);
+    const panelGeo = new THREE.BoxGeometry(doorWidth, doorHeight, wallThickness);
+    panelGeo.translate(doorWidth / 2, doorHeight / 2, 0);
+    const panel = new THREE.Mesh(panelGeo, doorMaterial);
+    panel.castShadow = true; panel.receiveShadow = true;
+    hinge.add(panel);
+    scene.add(hinge);
+    doors.push({
+      hinge, isOpen: false, targetRotation: 0,
+      box: { minX: doorAt - doorWidth / 2, maxX: doorAt + doorWidth / 2, minZ: fixedPos - wallThickness / 2, maxZ: fixedPos + wallThickness / 2 },
+      center: { x: doorAt, z: fixedPos },
+    });
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(x => {
       const side = new THREE.BoxGeometry(trimW, sideLen, trimDepth);
@@ -326,8 +333,19 @@ function addDoor(axis, fixedPos, doorAt) {
       doorHandleGeometries.push(handle);
     });
   } else {
-    panelGeo.translate(fixedPos, doorHeight / 2, doorAt);
-    doorPanelGeometries.push(panelGeo);
+    const hinge = new THREE.Group();
+    hinge.position.set(fixedPos, 0, doorAt - doorWidth / 2);
+    const panelGeo = new THREE.BoxGeometry(wallThickness, doorHeight, doorWidth);
+    panelGeo.translate(0, doorHeight / 2, doorWidth / 2);
+    const panel = new THREE.Mesh(panelGeo, doorMaterial);
+    panel.castShadow = true; panel.receiveShadow = true;
+    hinge.add(panel);
+    scene.add(hinge);
+    doors.push({
+      hinge, isOpen: false, targetRotation: 0,
+      box: { minX: fixedPos - wallThickness / 2, maxX: fixedPos + wallThickness / 2, minZ: doorAt - doorWidth / 2, maxZ: doorAt + doorWidth / 2 },
+      center: { x: fixedPos, z: doorAt },
+    });
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(z => {
       const side = new THREE.BoxGeometry(trimDepth, sideLen, trimW);
@@ -365,10 +383,16 @@ function addWall(axis, fixedPos, from, to, doorAt) {
 
 function collidesWithWalls(x, z, radius = 0.3) {
   const boxes = onGroundFloor ? wallBoxes : basementWallBoxes;
-  return boxes.some(b =>
-    x + radius > b.minX && x - radius < b.maxX &&
-    z + radius > b.minZ && z - radius < b.maxZ
-  );
+  if (boxes.some(b => x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ)) {
+    return true;
+  }
+  if (onGroundFloor) {
+    return doors.some(d => !d.isOpen &&
+      x + radius > d.box.minX && x - radius < d.box.maxX &&
+      z + radius > d.box.minZ && z - radius < d.box.maxZ
+    );
+  }
+  return false;
 }
 
 let houseMinX, houseMaxX, houseMinZ, houseMaxZ;
@@ -412,7 +436,6 @@ function addMergedMesh(geometries, material) {
   scene.add(mesh);
 }
 addMergedMesh(wallGeometries, wallMaterial);
-addMergedMesh(doorPanelGeometries, doorMaterial);
 addMergedMesh(doorFrameGeometries, doorFrameMaterial);
 addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 
@@ -1209,7 +1232,7 @@ furnitureIn("浴室・洗面", 1.9, 0.8, 1.4, 1.4, 0.6, ceramicMaterial);
 toiletIn("トイレ", 1.0, 0.35);
 furnitureIn("納戸", 0.8, 0.5, 1.2, 0.4, 1.8);
 furnitureIn("W.I.C", 0.6, 2.5, 0.8, 0.4, 1.8);
-furnitureIn("Pantry", 0.7, 0.3, 1.2, 0.4, 1.8);
+// Pantryの棚は廊下/LDK間のドアの開閉範囲(X:1.0〜1.2)と重なっていたため削除
 
 {
   const ldk = room("Living Dining Kitchen");
@@ -1366,6 +1389,18 @@ function tryInteract() {
     breakerOn = !breakerOn;
     applyBreakerState();
     showPickupNotice(breakerOn ? 'ブレーカーを入れた' : 'ブレーカーを落とした');
+    return;
+  }
+
+  let nearestDoor = null, nearestDoorDist = 1.5;
+  for (const door of doors) {
+    const dx = camera.position.x - door.center.x, dz = camera.position.z - door.center.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d < nearestDoorDist) { nearestDoor = door; nearestDoorDist = d; }
+  }
+  if (nearestDoor) {
+    nearestDoor.isOpen = !nearestDoor.isOpen;
+    nearestDoor.targetRotation = nearestDoor.isOpen ? Math.PI / 2 : 0;
     return;
   }
 
@@ -1678,6 +1713,11 @@ function animate() {
       sanityScreenTimer = 0;
       drawSanityScreen(sanity);
     }
+
+    // 扉を目標角度(開/閉)へ滑らかに近づける
+    doors.forEach(door => {
+      door.hinge.rotation.y += (door.targetRotation - door.hinge.rotation.y) * Math.min(1, delta * 6);
+    });
 
     // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
     // 通常は自分の部屋の中だけ徘徊。正気度が低くハント中はプレイヤーへ直進する
