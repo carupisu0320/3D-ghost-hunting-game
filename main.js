@@ -275,7 +275,6 @@ const wallBoxes = [];
 const basementWallBoxes = []; // 地下室の壁(1階にいる間は無視する)
 const wallGeometries = [];
 const doorFrameGeometries = [];
-const doorHandleGeometries = [];
 const doors = []; // { hinge, isOpen, targetRotation, box, center } 開閉・当たり判定用に個別管理する
 const wallHeight = 3;
 const wallThickness = 0.2;
@@ -328,9 +327,9 @@ function addDoor(axis, fixedPos, doorAt) {
     wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(zOff => {
-      const handle = new THREE.BoxGeometry(0.035, 0.14, 0.05);
-      handle.translate(doorAt + doorWidth * 0.36, doorHeight * 0.45, fixedPos + zOff);
-      doorHandleGeometries.push(handle);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
+      handle.position.set(doorWidth * 0.86, doorHeight * 0.45, zOff);
+      hinge.add(handle);
     });
   } else {
     const hinge = new THREE.Group();
@@ -361,9 +360,9 @@ function addDoor(axis, fixedPos, doorAt) {
     wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(xOff => {
-      const handle = new THREE.BoxGeometry(0.05, 0.14, 0.035);
-      handle.translate(fixedPos + xOff, doorHeight * 0.45, doorAt + doorWidth * 0.36);
-      doorHandleGeometries.push(handle);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
+      handle.position.set(xOff, doorHeight * 0.45, doorWidth * 0.86);
+      hinge.add(handle);
     });
   }
 }
@@ -437,7 +436,6 @@ function addMergedMesh(geometries, material) {
 }
 addMergedMesh(wallGeometries, wallMaterial);
 addMergedMesh(doorFrameGeometries, doorFrameMaterial);
-addMergedMesh(doorHandleGeometries, doorHandleMaterial);
 
 // 天井
 {
