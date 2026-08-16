@@ -1472,6 +1472,104 @@ const notebookDisplay = document.createElement('div');
 notebookDisplay.style.cssText = 'position:fixed;top:72px;left:8px;color:#e8c060;font-family:monospace;font-size:14px;z-index:10;';
 document.body.appendChild(notebookDisplay);
 
+// タブキーで開く調査書(見開き)。左ページ=証拠チェック、右ページ=絞り込まれたゴースト一覧+特定ボタン
+const evidenceTypes = ["EMF5", "スピリットボックス", "ゴーストライティング", "オーブ", "冷えた温度"];
+let journalOpen = false;
+const checkedEvidence = new Set();
+let selectedGhostName = null;
+
+const journalOverlay = document.createElement('div');
+journalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;z-index:50;';
+document.body.appendChild(journalOverlay);
+
+const journalBook = document.createElement('div');
+journalBook.style.cssText = 'display:flex;width:min(860px,92vw);height:min(560px,82vh);box-shadow:0 10px 40px rgba(0,0,0,0.6);border-radius:4px;overflow:hidden;';
+journalOverlay.appendChild(journalBook);
+
+function makeJournalPage(borderSide) {
+  const page = document.createElement('div');
+  page.style.cssText = `flex:1;background:#ece3cf;color:#2a2419;font-family:Georgia,serif;padding:26px 24px;overflow-y:auto;border-${borderSide}:2px solid #b8a97e;box-sizing:border-box;`;
+  return page;
+}
+const journalLeftPage = makeJournalPage('right');
+const journalRightPage = makeJournalPage('left');
+journalBook.appendChild(journalLeftPage);
+journalBook.appendChild(journalRightPage);
+
+// 左ページ: 証拠チェックリスト
+const journalLeftTitle = document.createElement('h2');
+journalLeftTitle.textContent = '証拠';
+journalLeftTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:1px solid #b8a97e;padding-bottom:8px;';
+journalLeftPage.appendChild(journalLeftTitle);
+
+evidenceTypes.forEach(ev => {
+  const row = document.createElement('label');
+  row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:16px;cursor:pointer;';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.style.cssText = 'width:16px;height:16px;cursor:pointer;';
+  cb.addEventListener('change', () => {
+    if (cb.checked) checkedEvidence.add(ev); else checkedEvidence.delete(ev);
+    updateJournalGhostList();
+  });
+  const span = document.createElement('span');
+  span.textContent = ev;
+  row.appendChild(cb);
+  row.appendChild(span);
+  journalLeftPage.appendChild(row);
+});
+
+// 右ページ: 証拠に一致するゴーストの一覧(チェック無しなら全種類)+特定ボタン
+const journalRightTitle = document.createElement('h2');
+journalRightTitle.textContent = 'ゴーストの種類';
+journalRightTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:1px solid #b8a97e;padding-bottom:8px;';
+journalRightPage.appendChild(journalRightTitle);
+
+const journalGhostList = document.createElement('div');
+journalRightPage.appendChild(journalGhostList);
+
+const journalIdentifyBtn = document.createElement('button');
+journalIdentifyBtn.textContent = '特定';
+journalIdentifyBtn.style.cssText = 'display:none;margin-top:20px;padding:10px 28px;font-size:16px;font-family:Georgia,serif;background:#6b1f1f;color:#f0e6d2;border:none;border-radius:3px;cursor:pointer;';
+journalIdentifyBtn.addEventListener('click', () => {
+  showPickupNotice(`${selectedGhostName}と特定した`);
+  journalOpen = false;
+  journalOverlay.style.display = 'none';
+});
+journalRightPage.appendChild(journalIdentifyBtn);
+
+function updateJournalGhostList() {
+  journalGhostList.innerHTML = '';
+  const checkedList = [...checkedEvidence];
+  const matching = ghostTypes.filter(g => checkedList.every(ev => g.evidence.includes(ev)));
+  matching.forEach(g => {
+    const row = document.createElement('div');
+    const isSelected = g.name === selectedGhostName;
+    row.textContent = g.name;
+    row.style.cssText = `padding:10px 8px;font-size:17px;cursor:pointer;border-radius:3px;margin-bottom:4px;${isSelected ? 'background:#b8a97e;font-weight:bold;' : ''}`;
+    row.addEventListener('click', () => {
+      selectedGhostName = g.name;
+      journalIdentifyBtn.style.display = 'inline-block';
+      updateJournalGhostList();
+    });
+    journalGhostList.appendChild(row);
+  });
+  if (matching.length === 0) {
+    const none = document.createElement('div');
+    none.textContent = '(条件に一致するゴーストがいません)';
+    none.style.cssText = 'color:#8a7a5a;font-style:italic;padding:10px 8px;';
+    journalGhostList.appendChild(none);
+  }
+}
+updateJournalGhostList();
+
+// Tabキーで開閉。開くとポインターロックを解除してカーソルで操作できるようにする
+function toggleJournal() {
+  journalOpen = !journalOpen;
+  journalOverlay.style.display = journalOpen ? 'flex' : 'none';
+  if (journalOpen && controls.isLocked) controls.unlock();
+}
+
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
 let heldOrder = []; // 拾った道具名を、拾った順に積んでいく
 const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️', notebook: '📓' };
@@ -1557,6 +1655,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
   if (e.code === 'Digit3' && heldOrder[2]) selectTool(heldOrder[2]);
   if (e.code === 'KeyQ') dropCurrentTool();
+  if (e.code === 'Tab') { e.preventDefault(); toggleJournal(); }
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
 
