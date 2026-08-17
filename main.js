@@ -1655,7 +1655,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
   if (e.code === 'Digit3' && heldOrder[2]) selectTool(heldOrder[2]);
   if (e.code === 'KeyQ') dropCurrentTool();
-  if (e.code === 'Tab') { e.preventDefault(); toggleJournal(); }
+  if (e.code === 'KeyR') { e.preventDefault(); toggleJournal(); }
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
 
