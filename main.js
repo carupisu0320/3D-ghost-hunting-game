@@ -572,10 +572,7 @@ const breakerBox = { x: basement.minX + 0.1, z: (basement.minZ + basement.maxZ) 
 
 // ブレーカーの状態を全ての照明に反映する
 function applyBreakerState() {
-  lightSwitches.forEach(sw => {
-    sw.light.visible = sw.on && breakerOn;
-    sw.fixtureMat.emissiveIntensity = (sw.on && breakerOn) ? 1.2 : 0;
-  });
+  updateRoomLightCulling(getRoomAt(camera.position.x, camera.position.z));
   basementLight.visible = breakerOn;
   basementFixtureMat.emissiveIntensity = breakerOn ? 1.2 : 0;
   breakerLeverMat.color.set(breakerOn ? 0x2f6b2f : 0x552222);
@@ -1174,14 +1171,18 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
     wallBoxes.push({ minX: x - 0.42, maxX: x + 0.42, minZ: z - 0.42, maxZ: z + 0.42 });
   }
 
-  // テント入口(-X側)から玄関の扉まで、道の両脇に4本立てる
-  const pathStands = [
-    { x: 3.30, z: 29.03 },
-    { x: 4.68, z: 25.27 },
-    { x: 1.77, z: 22.53 },
-    { x: 3.15, z: 18.77 },
-  ];
-  const pathFacing = -2.9111; // テント側から玄関側を向く角度(ラジアン)
+  // テント入口(-X側)から玄関の扉まで、玄関とテント入口を結ぶ直線上に均等間隔で4本(交互に少しだけ左右へ振り分ける)
+  const doorPoint = new THREE.Vector2(1.7, houseMaxZ + 1.0); // 玄関を出てすぐの位置
+  const tentEntrance = new THREE.Vector2(tentX - depth / 2 - 1.0, tentZ); // テント入口の少し手前
+  const pathDir = tentEntrance.clone().sub(doorPoint).normalize();
+  const pathPerp = new THREE.Vector2(-pathDir.y, pathDir.x);
+  const pathFacing = Math.atan2(-pathDir.x, -pathDir.y); // テント側から玄関側を向く角度
+  const pathStands = [0.2, 0.4, 0.6, 0.8].map((t, i) => {
+    const base = doorPoint.clone().lerp(tentEntrance, t);
+    const side = i % 2 === 0 ? 1 : -1;
+    const p = base.addScaledVector(pathPerp, side * 1.2);
+    return { x: p.x, z: p.y };
+  });
   pathStands.forEach(p => addWorkLight(p.x, p.z, pathFacing));
 }
 
@@ -1544,14 +1545,10 @@ function updateOrb(delta) {
 // 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
 
-// 天井の照明本体(光源+見た目のランプ部分)
-function addRoomLight(name, intensity, color = 0xfff2cc, distance = 13) {
+// 天井の照明の見た目(ランプ部分)だけをここで作る。実際に光る本体(PointLight)は個別には持たせない
+function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
   const r = room(name);
   const cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
-
-  const light = new THREE.PointLight(color, intensity, distance);
-  light.position.set(cx, 2.85, cz);
-  scene.add(light);
 
   const fixtureMat = new THREE.MeshLambertMaterial({
     color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 1.2
@@ -1560,19 +1557,19 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 13) {
   fixture.position.set(cx, 2.97, cz);
   scene.add(fixture);
 
-  return { light, fixtureMat };
+  return { fixtureMat, x: cx, z: cz, y: 2.85, intensity, color, distance };
 }
 const roomLights = {
-  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 10),
-  "Master Bed Room": addRoomLight("Master Bed Room", 7),
-  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 6),
-  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 6),
-  "玄関": addRoomLight("玄関", 5),
-  "浴室・洗面": addRoomLight("浴室・洗面", 6, 0xdcecff),
-  "トイレ": addRoomLight("トイレ", 4, 0xdcecff),
-  "納戸": addRoomLight("納戸", 4),
-  "W.I.C": addRoomLight("W.I.C", 3.5),
-  "廊下": addRoomLight("廊下", 4),
+  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 8),
+  "Master Bed Room": addRoomLight("Master Bed Room", 6),
+  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 5),
+  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 5),
+  "玄関": addRoomLight("玄関", 4),
+  "浴室・洗面": addRoomLight("浴室・洗面", 5, 0xdcecff),
+  "トイレ": addRoomLight("トイレ", 3.5, 0xdcecff),
+  "納戸": addRoomLight("納戸", 3.5),
+  "W.I.C": addRoomLight("W.I.C", 3),
+  "廊下": addRoomLight("廊下", 3.5),
   // Pantryは壁で仕切られておらずLDKと同じ空間なので、専用の照明は持たない
 };
 
@@ -1588,7 +1585,7 @@ function addLightSwitch(roomName, customX, customZ) {
   mesh.castShadow = true;
   scene.add(mesh);
   const rl = roomLights[roomName];
-  lightSwitches.push({ x, z, light: rl.light, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
+  lightSwitches.push({ x, z, roomName, rl, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
 }
 rooms.forEach(r => {
   if (r.name === "Pantry") return; // 専用の照明がないので、スイッチも設置しない
@@ -1598,6 +1595,49 @@ rooms.forEach(r => {
     addLightSwitch(r.name);
   }
 });
+
+// 電気をつけた瞬間に重くなる対策: 部屋の数だけPointLightを常時有効にするのではなく、
+// 使い回す2つのPointLightだけを用意して、プレイヤーが今いる部屋(と、その一つ前にいた部屋)に
+// 位置・色・強さを合わせて移動させる方式にする。
+// (visibleを毎フレーム切り替えると、有効なライトの数がコロコロ変わってシェーダーの再コンパイルが走り、
+//  かえって重くなることがあるため、ライトの「個数」自体は増減させず、同じ2個を使い回す)
+const dynamicRoomLights = [
+  new THREE.PointLight(0xfff2cc, 0, 10),
+  new THREE.PointLight(0xfff2cc, 0, 10),
+];
+dynamicRoomLights.forEach(l => scene.add(l));
+let dynamicLightRoomNames = [null, null]; // 今どの部屋に割り当てているか(同じ部屋なら位置更新を省略できる)
+function applyDynamicLight(slot, sw) {
+  const light = dynamicRoomLights[slot];
+  if (!sw) {
+    light.intensity = 0;
+    dynamicLightRoomNames[slot] = null;
+    return;
+  }
+  if (dynamicLightRoomNames[slot] !== sw.roomName) {
+    light.position.set(sw.rl.x, sw.rl.y, sw.rl.z);
+    light.color.set(sw.rl.color);
+    light.distance = sw.rl.distance;
+    dynamicLightRoomNames[slot] = sw.roomName;
+  }
+  light.intensity = (sw.on && breakerOn) ? sw.rl.intensity : 0;
+}
+// スイッチ・ブレーカーの状態が変わった直後や、部屋を移動した直後に呼ぶ。
+// 「今いる部屋」と「ひとつ前にいた部屋」の2つだけ実際に光らせ、他はランプの発光(見た目)だけにする
+let lastRoomForLight = null, prevRoomForLight = null;
+function updateRoomLightCulling(currentRoomName) {
+  lightSwitches.forEach(sw => {
+    sw.fixtureMat.emissiveIntensity = (sw.on && breakerOn) ? 1.2 : 0;
+  });
+  if (currentRoomName && currentRoomName !== "外" && currentRoomName !== lastRoomForLight) {
+    prevRoomForLight = lastRoomForLight;
+    lastRoomForLight = currentRoomName;
+  }
+  const currentSw = lightSwitches.find(sw => sw.roomName === lastRoomForLight);
+  const prevSw = lightSwitches.find(sw => sw.roomName === prevRoomForLight);
+  applyDynamicLight(0, currentSw);
+  applyDynamicLight(1, prevSw);
+}
 applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の照明がここで消灯される
 
 // スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
@@ -1645,8 +1685,7 @@ function tryInteract() {
   }
   if (nearest) {
     nearest.on = !nearest.on;
-    nearest.light.visible = nearest.on && breakerOn;
-    nearest.fixtureMat.emissiveIntensity = (nearest.on && breakerOn) ? 1.2 : 0;
+    updateRoomLightCulling(getRoomAt(camera.position.x, camera.position.z));
     nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
     nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
   }
@@ -2247,6 +2286,7 @@ function animate() {
 
     updateHotbar();
     updateOrb(delta);
+    if (breakerOn) updateRoomLightCulling(currentRoomName); // ブレーカーが入っている間だけ、部屋移動を検知してライトの割り当てを更新する
   }
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)
