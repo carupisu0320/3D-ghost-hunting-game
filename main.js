@@ -1058,48 +1058,50 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   lantern.position.copy(lanternLight.position);
   scene.add(lantern);
 
-  // テーブルは奥の壁際(+X側)に設置
-  const tableX = tentX + depth / 2 - 0.6;
+  // テーブルは奥の壁際(+X側)に設置。道具が7種類に増えたので、余裕を持って2列に並べられるよう天板を広くする
+  const tableX = tentX + depth / 2 - 0.8;
   const tableMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1) });
-  const table = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.75, 1.4), tableMat);
+  const table = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.75, 2.0), tableMat);
   table.position.set(tableX, 0.375, tentZ);
   table.castShadow = true;
   table.receiveShadow = true;
   scene.add(table);
-  wallBoxes.push({ minX: tableX - 0.3, maxX: tableX + 0.3, minZ: tentZ - 0.7, maxZ: tentZ + 0.7 });
+  wallBoxes.push({ minX: tableX - 0.5, maxX: tableX + 0.5, minZ: tentZ - 1.0, maxZ: tentZ + 1.0 });
 
-  // 道具はテーブルの上に、左右に並べて置く(メッシュ生成・収集処理は上でモジュール直下に定義済み。捨てたときの再配置にも使い回す)
+  // 道具はテーブルの上に、手前列・奥列の2列に間隔を広めにとって並べる(メッシュ生成・収集処理は上でモジュール直下に定義済み。捨てたときの再配置にも使い回す)
+  const rowFrontX = tableX - 0.26, rowBackX = tableX + 0.26;
+
   const flashlightItem = makeFlashlightItemMesh();
   flashlightItem.position.y = 0.75 + toolRestOffset.flashlight;
-  addPickupItem(tableX, tentZ - 0.4, flashlightItem, () => collectTool('flashlight'));
+  addPickupItem(rowFrontX, tentZ - 0.75, flashlightItem, () => collectTool('flashlight'));
 
   const emfItem = makeEMFItemMesh();
   emfItem.position.y = 0.75 + toolRestOffset.emf;
-  addPickupItem(tableX, tentZ + 0.4, emfItem, () => collectTool('emf'));
+  addPickupItem(rowBackX, tentZ - 0.5, emfItem, () => collectTool('emf'));
 
-  // 温度計はテーブル中央(懐中電灯とEMFの間)に置く
+  // 温度計は手前列の中央あたりに置く
   const thermoItem = makeThermoItemMesh();
   thermoItem.position.y = 0.75 + toolRestOffset.thermometer;
-  addPickupItem(tableX, tentZ, thermoItem, () => collectTool('thermometer'));
+  addPickupItem(rowFrontX, tentZ + 0.25, thermoItem, () => collectTool('thermometer'));
 
-  // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、テーブルの端に置く
+  // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、奥列の端に置く
   const notebookItem = makeNotebookItemMesh();
   notebookItem.position.y = 0.75 + toolRestOffset.notebook;
   notebookWorldMesh = notebookItem; // まだ拾われていない間も、書き込み発生時にここへ反映する
-  addPickupItem(tableX, tentZ + 0.6, notebookItem, () => collectTool('notebook'));
+  addPickupItem(rowBackX, tentZ + 0.5, notebookItem, () => collectTool('notebook'));
 
-  // 追加の道具(スピリットボックス・UVライト・D.O.T.S)は空いている隙間に並べる
+  // 追加の道具(スピリットボックス・UVライト・D.O.T.S)も同じ2列の空いている位置に並べる
   const spiritBoxItem = makeSpiritBoxItemMesh();
   spiritBoxItem.position.y = 0.75 + toolRestOffset.spiritbox;
-  addPickupItem(tableX, tentZ - 0.6, spiritBoxItem, () => collectTool('spiritbox'));
+  addPickupItem(rowFrontX, tentZ - 0.25, spiritBoxItem, () => collectTool('spiritbox'));
 
   const uvItem = makeUVItemMesh();
   uvItem.position.y = 0.75 + toolRestOffset.uv;
-  addPickupItem(tableX, tentZ - 0.2, uvItem, () => collectTool('uv'));
+  addPickupItem(rowFrontX, tentZ + 0.75, uvItem, () => collectTool('uv'));
 
   const dotsItem = makeDotsItemMesh();
   dotsItem.position.y = 0.75 + toolRestOffset.dots;
-  addPickupItem(tableX, tentZ + 0.2, dotsItem, () => collectTool('dots'));
+  addPickupItem(rowBackX, tentZ, dotsItem, () => collectTool('dots'));
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
@@ -1423,7 +1425,7 @@ for (let i = 0; i < 6; i++) {
 }
 
 // スピリットボックスが返す単語(証拠に一致する幽霊が近くにいるときだけ、雑音の代わりにこの中から返る)
-const spiritBoxWords = ['ダレ', 'イケ', 'コワイ', 'ソコ', 'サムイ', 'タスケテ', 'ミエル', 'アッチ'];
+const spiritBoxWords = ['Y6uB4†b', 'P0см0три n4 меня', '0л4 0л4 0л4 0л4'];
 let spiritBoxTimer = 2;
 
 // 指紋(手形)のテクスチャ。手のひら+親指+4本指を手続き的に描き、UVを当てたときだけ浮かぶ薄紫の手形にする
@@ -1776,8 +1778,7 @@ journalIdentifyBtn.textContent = '特定';
 journalIdentifyBtn.style.cssText = 'display:none;margin-top:20px;padding:10px 28px;font-size:16px;font-family:Georgia,serif;background:#6b1f1f;color:#f0e6d2;border:none;border-radius:3px;cursor:pointer;';
 journalIdentifyBtn.addEventListener('click', () => {
   showPickupNotice(`${selectedGhostName}と特定した`);
-  journalOpen = false;
-  journalOverlay.style.display = 'none';
+  closeJournal();
 });
 journalRightPage.appendChild(journalIdentifyBtn);
 
@@ -1806,11 +1807,19 @@ function updateJournalGhostList() {
 }
 updateJournalGhostList();
 
-// Tabキーで開閉。開くとポインターロックを解除してカーソルで操作できるようにする
+// Tabキーで開閉。開くとポインターロックを解除してカーソルで操作できるようにし、閉じるときは自動で再ロックしてクリックし直さずに操作を続けられるようにする
+function openJournal() {
+  journalOpen = true;
+  journalOverlay.style.display = 'flex';
+  if (controls.isLocked) controls.unlock();
+}
+function closeJournal() {
+  journalOpen = false;
+  journalOverlay.style.display = 'none';
+  if (!controls.isLocked) controls.lock();
+}
 function toggleJournal() {
-  journalOpen = !journalOpen;
-  journalOverlay.style.display = journalOpen ? 'flex' : 'none';
-  if (journalOpen && controls.isLocked) controls.unlock();
+  if (journalOpen) closeJournal(); else openJournal();
 }
 
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
