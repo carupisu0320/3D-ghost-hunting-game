@@ -1172,8 +1172,9 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   }
 
   // テント入口(-X側)から玄関の扉まで、玄関とテント入口を結ぶ直線上に均等間隔で4本(交互に少しだけ左右へ振り分ける)
+  const tentDepthHalf = 2.25; // テント本体のブロックで使っているdepth(4.5)の半分。ここではブロックが別なので直接参照できず、値だけ合わせている
   const doorPoint = new THREE.Vector2(1.7, houseMaxZ + 1.0); // 玄関を出てすぐの位置
-  const tentEntrance = new THREE.Vector2(tentX - depth / 2 - 1.0, tentZ); // テント入口の少し手前
+  const tentEntrance = new THREE.Vector2(tentX - tentDepthHalf - 1.0, tentZ); // テント入口の少し手前
   const pathDir = tentEntrance.clone().sub(doorPoint).normalize();
   const pathPerp = new THREE.Vector2(-pathDir.y, pathDir.x);
   const pathFacing = Math.atan2(-pathDir.x, -pathDir.y); // テント側から玄関側を向く角度
