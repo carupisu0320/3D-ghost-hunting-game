@@ -1426,12 +1426,83 @@ for (let i = 0; i < 6; i++) {
 const spiritBoxWords = ['ダレ', 'イケ', 'コワイ', 'ソコ', 'サムイ', 'タスケテ', 'ミエル', 'アッチ'];
 let spiritBoxTimer = 2;
 
-// 指紋(UVライト)用: 幽霊が出没する部屋の中に、普段は透明な指紋マークを1つ置く。UVを当てると浮かび上がる
-const fingerprintMat = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0, depthWrite: false });
-const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9);
-const fingerprintSpot = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.16), fingerprintMat);
-fingerprintSpot.position.set(fingerprintSpotPos.x, 1.1, fingerprintSpotPos.z); // 壁や家具を模した高さに浮かべた指紋マーク(垂直面)
-scene.add(fingerprintSpot);
+// 指紋(手形)のテクスチャ。手のひら+親指+4本指を手続き的に描き、UVを当てたときだけ浮かぶ薄紫の手形にする
+function makeFingerprintTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = 'rgba(179,136,255,0.6)';
+  try { ctx.filter = 'blur(1.5px)'; } catch (e) { /* 一部環境でblurが未対応でも問題ない */ }
+  // 手のひら
+  ctx.beginPath();
+  ctx.ellipse(64, 80, 25, 30, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // 親指
+  ctx.save();
+  ctx.translate(34, 62);
+  ctx.rotate(-0.7);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 9, 19, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  // 4本指(根元の位置・長さ・傾きをそれぞれ変えて自然な形に)
+  [
+    { x: 42, len: 32, rot: -0.2 },
+    { x: 56, len: 40, rot: -0.06 },
+    { x: 72, len: 42, rot: 0.05 },
+    { x: 86, len: 34, rot: 0.18 },
+  ].forEach(f => {
+    ctx.save();
+    ctx.translate(f.x, 48);
+    ctx.rotate(f.rot);
+    ctx.beginPath();
+    ctx.ellipse(0, -f.len / 2, 6.5, f.len / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+  // うっすらとした滲み(見た目に生々しさを足す)
+  ctx.filter = 'none';
+  for (let i = 0; i < 40; i++) {
+    ctx.fillStyle = `rgba(179,136,255,${Math.random() * 0.12})`;
+    ctx.beginPath();
+    ctx.arc(20 + Math.random() * 88, 30 + Math.random() * 80, Math.random() * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// 指紋(UVライト)用: 幽霊の出没する部屋のドア(あれば)を探し、取っ手のそばに手形を貼り付ける。
+// ドアに紐づけて追加するので、ドアの開閉と一緒に動く。部屋にドアが無ければ元の場所(部屋の中のランダムな壁沿い)に浮かべる
+function doorBordersRoom(door, r, tol = 0.05) {
+  const onXWall = (Math.abs(door.center.x - r.minX) < tol || Math.abs(door.center.x - r.maxX) < tol) &&
+    door.center.z > r.minZ - tol && door.center.z < r.maxZ + tol;
+  const onZWall = (Math.abs(door.center.z - r.minZ) < tol || Math.abs(door.center.z - r.maxZ) < tol) &&
+    door.center.x > r.minX - tol && door.center.x < r.maxX + tol;
+  return onXWall || onZWall;
+}
+const fingerprintMat = new THREE.MeshBasicMaterial({ map: makeFingerprintTexture(), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+const fingerprintSpot = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.2), fingerprintMat);
+const hauntedRoomDoors = doors.filter(d => doorBordersRoom(d, hauntedRoom));
+if (hauntedRoomDoors.length > 0) {
+  const doorObj = hauntedRoomDoors[Math.floor(Math.random() * hauntedRoomDoors.length)];
+  // 扉のヒンジGroupの子として付けることで、開閉に合わせて一緒に動くようにする。取っ手のすぐ下あたりに手のひらが来るよう配置
+  const isXAxisDoor = Math.abs(doorObj.box.maxX - doorObj.box.minX) >= Math.abs(doorObj.box.maxZ - doorObj.box.minZ);
+  if (isXAxisDoor) {
+    fingerprintSpot.position.set(doorWidth * 0.72, doorHeight * 0.4, wallThickness / 2 + 0.003);
+  } else {
+    fingerprintSpot.rotation.y = Math.PI / 2;
+    fingerprintSpot.position.set(wallThickness / 2 + 0.003, doorHeight * 0.4, doorWidth * 0.72);
+  }
+  doorObj.hinge.add(fingerprintSpot);
+} else {
+  // 該当する部屋にドアが見つからなかった場合のフォールバック(部屋の中に浮かべる)
+  const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9);
+  fingerprintSpot.position.set(fingerprintSpotPos.x, 1.1, fingerprintSpotPos.z);
+  scene.add(fingerprintSpot);
+}
 
 // ゴーストオーブ(オーブを証拠に持つ幽霊のときだけ出現。肉眼では見えず、監視カメラの映像でのみ見える)
 const orbMaterial = new THREE.MeshBasicMaterial({ color: 0xddeeff, transparent: true, opacity: 0.85 });
@@ -2147,11 +2218,9 @@ function animate() {
       }
     }
 
-    // UVライト(指紋)。証拠が指紋の幽霊のときだけ、幽霊のいる部屋に置かれた指紋マークがUVを当てると浮かび上がる
+    // UVライト(指紋)。証拠が指紋の幽霊のときだけ、幽霊の部屋のドア(取っ手そば)にある手形がUVを当てると浮かび上がる
     if (fingerprintSpot) {
-      const inFingerprintRoom = camera.position.x >= hauntedRoom.minX && camera.position.x <= hauntedRoom.maxX &&
-        camera.position.z >= hauntedRoom.minZ && camera.position.z <= hauntedRoom.maxZ;
-      const showFingerprint = uvActive && inFingerprintRoom && currentGhost.evidence.includes("指紋");
+      const showFingerprint = uvActive && currentGhost.evidence.includes("指紋");
       fingerprintSpot.material.opacity = showFingerprint ? 0.85 : 0;
     }
     if (flashlight) {
