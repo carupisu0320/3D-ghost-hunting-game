@@ -716,6 +716,9 @@ let hasFlashlight = false;
 let hasEMF = false;
 let hasThermometer = false;
 let hasNotebook = false;
+let hasSpiritBox = false;
+let hasUV = false;
+let hasDots = false;
 // 正気度(0〜100)。家の中(地下含む)にいる間だけ減っていき、30以下になると幽霊が襲ってくることがある
 let sanity = 100;
 let huntActive = false;
@@ -882,10 +885,53 @@ function drawNotebookPage(canvas, written) {
     }
   }
 }
+// スピリットボックス(本体+アンテナ+スピーカーの網目)。原点は底面
+function makeSpiritBoxItemMesh() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.03), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+  body.position.y = 0.08;
+  group.add(body);
+  const grille = new THREE.Mesh(new THREE.PlaneGeometry(0.045, 0.06), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+  grille.position.set(0, 0.12, 0.016);
+  group.add(grille);
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.12, 6), new THREE.MeshLambertMaterial({ color: 0x999999 }));
+  antenna.position.set(0.02, 0.22, 0);
+  group.add(antenna);
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.008), new THREE.MeshBasicMaterial({ color: 0x2a1010 }));
+  led.position.set(0, 0.04, 0.016);
+  group.add(led);
+  group.userData.led = led;
+  return group;
+}
+// UVライト(懐中電灯より太めの筒+紫のレンズ)。原点は底面
+function makeUVItemMesh() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.032, 0.16, 10), new THREE.MeshLambertMaterial({ color: 0x1c1c1c }));
+  body.rotation.x = Math.PI / 2;
+  body.position.z = -0.02;
+  group.add(body);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.015, 10), new THREE.MeshBasicMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 1.2 }));
+  lens.rotation.x = Math.PI / 2;
+  lens.position.z = -0.1;
+  group.add(lens);
+  return group;
+}
+// D.O.T.S(三脚+投光ヘッド)。原点は底面
+function makeDotsItemMesh() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.05), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+  body.position.y = 0.045;
+  group.add(body);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.01, 10), new THREE.MeshBasicMaterial({ color: 0x33ff55, emissive: 0x33ff55, emissiveIntensity: 1.4 }));
+  lens.rotation.x = Math.PI / 2;
+  lens.position.set(0, 0.06, -0.03);
+  group.add(lens);
+  return group;
+}
 // 各道具の「置き場の面から自分の原点までの高さ」。テーブル(0.75)でも床(0)でも、この分だけ浮かせて自然に載せる
-const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.005, notebook: 0.03 };
-const toolMeshMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, notebook: makeNotebookItemMesh };
-const toolNames = { flashlight: '懐中電灯', emf: 'EMFリーダー', thermometer: '温度計', notebook: 'ノート' };
+const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.005, notebook: 0.03, spiritbox: 0, uv: 0, dots: 0.045 };
+const toolMeshMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, notebook: makeNotebookItemMesh, spiritbox: makeSpiritBoxItemMesh, uv: makeUVItemMesh, dots: makeDotsItemMesh };
+const toolNames = { flashlight: '懐中電灯', emf: 'EMFリーダー', thermometer: '温度計', notebook: 'ノート', spiritbox: 'スピリットボックス', uv: 'UVライト', dots: 'D.O.T.S投光器' };
 
 // 手元に持っている道具を画面右下に表示するビューモデル(実体はカメラの子として後で作る。ここでは表示切り替えだけ用意)
 let viewmodels = {};
@@ -903,6 +949,9 @@ function collectTool(tool) {
   else if (tool === 'emf') { hasEMF = true; emfActive = true; }
   else if (tool === 'thermometer') { hasThermometer = true; thermometerActive = true; }
   else if (tool === 'notebook') { hasNotebook = true; notebookActive = true; notebookWorldMesh = null; }
+  else if (tool === 'spiritbox') { hasSpiritBox = true; spiritBoxActive = true; }
+  else if (tool === 'uv') { hasUV = true; uvActive = true; }
+  else if (tool === 'dots') { hasDots = true; dotsActive = true; }
   showPickupNotice(`${toolNames[tool]}を入手した`);
   updateHotbar();
   updateViewmodel();
@@ -916,6 +965,9 @@ function dropCurrentTool() {
   else if (tool === 'emf') { hasEMF = false; emfActive = false; emfDisplay.textContent = ''; }
   else if (tool === 'thermometer') { hasThermometer = false; thermometerActive = false; thermoDisplay.textContent = ''; }
   else if (tool === 'notebook') { hasNotebook = false; notebookActive = false; notebookDisplay.textContent = ''; }
+  else if (tool === 'spiritbox') { hasSpiritBox = false; spiritBoxActive = false; spiritBoxDisplay.textContent = ''; }
+  else if (tool === 'uv') { hasUV = false; uvActive = false; }
+  else if (tool === 'dots') { hasDots = false; dotsActive = false; dotsDisplay.textContent = ''; }
   heldOrder = heldOrder.filter(t => t !== tool);
 
   const mesh = toolMeshMakers[tool]();
@@ -1036,6 +1088,19 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   notebookWorldMesh = notebookItem; // まだ拾われていない間も、書き込み発生時にここへ反映する
   addPickupItem(tableX, tentZ + 0.6, notebookItem, () => collectTool('notebook'));
 
+  // 追加の道具(スピリットボックス・UVライト・D.O.T.S)は空いている隙間に並べる
+  const spiritBoxItem = makeSpiritBoxItemMesh();
+  spiritBoxItem.position.y = 0.75 + toolRestOffset.spiritbox;
+  addPickupItem(tableX, tentZ - 0.6, spiritBoxItem, () => collectTool('spiritbox'));
+
+  const uvItem = makeUVItemMesh();
+  uvItem.position.y = 0.75 + toolRestOffset.uv;
+  addPickupItem(tableX, tentZ - 0.2, uvItem, () => collectTool('uv'));
+
+  const dotsItem = makeDotsItemMesh();
+  dotsItem.position.y = 0.75 + toolRestOffset.dots;
+  addPickupItem(tableX, tentZ + 0.2, dotsItem, () => collectTool('dots'));
+
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
   const monitorW = 0.6, monitorH = 0.45, monitorSpacing = 0.75;
@@ -1144,51 +1209,100 @@ function addDetailMesh(x, y, z, w, h, d, material) {
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   scene.add(mesh);
+  return mesh;
+}
+// 脚(円柱)。ベッド・ソファ・カウンター・冷蔵庫などの「浮いている感」をなくす細部パーツ
+function addLeg(x, y, z, radius, height, material = woodFurnitureMaterial) {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.1, height, 8), material);
+  mesh.position.set(x, y + height / 2, z);
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
+}
+function addLegsUnder(x, z, w, d, inset, radius, height, material) {
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+    addLeg(x + sx * (w / 2 - inset), 0, z + sz * (d / 2 - inset), radius, height, material);
+  });
 }
 
-// ベッド = 木の土台 + マットレス
+// ベッド = 脚 + 木の土台 + ヘッドボード + マットレス + 枕
 function bedIn(name, dx, dz, w, d) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
-  const frameH = 0.3, mattressH = 0.25;
-  addFurniture(x, z, w, d, frameH);
-  addDetailMesh(x, frameH + mattressH / 2, z, w * 0.92, mattressH, d * 0.92, mattressMaterial);
+  const legH = 0.14, frameH = 0.16, mattressH = 0.22;
+  addLegsUnder(x, z, w, d, 0.08, 0.025, legH, woodFurnitureMaterial);
+  addFurniture(x, z, w, d, frameH, woodFurnitureMaterial, legH); // 脚の上に土台を乗せる(判定の高さは脚込みで扱う)
+  addDetailMesh(x, legH + frameH + mattressH / 2, z, w * 0.92, mattressH, d * 0.92, mattressMaterial);
+  // ヘッドボード(部屋の入口から遠いほう=-Z側を頭側と想定)
+  const headboardH = 0.55;
+  addDetailMesh(x, legH + frameH + headboardH / 2, z - d / 2 + 0.03, w * 0.94, headboardH, 0.05, woodFurnitureMaterial);
+  // 枕(2つ、頭側に寄せて並べる)
+  const pillowY = legH + frameH + mattressH + 0.045;
+  addDetailMesh(x - w * 0.22, pillowY, z - d * 0.32, w * 0.32, 0.09, d * 0.24, ceramicMaterial);
+  addDetailMesh(x + w * 0.22, pillowY, z - d * 0.32, w * 0.32, 0.09, d * 0.24, ceramicMaterial);
 }
 
-// ソファ = 座面 + 背もたれ
+// ソファ = 脚 + 座面クッション(2分割)+ 肘掛け2つ + 背もたれクッション(2分割)
 function sofaAt(x, z, w, d) {
-  const seatH = 0.42, backH = 0.4, backT = 0.18;
-  addFurniture(x, z, w, d, seatH, fabricMaterial);
-  addDetailMesh(x, seatH + backH / 2, z + d / 2 - backT / 2, w, backH, backT, fabricMaterial);
+  const legH = 0.1, seatH = 0.32, cushionH = 0.14, backH = 0.4, backT = 0.16, armW = 0.14;
+  addLegsUnder(x, z, w, d, 0.06, 0.02, legH, handleMaterial);
+  addFurniture(x, z, w, d, seatH, fabricMaterial, legH); // 脚の上に座面ベースを乗せる
+  // 座面クッションを2つに分けて継ぎ目を見せる
+  const cushionW = (w - armW * 2 - 0.04) / 2;
+  [-1, 1].forEach(sx => {
+    addDetailMesh(x + sx * (cushionW / 2 + 0.02), legH + seatH + cushionH / 2, z - backT / 2, cushionW, cushionH, d - backT - 0.06, fabricMaterial);
+  });
+  // 肘掛け(両端、座面より少し高く)
+  const armH = 0.32;
+  [-1, 1].forEach(sx => {
+    addDetailMesh(x + sx * (w / 2 - armW / 2), legH + armH / 2, z, armW, armH, d, fabricMaterial);
+  });
+  // 背もたれクッションを2つに分けて配置
+  [-1, 1].forEach(sx => {
+    addDetailMesh(x + sx * (cushionW / 2 + 0.02), legH + seatH + backH / 2, z + d / 2 - backT / 2, cushionW, backH, backT, fabricMaterial);
+  });
 }
 
-// ワードローブ = 本体 + 中央の継ぎ目 + 取っ手2つ(部屋の内側=-X向きに面する想定)
+// ワードローブ = 本体 + 上部の見切り + 中央の縦の継ぎ目 + 取っ手2つ(部屋の内側=-X向きに面する想定)
 function wardrobeIn(name, dx, dz, w, d, h) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
   addFurniture(x, z, w, d, h, woodFurnitureMaterial);
+  addDetailMesh(x, h + 0.02, z, w + 0.03, 0.04, d + 0.03, woodFurnitureMaterial); // 上部の見切り板
   const faceX = x - w / 2 - 0.01;
-  addDetailMesh(faceX, h * 0.5, z, 0.02, h * 0.9, 0.02, handleMaterial);
+  addDetailMesh(faceX, h * 0.5, z, 0.015, h * 0.94, 0.006, handleMaterial); // 中央の縦の継ぎ目(左右の扉の境目)
   addDetailMesh(faceX - 0.02, h * 0.5, z - d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
   addDetailMesh(faceX - 0.02, h * 0.5, z + d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
 }
 
-// キッチンカウンター = 木の台 + 天板(少しはみ出す)
+// キッチンカウンター = 木の台 + 引き出し前板×2 + 取っ手 + 天板(少しはみ出す)
 function counterAt(x, z, w, d, h) {
   addFurniture(x, z, w, d, h, woodFurnitureMaterial);
   addDetailMesh(x, h + 0.03, z, w + 0.08, 0.06, d + 0.08, countertopMaterial);
+  // 引き出し前板を2枚、少し前面に張り出させて陰影を作る
+  const faceZ = z + d / 2 + 0.005;
+  const drawerW = w / 2 - 0.04;
+  [-1, 1].forEach(sx => {
+    addDetailMesh(x + sx * (drawerW / 2 + 0.02), h * 0.72, faceZ, drawerW, h * 0.32, 0.02, woodFurnitureMaterial);
+    addDetailMesh(x + sx * (drawerW / 2 + 0.02), h * 0.72, faceZ + 0.015, 0.1, 0.02, 0.02, handleMaterial);
+  });
 }
 
-// 冷蔵庫 = 本体 + 取っ手(部屋の内側=-Z向きに面する想定)
+// 冷蔵庫 = 脚 + 本体 + 冷凍庫との仕切りライン + 取っ手(部屋の内側=-Z向きに面する想定)
 function fridgeAt(x, z, w, d, h) {
-  addFurniture(x, z, w, d, h, metalMaterial);
+  const legH = 0.03;
+  addLegsUnder(x, z, w, d, 0.05, 0.015, legH, handleMaterial);
+  addFurniture(x, z, w, d, h, metalMaterial, legH);
   const faceZ = z - d / 2 - 0.01;
-  addDetailMesh(x + w * 0.15, h * 0.55, faceZ, 0.06, h * 0.5, 0.03, handleMaterial);
+  addDetailMesh(x, legH + h * 0.72, faceZ, w - 0.03, 0.012, 0.01, handleMaterial); // 冷蔵室/冷凍室の仕切りライン
+  addDetailMesh(x + w * 0.15, legH + h * 0.55, faceZ, 0.06, h * 0.35, 0.03, handleMaterial);
+  addDetailMesh(x + w * 0.15, legH + h * 0.85, faceZ, 0.05, h * 0.14, 0.03, handleMaterial);
 }
 
-function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial) {
+function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial, baseY = 0) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, h / 2, z);
+  mesh.position.set(x, baseY + h / 2, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -1198,23 +1312,42 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
-// 洗面台 = 台座 + 天板 + 蛇口
+// 洗面台 = 支柱 + 台座 + くぼんだ洗面ボウル(円柱をくぼみに見立てて縁取り)+ 蛇口
 function washstandIn(name, dx, dz, w, d, h) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
+  addLeg(x, 0, z, 0.035, h * 0.55, ceramicMaterial); // 中央の支柱
   addFurniture(x, z, w, d, h, ceramicMaterial);
-  addDetailMesh(x, h + 0.02, z, w - 0.04, 0.04, d - 0.04, ceramicMaterial);
-  addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial);
+  const basinR = Math.min(w, d) * 0.36;
+  addDetailMesh(x, h + 0.02, z, w - 0.04, 0.04, d - 0.04, ceramicMaterial); // 天板
+  const basinRim = new THREE.Mesh(new THREE.CylinderGeometry(basinR, basinR * 0.9, 0.05, 16), ceramicMaterial);
+  basinRim.position.set(x, h + 0.035, z);
+  basinRim.receiveShadow = true;
+  scene.add(basinRim);
+  const basinWell = new THREE.Mesh(new THREE.CylinderGeometry(basinR * 0.78, basinR * 0.6, 0.04, 16), new THREE.MeshLambertMaterial({ color: 0xd8d6ce }));
+  basinWell.position.set(x, h + 0.025, z);
+  basinWell.receiveShadow = true;
+  scene.add(basinWell);
+  addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial); // 蛇口の柱
+  addDetailMesh(x, h + 0.27, z - d / 2 + 0.14, 0.03, 0.03, 0.14, metalMaterial); // 蛇口の口
 }
 
-// トイレ = ボウル(当たり判定あり) + 背面のタンク(見た目のみ)
+// トイレ = ボウル(当たり判定あり) + 座面リング + 蓋 + 背面のタンク + 洗浄レバー(見た目のみ)
 function toiletIn(name, dx, dz) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
   const bowlW = 0.38, bowlD = 0.48, bowlH = 0.38;
   addFurniture(x, z, bowlW, bowlD, bowlH, ceramicMaterial);
+  // 座面リング(楕円に近づけるため薄い円柱)+ 蓋(少し立て掛けた板)
+  const seatRing = new THREE.Mesh(new THREE.CylinderGeometry(bowlW * 0.52, bowlW * 0.5, 0.03, 16), ceramicMaterial);
+  seatRing.position.set(x, bowlH + 0.02, z + bowlD * 0.05);
+  seatRing.scale.z = bowlD / bowlW * 1.05;
+  seatRing.receiveShadow = true;
+  scene.add(seatRing);
+  addDetailMesh(x, bowlH + 0.045, z - bowlD * 0.32, bowlW * 0.9, 0.025, bowlD * 0.55, ceramicMaterial); // 蓋
   const tankH = 0.32;
   addDetailMesh(x, bowlH + tankH / 2, z - bowlD / 2 + 0.09, bowlW + 0.02, tankH, 0.16, ceramicMaterial);
+  addDetailMesh(x + bowlW * 0.3, bowlH + tankH - 0.05, z - bowlD / 2 + 0.02, 0.05, 0.02, 0.03, metalMaterial); // 洗浄レバー
 }
 
 bedIn("Master Bed Room", 1.1, 1.2, 1.8, 2.0);
@@ -1240,11 +1373,16 @@ furnitureIn("W.I.C", 0.6, 2.5, 0.8, 0.4, 1.8);
   fridgeAt(ldk.minX + 2.7, ldk.maxZ - 0.6, 0.7, 0.7, 1.7);
 }
 
-// 幽霊(証拠システムの土台込み)
+// 幽霊(証拠システムの土台込み)。証拠は7種類、幽霊ごとに異なる3種の組み合わせを持つ
 const ghostTypes = [
   { name: "Spirit", evidence: ["EMF5", "スピリットボックス", "ゴーストライティング"] },
   { name: "Wraith", evidence: ["EMF5", "オーブ", "冷えた温度"] },
   { name: "Poltergeist", evidence: ["スピリットボックス", "ゴーストライティング", "冷えた温度"] },
+  { name: "Banshee", evidence: ["EMF5", "ゴーストライティング", "指紋"] },
+  { name: "Jinn", evidence: ["EMF5", "スピリットボックス", "指紋"] },
+  { name: "Mare", evidence: ["スピリットボックス", "オーブ", "指紋"] },
+  { name: "Revenant", evidence: ["ゴーストライティング", "オーブ", "D.O.T.S"] },
+  { name: "Yurei", evidence: ["冷えた温度", "指紋", "D.O.T.S"] },
 ];
 const currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
 const hauntableRooms = rooms.filter(r => r.name !== "廊下" && r.name !== "Pantry" && r.name !== "納戸"); // 納戸は階段の穴があるため除外
@@ -1272,6 +1410,28 @@ const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.2, 4, 8), ghostMat
 let ghostTarget = randomPointInRoom(hauntedRoom);
 ghost.position.copy(ghostTarget);
 scene.add(ghost);
+
+// D.O.T.S用: 幽霊の体に浮かぶ緑の光点(普段は非表示。投光器を向けたときだけ見える)
+const dotMaterial = new THREE.MeshBasicMaterial({ color: 0x33ff55 });
+const ghostDotMarkers = [];
+for (let i = 0; i < 6; i++) {
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 6), dotMaterial);
+  dot.position.set((Math.random() - 0.5) * 0.4, -0.5 + Math.random() * 1.2, (Math.random() - 0.5) * 0.2);
+  dot.visible = false;
+  ghost.add(dot);
+  ghostDotMarkers.push(dot);
+}
+
+// スピリットボックスが返す単語(証拠に一致する幽霊が近くにいるときだけ、雑音の代わりにこの中から返る)
+const spiritBoxWords = ['ダレ', 'イケ', 'コワイ', 'ソコ', 'サムイ', 'タスケテ', 'ミエル', 'アッチ'];
+let spiritBoxTimer = 2;
+
+// 指紋(UVライト)用: 幽霊が出没する部屋の中に、普段は透明な指紋マークを1つ置く。UVを当てると浮かび上がる
+const fingerprintMat = new THREE.MeshBasicMaterial({ color: 0xb388ff, transparent: true, opacity: 0, depthWrite: false });
+const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9);
+const fingerprintSpot = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.16), fingerprintMat);
+fingerprintSpot.position.set(fingerprintSpotPos.x, 1.1, fingerprintSpotPos.z); // 壁や家具を模した高さに浮かべた指紋マーク(垂直面)
+scene.add(fingerprintSpot);
 
 // ゴーストオーブ(オーブを証拠に持つ幽霊のときだけ出現。肉眼では見えず、監視カメラの映像でのみ見える)
 const orbMaterial = new THREE.MeshBasicMaterial({ color: 0xddeeff, transparent: true, opacity: 0.85 });
@@ -1369,7 +1529,8 @@ applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の
 
 // スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
 function tryInteract() {
-  const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0);
+  const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0) +
+    (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
   for (const item of pickupItems) {
     if (item.collected) continue;
     if (heldCount >= 3) break; // インベントリは3つまで
@@ -1439,6 +1600,9 @@ const viewmodelOverrides = {
   // 温度計・ノートは元々クリップしていなかったので、以前の距離感(近く・大きく)に戻す
   thermometer: { position: [0.32, -0.26, -0.5], rotation: [0.3, -0.55, 0.15], scale: 1.8 },
   notebook: { position: [0.32, -0.26, -0.5], rotation: [0.3, -0.55, 0.15], scale: 1.8 },
+  spiritbox: { position: [0.3, -0.28, -0.5], rotation: [0.2, -0.4, 0.05], scale: 1.6 },
+  uv: { rotation: [0.55, -0.4, 0.05] },
+  dots: { position: [0.32, -0.26, -0.52], rotation: [0.15, -0.4, 0.05], scale: 1.5 },
 };
 Object.keys(toolMeshMakers).forEach(tool => {
   const inner = toolMeshMakers[tool]();
@@ -1472,8 +1636,16 @@ const notebookDisplay = document.createElement('div');
 notebookDisplay.style.cssText = 'position:fixed;top:72px;left:8px;color:#e8c060;font-family:monospace;font-size:14px;z-index:10;';
 document.body.appendChild(notebookDisplay);
 
+const spiritBoxDisplay = document.createElement('div');
+spiritBoxDisplay.style.cssText = 'position:fixed;top:92px;left:8px;color:#ff66aa;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(spiritBoxDisplay);
+
+const dotsDisplay = document.createElement('div');
+dotsDisplay.style.cssText = 'position:fixed;top:112px;left:8px;color:#33ff55;font-family:monospace;font-size:14px;z-index:10;';
+document.body.appendChild(dotsDisplay);
+
 // タブキーで開く調査書(見開き)。左ページ=証拠チェック、右ページ=絞り込まれたゴースト一覧+特定ボタン
-const evidenceTypes = ["EMF5", "スピリットボックス", "ゴーストライティング", "オーブ", "冷えた温度"];
+const evidenceTypes = ["EMF5", "スピリットボックス", "ゴーストライティング", "オーブ", "冷えた温度", "指紋", "D.O.T.S"];
 let journalOpen = false;
 const checkedEvidence = new Set();
 let selectedGhostName = null;
@@ -1572,7 +1744,7 @@ function toggleJournal() {
 
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
 let heldOrder = []; // 拾った道具名を、拾った順に積んでいく
-const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️', notebook: '📓' };
+const toolIcons = { flashlight: '🔦', emf: '📡', thermometer: '🌡️', notebook: '📓', spiritbox: '📻', uv: '🔮', dots: '📽️' };
 const hotbar = document.createElement('div');
 hotbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
 document.body.appendChild(hotbar);
@@ -1602,7 +1774,10 @@ function updateHotbar() {
 let emfActive = false;
 let thermometerActive = false;
 let notebookActive = false;
-let currentTool = null; // 'flashlight' / 'emf' / 'thermometer'。持ち替えで切り替える
+let spiritBoxActive = false;
+let uvActive = false;
+let dotsActive = false;
+let currentTool = null; // 'flashlight' / 'emf' / 'thermometer' / ...。持ち替えで切り替える
 function toggleEMF() {
   if (!hasEMF) return;
   emfActive = !emfActive;
@@ -1618,16 +1793,35 @@ function toggleNotebook() {
   notebookActive = !notebookActive;
   if (!notebookActive) notebookDisplay.textContent = '';
 }
+function toggleSpiritBox() {
+  if (!hasSpiritBox) return;
+  spiritBoxActive = !spiritBoxActive;
+  if (!spiritBoxActive) spiritBoxDisplay.textContent = '';
+}
+function toggleUV() {
+  if (!hasUV) return;
+  uvActive = !uvActive;
+}
+function toggleDots() {
+  if (!hasDots) return;
+  dotsActive = !dotsActive;
+  if (!dotsActive) dotsDisplay.textContent = '';
+}
 // 数字キー(1/2/3)やゲームパッドのL/Rから、持っている道具を直接選ぶ
 function selectTool(tool) {
   currentTool = tool;
-  // フラッシュライトは持ち替えても常時点灯のまま。EMF・温度計・ノートは選んだときだけオンになる
+  // フラッシュライトは持ち替えても常時点灯のまま。それ以外は選んだときだけオンになる
   emfActive = (tool === 'emf');
   thermometerActive = (tool === 'thermometer');
   notebookActive = (tool === 'notebook');
+  spiritBoxActive = (tool === 'spiritbox');
+  uvActive = (tool === 'uv');
+  dotsActive = (tool === 'dots');
   if (!emfActive) emfDisplay.textContent = '';
   if (!thermometerActive) thermoDisplay.textContent = '';
   if (!notebookActive) notebookDisplay.textContent = '';
+  if (!spiritBoxActive) spiritBoxDisplay.textContent = '';
+  if (!dotsActive) dotsDisplay.textContent = '';
   updateHotbar();
   updateViewmodel();
 }
@@ -1645,6 +1839,12 @@ function toggleCurrentTool() {
     toggleThermometer();
   } else if (currentTool === 'notebook') {
     toggleNotebook();
+  } else if (currentTool === 'spiritbox') {
+    toggleSpiritBox();
+  } else if (currentTool === 'uv') {
+    toggleUV();
+  } else if (currentTool === 'dots') {
+    toggleDots();
   }
 }
 const keys = {};
@@ -1927,6 +2127,44 @@ function animate() {
     }
     if (notebookActive) {
       notebookDisplay.textContent = `ノート: ${notebookWritten ? '何か書かれている…' : '白紙'}`;
+    }
+
+    // スピリットボックス(Eキーでオン/オフ)。近く(6m以内)にいる間、数秒おきに雑音か応答が返る
+    if (spiritBoxActive) {
+      spiritBoxTimer -= delta;
+      if (spiritBoxTimer <= 0) {
+        spiritBoxTimer = 2 + Math.random() * 2;
+        const canRespond = currentGhost.evidence.includes("スピリットボックス") && ghostDist < 6;
+        if (canRespond && Math.random() < 0.5) {
+          const word = spiritBoxWords[Math.floor(Math.random() * spiritBoxWords.length)];
+          spiritBoxDisplay.textContent = `スピリットボックス: 「${word}」`;
+        } else {
+          spiritBoxDisplay.textContent = 'スピリットボックス: …ザザ…';
+        }
+      }
+      if (viewmodels.spiritbox && viewmodels.spiritbox.userData.led) {
+        viewmodels.spiritbox.userData.led.material.color.set(Math.random() < 0.5 ? 0xff2266 : 0x2a1010);
+      }
+    }
+
+    // UVライト(指紋)。証拠が指紋の幽霊のときだけ、幽霊のいる部屋に置かれた指紋マークがUVを当てると浮かび上がる
+    if (fingerprintSpot) {
+      const inFingerprintRoom = camera.position.x >= hauntedRoom.minX && camera.position.x <= hauntedRoom.maxX &&
+        camera.position.z >= hauntedRoom.minZ && camera.position.z <= hauntedRoom.maxZ;
+      const showFingerprint = uvActive && inFingerprintRoom && currentGhost.evidence.includes("指紋");
+      fingerprintSpot.material.opacity = showFingerprint ? 0.85 : 0;
+    }
+    if (flashlight) {
+      flashlight.color.set(uvActive ? 0x8a2be2 : 0xffeecc);
+    }
+
+    // D.O.T.S(懐中電灯のように前方へ向ける)。投光器の視界内に幽霊が入ると、体に緑の光点が浮かぶ
+    if (dotsActive) {
+      const dotsCanShow = currentGhost.evidence.includes("D.O.T.S") && lookingAtGhost && ghostDist < 5;
+      ghostDotMarkers.forEach(dot => { dot.visible = dotsCanShow; });
+      dotsDisplay.textContent = `D.O.T.S: ${dotsCanShow ? '反応あり' : '反応なし'}`;
+    } else {
+      ghostDotMarkers.forEach(dot => { dot.visible = false; });
     }
 
     updateHotbar();
