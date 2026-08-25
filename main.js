@@ -1725,8 +1725,8 @@ Object.keys(toolMeshMakers).forEach(tool => {
 
 const controls = new PointerLockControls(camera, document.body);
 const info = document.getElementById('info');
-info.addEventListener('click', () => controls.lock());
-controls.addEventListener('unlock', () => { info.textContent = 'クリックで開始'; });
+info.addEventListener('click', () => controls.lock()); // ESCで一時的に外れたときの再開クリック用
+controls.addEventListener('unlock', () => { info.textContent = 'クリックで再開'; });
 
 const emfDisplay = document.createElement('div');
 emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-family:monospace;font-size:14px;z-index:10;';
@@ -1753,6 +1753,13 @@ const evidenceTypes = ["EMF5", "スピリットボックス", "ゴーストラ�
 let journalOpen = false;
 const checkedEvidence = new Set();
 let selectedGhostName = null;
+
+// ロビーへ戻る(調査書内のボタン、またはPキーから呼ばれる)。誤操作で進行状況を失わないよう一度だけ確認する
+function returnToLobby() {
+  if (confirm('ロビーに戻りますか?(このマップでの進行状況は失われます)')) {
+    window.location.href = 'lobby.html';
+  }
+}
 
 const journalOverlay = document.createElement('div');
 journalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;z-index:50;';
@@ -1794,6 +1801,13 @@ evidenceTypes.forEach(ev => {
   row.appendChild(span);
   journalLeftPage.appendChild(row);
 });
+
+// 証拠リストの下に「ロビーに戻る」ボタンを置く(Pキーでも同じ動作)
+const journalLobbyBtn = document.createElement('button');
+journalLobbyBtn.textContent = '🚪 ロビーに戻る';
+journalLobbyBtn.style.cssText = 'display:block;margin-top:24px;padding:9px 18px;font-size:14px;font-family:Georgia,serif;background:#3a3428;color:#ece3cf;border:none;border-radius:3px;cursor:pointer;';
+journalLobbyBtn.addEventListener('click', returnToLobby);
+journalLeftPage.appendChild(journalLobbyBtn);
 
 // 右ページ: 証拠に一致するゴーストの一覧(チェック無しなら全種類)+特定ボタン
 const journalRightTitle = document.createElement('h2');
@@ -1967,6 +1981,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit3' && heldOrder[2]) selectTool(heldOrder[2]);
   if (e.code === 'KeyQ') dropCurrentTool();
   if (e.code === 'KeyR') { e.preventDefault(); toggleJournal(); }
+  if (e.code === 'KeyP') { e.preventDefault(); returnToLobby(); }
 });
 document.addEventListener('keyup', (e) => keys[e.code] = false);
 
@@ -2293,7 +2308,40 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-// 起動時に一度、家全体を巡回しながら描画しておく(影を含めた準備を済ませ、プレイ中のカクつきを減らす)
+// マップ選択画面。今は「一軒家」の1つだけだが、今後マップを追加してもここに並べていくだけで済むようにしてある
+const mapSelectOverlay = document.createElement('div');
+mapSelectOverlay.style.cssText = 'position:fixed;inset:0;background:radial-gradient(circle at center,#1a1a2a 0%,#000 100%);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:90;font-family:monospace;color:#eee;';
+document.body.appendChild(mapSelectOverlay);
+
+const mapSelectTitle = document.createElement('h1');
+mapSelectTitle.textContent = 'マップを選択';
+mapSelectTitle.style.cssText = 'font-size:20px;color:#9fd3ff;margin-bottom:20px;';
+mapSelectOverlay.appendChild(mapSelectTitle);
+
+const mapSelectGrid = document.createElement('div');
+mapSelectGrid.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;justify-content:center;max-width:720px;';
+mapSelectOverlay.appendChild(mapSelectGrid);
+
+function addMapCard(label, enabled, onSelect) {
+  const card = document.createElement('div');
+  card.style.cssText = `width:180px;height:130px;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;box-sizing:border-box;font-size:14px;border:1px solid ${enabled ? '#3a7ad9' : '#333'};background:${enabled ? '#14141c' : '#0a0a0e'};color:${enabled ? '#eee' : '#555'};cursor:${enabled ? 'pointer' : 'default'};`;
+  card.textContent = label;
+  if (enabled) {
+    card.addEventListener('mouseenter', () => { card.style.background = '#1c2438'; });
+    card.addEventListener('mouseleave', () => { card.style.background = '#14141c'; });
+    card.addEventListener('click', onSelect);
+  }
+  mapSelectGrid.appendChild(card);
+}
+addMapCard('一軒家', true, () => {
+  mapSelectOverlay.style.display = 'none';
+  info.style.display = 'block';
+  controls.lock(); // マップを選んだそのクリックがそのまま開始の合図になる(別途「クリックで開始」は挟まない)
+});
+addMapCard('近日追加予定', false, null);
+addMapCard('近日追加予定', false, null);
+
+
 const loadingDiv = document.createElement('div');
 loadingDiv.style.cssText = 'position:fixed;inset:0;background:#000;color:#0f0;font-family:monospace;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:100;';
 loadingDiv.textContent = '読み込み中...';
@@ -2332,7 +2380,7 @@ setTimeout(() => {
   renderer.setRenderTarget(null);
 
   loadingDiv.remove();
-  info.style.display = 'block';
+  mapSelectOverlay.style.display = 'flex';
   animate();
 }, 50);
 
