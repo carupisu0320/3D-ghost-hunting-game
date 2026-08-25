@@ -1825,8 +1825,13 @@ const journalIdentifyBtn = document.createElement('button');
 journalIdentifyBtn.textContent = '特定';
 journalIdentifyBtn.style.cssText = 'display:none;margin-top:20px;padding:10px 28px;font-size:16px;font-family:Georgia,serif;background:#6b1f1f;color:#f0e6d2;border:none;border-radius:3px;cursor:pointer;';
 journalIdentifyBtn.addEventListener('click', () => {
-  showPickupNotice(`${selectedGhostName}と特定した`);
-  closeJournal();
+  const correct = selectedGhostName === currentGhost.name;
+  const elapsedSeconds = gameStartTime ? Math.max(0, Math.floor((performance.now() - gameStartTime) / 1000)) : 0;
+  const reward = calculateReward(correct, elapsedSeconds);
+  // closeJournal()は「未ロックなら再ロックする」動作をするが、ここではリザルト画面操作のためカーソルを出したままにしたいので使わない
+  journalOpen = false;
+  journalOverlay.style.display = 'none';
+  showIdentifyResult(correct, elapsedSeconds, reward);
 });
 journalRightPage.appendChild(journalIdentifyBtn);
 
@@ -2053,6 +2058,51 @@ function triggerDeath() {
     resultTimeText.textContent = `生存時間: ${mm}:${ss}`;
     resultOverlay.style.display = 'flex';
   }, 1800);
+}
+
+// 特定(調査書の「特定」ボタン)を押したときのリザルト画面
+const identifyResultOverlay = document.createElement('div');
+identifyResultOverlay.style.cssText = 'position:fixed;inset:0;z-index:96;display:none;align-items:center;justify-content:center;flex-direction:column;color:#eee;font-family:monospace;background:rgba(0,0,0,0.75);';
+const identifyResultTitle = document.createElement('div');
+identifyResultTitle.style.cssText = 'font-size:30px;letter-spacing:3px;margin-bottom:18px;';
+identifyResultOverlay.appendChild(identifyResultTitle);
+const identifyResultDetail = document.createElement('div');
+identifyResultDetail.style.cssText = 'font-size:15px;color:#ccc;margin-bottom:6px;line-height:1.8;white-space:pre-line;text-align:center;';
+identifyResultOverlay.appendChild(identifyResultDetail);
+const identifyResultReward = document.createElement('div');
+identifyResultReward.style.cssText = 'font-size:26px;color:#ffd54a;margin:18px 0 28px;';
+identifyResultOverlay.appendChild(identifyResultReward);
+const identifyResultLobbyBtn = document.createElement('button');
+identifyResultLobbyBtn.textContent = 'ロビーに戻る';
+identifyResultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
+identifyResultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; });
+identifyResultOverlay.appendChild(identifyResultLobbyBtn);
+document.body.appendChild(identifyResultOverlay);
+
+// 正解かどうかと、特定にかかった時間から報酬額を計算する。
+// 正解なら基本報酬(1000円)+速く特定できたほど増えるボーナス(10分以内なら最大+1200円、それ以降はボーナス無し)。
+// 不正解でも、調査した分の参加料としてわずかに支払う
+function calculateReward(correct, elapsedSeconds) {
+  if (!correct) return 100;
+  const speedBonus = Math.max(0, Math.round((600 - Math.min(elapsedSeconds, 600)) * 2));
+  return 1000 + speedBonus;
+}
+
+function showIdentifyResult(correct, elapsedSeconds, reward) {
+  if (gameOver) return;
+  gameOver = true; // 特定が終わったらこの回のプレイは終了(ハントなども止める)
+  huntActive = false;
+  controls.unlock();
+  info.style.display = 'none';
+
+  identifyResultTitle.textContent = correct ? '特定成功!' : '特定失敗…';
+  identifyResultTitle.style.color = correct ? '#7CFC9A' : '#ff6666';
+  const mm = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+  const ss = String(elapsedSeconds % 60).padStart(2, '0');
+  identifyResultDetail.textContent =
+    `幽霊の正体: ${currentGhost.name}\nあなたの回答: ${selectedGhostName}\n特定にかかった時間: ${mm}:${ss}`;
+  identifyResultReward.textContent = `報酬: ¥${reward.toLocaleString()}`;
+  identifyResultOverlay.style.display = 'flex';
 }
 
 const keys = {};
