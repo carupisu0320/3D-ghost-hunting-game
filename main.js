@@ -308,7 +308,7 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0,
+      hinge, isOpen: false, targetRotation: 0, locked: false,
       box: { minX: doorAt - doorWidth / 2, maxX: doorAt + doorWidth / 2, minZ: fixedPos - wallThickness / 2, maxZ: fixedPos + wallThickness / 2 },
       center: { x: doorAt, z: fixedPos },
     });
@@ -341,7 +341,7 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0,
+      hinge, isOpen: false, targetRotation: 0, locked: false,
       box: { minX: fixedPos - wallThickness / 2, maxX: fixedPos + wallThickness / 2, minZ: doorAt - doorWidth / 2, maxZ: doorAt + doorWidth / 2 },
       center: { x: fixedPos, z: doorAt },
     });
@@ -1490,6 +1490,8 @@ function doorBordersRoom(door, r, tol = 0.05) {
 const fingerprintMat = new THREE.MeshBasicMaterial({ map: makeFingerprintTexture(), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
 const fingerprintSpot = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.2), fingerprintMat);
 const hauntedRoomDoors = doors.filter(d => doorBordersRoom(d, hauntedRoom));
+// 家の外に出られる唯一のドア(玄関)。ハント中はここをロックして、外に逃げられないようにする
+const exteriorDoor = doors.find(d => Math.abs(d.center.x - 1.7) < 0.01 && Math.abs(d.center.z - houseMaxZ) < 0.01);
 if (hauntedRoomDoors.length > 0) {
   const doorObj = hauntedRoomDoors[Math.floor(Math.random() * hauntedRoomDoors.length)];
   // 扉のヒンジGroupの子として付けることで、開閉に合わせて一緒に動くようにする。取っ手のすぐ下あたりに手のひらが来るよう配置
@@ -1663,6 +1665,7 @@ function tryInteract() {
     if (d < nearestDoorDist) { nearestDoor = door; nearestDoorDist = d; }
   }
   if (nearestDoor) {
+    if (nearestDoor.locked) { showPickupNotice('ドアが開かない…!'); return; }
     nearestDoor.isOpen = !nearestDoor.isOpen;
     nearestDoor.targetRotation = nearestDoor.isOpen ? Math.PI / 2 : 0;
     return;
@@ -1972,9 +1975,90 @@ function toggleCurrentTool() {
     toggleDots();
   }
 }
+// ハントに捕まったときの演出(血の画面)とリザルト画面
+function makeBloodSplatterDataURL() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 512, 512);
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * 512, y = Math.random() * 512;
+    const r = 8 + Math.random() * 42;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, `rgba(120,0,0,${0.45 + Math.random() * 0.4})`);
+    grad.addColorStop(1, 'rgba(120,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.6 + Math.random() * 0.6), Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 画面の上端から垂れる血の筋
+  for (let i = 0; i < 12; i++) {
+    const x = Math.random() * 512;
+    const len = 70 + Math.random() * 170;
+    const grad = ctx.createLinearGradient(x, 0, x, len);
+    grad.addColorStop(0, 'rgba(100,0,0,0.85)');
+    grad.addColorStop(1, 'rgba(100,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - (4 + Math.random() * 6), 0, 8 + Math.random() * 10, len);
+  }
+  return canvas.toDataURL();
+}
+const bloodOverlay = document.createElement('div');
+bloodOverlay.style.cssText = `
+  position:fixed; inset:0; z-index:95; pointer-events:none; opacity:0;
+  transition: opacity 0.15s ease-in;
+  background:
+    radial-gradient(circle, rgba(90,0,0,0.05) 0%, rgba(60,0,0,0.55) 60%, rgba(15,0,0,0.92) 100%),
+    url(${makeBloodSplatterDataURL()});
+  background-size: cover;
+`;
+document.body.appendChild(bloodOverlay);
+
+const resultOverlay = document.createElement('div');
+resultOverlay.style.cssText = 'position:fixed;inset:0;z-index:96;display:none;align-items:center;justify-content:center;flex-direction:column;color:#eee;font-family:monospace;background:rgba(0,0,0,0.55);';
+const resultTitle = document.createElement('div');
+resultTitle.textContent = 'あなたは死亡しました';
+resultTitle.style.cssText = 'font-size:34px;color:#ff4444;letter-spacing:4px;margin-bottom:18px;text-shadow:0 0 12px rgba(255,0,0,0.6);';
+resultOverlay.appendChild(resultTitle);
+const resultGhostText = document.createElement('div');
+resultGhostText.style.cssText = 'font-size:16px;margin-bottom:6px;';
+resultOverlay.appendChild(resultGhostText);
+const resultTimeText = document.createElement('div');
+resultTimeText.style.cssText = 'font-size:14px;color:#aaa;margin-bottom:28px;';
+resultOverlay.appendChild(resultTimeText);
+const resultLobbyBtn = document.createElement('button');
+resultLobbyBtn.textContent = 'ロビーに戻る';
+resultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
+resultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; });
+resultOverlay.appendChild(resultLobbyBtn);
+document.body.appendChild(resultOverlay);
+
+let gameStartTime = null; // 最初にポインターロックした時刻(生存時間の計算用)
+let gameOver = false;
+controls.addEventListener('lock', () => { if (gameStartTime === null) gameStartTime = performance.now(); });
+
+function triggerDeath() {
+  if (gameOver) return;
+  gameOver = true;
+  huntActive = false;
+  controls.unlock();
+  info.style.display = 'none';
+  bloodOverlay.style.opacity = '1';
+  setTimeout(() => {
+    resultGhostText.textContent = `幽霊の正体: ${currentGhost.name}`;
+    const survived = gameStartTime ? Math.max(0, Math.floor((performance.now() - gameStartTime) / 1000)) : 0;
+    const mm = String(Math.floor(survived / 60)).padStart(2, '0');
+    const ss = String(survived % 60).padStart(2, '0');
+    resultTimeText.textContent = `生存時間: ${mm}:${ss}`;
+    resultOverlay.style.display = 'flex';
+  }, 1800);
+}
+
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
+  if (gameOver) return; // 死亡後はリザルト画面の「ロビーに戻る」以外の操作を受け付けない
   if (e.code === 'KeyE') toggleCurrentTool();
   if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
@@ -2163,7 +2247,7 @@ function animate() {
         ghost.position.z += toTarget.z * 1.0 * delta;
       }
     }
-    ghost.position.y = 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
+    ghost.position.y = (huntActive ? (onGroundFloor ? 0 : basementFloorY) : 0) + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1; // ハント中はプレイヤーがいる階の高さに合わせて追ってくる
     ghost.rotation.y += delta * 0.5;
 
     // 懐中電灯を向けると少しはっきり見える
@@ -2174,30 +2258,37 @@ function animate() {
     toGhost.normalize();
     const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
 
-    // 正気度が30以下の間、幽霊がプレイヤーを襲いに来ることがある
+    // 正気度が30以下の間、幽霊がいつプレイヤーを襲ってきてもおかしくない状態にする
     if (sanity <= 30) {
       if (huntActive) {
         huntTimer -= delta;
         if (ghostDist < 1.0) {
-          huntActive = false;
-          ghostTarget = randomPointInRoom(hauntedRoom);
-          showPickupNotice('幽霊に襲われた…');
+          triggerDeath();
         } else if (huntTimer <= 0) {
           huntActive = false;
           ghostTarget = randomPointInRoom(hauntedRoom);
+          if (exteriorDoor) exteriorDoor.locked = false; // ハント終了、玄関のロックを解除
         }
       } else {
         huntCheckTimer -= delta;
         if (huntCheckTimer <= 0) {
-          huntCheckTimer = 8 + Math.random() * 10; // 次の判定まで8〜18秒
-          if (Math.random() < 0.35) {
+          huntCheckTimer = 1.5 + Math.random() * 2; // 1.5〜3.5秒ごとに判定するので、いつでも起こりうる
+          const chance = 0.12 + (30 - sanity) / 30 * 0.38; // 正気度が低いほど発生しやすくなる(30で12%、0で50%)
+          if (Math.random() < chance) {
             huntActive = true;
             huntTimer = 12;
+            showPickupNotice('…気配がする…');
+            if (exteriorDoor) { // 家の外に逃げられないよう、玄関を閉めてロックする
+              exteriorDoor.isOpen = false;
+              exteriorDoor.targetRotation = 0;
+              exteriorDoor.locked = true;
+            }
           }
         }
       }
     } else if (huntActive) {
       huntActive = false; // 正気度が30を超えていれば、進行中のハントも打ち切る
+      if (exteriorDoor) exteriorDoor.locked = false;
     }
 
     ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
