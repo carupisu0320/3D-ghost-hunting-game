@@ -572,7 +572,7 @@ const breakerBox = { x: basement.minX + 0.1, z: (basement.minZ + basement.maxZ) 
 
 // ブレーカーの状態を全ての照明に反映する
 function applyBreakerState() {
-  updateRoomLightCulling(getRoomAt(camera.position.x, camera.position.z));
+  updateRoomLightCulling();
   basementLight.visible = breakerOn;
   basementFixtureMat.emissiveIntensity = breakerOn ? 1.2 : 0;
   breakerLeverMat.color.set(breakerOn ? 0x2f6b2f : 0x552222);
@@ -1546,19 +1546,44 @@ function updateOrb(delta) {
 // 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
 
-// 天井の照明の見た目(ランプ部分)だけをここで作る。実際に光る本体(PointLight)は個別には持たせない
+// 天井の照明。実際に計算コストのかかるPointLightは一切使わず、
+// 「照明器具の発光」+「床に落ちる光だまり(半透明の丸いテクスチャ)」を明るくするだけの、見た目だけの仕掛けにする。
+// この方式なら、プレイヤーがどれだけ動いてもライトの数・位置は一切変わらないので、移動によるカクつきが原理的に発生しない。
+function makeGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,244,214,0.9)');
+  g.addColorStop(0.6, 'rgba(255,244,214,0.35)');
+  g.addColorStop(1, 'rgba(255,244,214,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+}
+const glowTexture = makeGlowTexture(); // 全部屋で共有する(部屋ごとに用意する必要はない)
 function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
   const r = room(name);
   const cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
 
   const fixtureMat = new THREE.MeshLambertMaterial({
-    color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 1.2
+    color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0
   });
   const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 16), fixtureMat);
   fixture.position.set(cx, 2.97, cz);
   scene.add(fixture);
 
-  return { fixtureMat, x: cx, z: cz, y: 2.85, intensity, color, distance };
+  // 床に落ちる光だまり(実際の光源ではなく、半透明の輝く円盤。加算合成っぽく見せるためdepthWriteはオフ)
+  const glowSize = Math.min(3.2, Math.max(r.maxX - r.minX, r.maxZ - r.minZ) * 0.9);
+  const glowMat = new THREE.MeshBasicMaterial({
+    map: glowTexture, color, transparent: true, opacity: 0, depthWrite: false
+  });
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(glowSize, glowSize), glowMat);
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.set(cx, 0.02, cz);
+  scene.add(glow);
+
+  return { fixtureMat, glowMat, baseGlowOpacity: Math.min(0.6, intensity / 12) };
 }
 const roomLights = {
   "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 8),
@@ -1597,47 +1622,13 @@ rooms.forEach(r => {
   }
 });
 
-// 電気をつけた瞬間に重くなる対策: 部屋の数だけPointLightを常時有効にするのではなく、
-// 使い回す2つのPointLightだけを用意して、プレイヤーが今いる部屋(と、その一つ前にいた部屋)に
-// 位置・色・強さを合わせて移動させる方式にする。
-// (visibleを毎フレーム切り替えると、有効なライトの数がコロコロ変わってシェーダーの再コンパイルが走り、
-//  かえって重くなることがあるため、ライトの「個数」自体は増減させず、同じ2個を使い回す)
-const dynamicRoomLights = [
-  new THREE.PointLight(0xfff2cc, 0, 10),
-  new THREE.PointLight(0xfff2cc, 0, 10),
-];
-dynamicRoomLights.forEach(l => scene.add(l));
-let dynamicLightRoomNames = [null, null]; // 今どの部屋に割り当てているか(同じ部屋なら位置更新を省略できる)
-function applyDynamicLight(slot, sw) {
-  const light = dynamicRoomLights[slot];
-  if (!sw) {
-    light.intensity = 0;
-    dynamicLightRoomNames[slot] = null;
-    return;
-  }
-  if (dynamicLightRoomNames[slot] !== sw.roomName) {
-    light.position.set(sw.rl.x, sw.rl.y, sw.rl.z);
-    light.color.set(sw.rl.color);
-    light.distance = sw.rl.distance;
-    dynamicLightRoomNames[slot] = sw.roomName;
-  }
-  light.intensity = (sw.on && breakerOn) ? sw.rl.intensity : 0;
-}
-// スイッチ・ブレーカーの状態が変わった直後や、部屋を移動した直後に呼ぶ。
-// 「今いる部屋」と「ひとつ前にいた部屋」の2つだけ実際に光らせ、他はランプの発光(見た目)だけにする
-let lastRoomForLight = null, prevRoomForLight = null;
-function updateRoomLightCulling(currentRoomName) {
+// スイッチ・ブレーカーが切り替わったときだけ呼ぶ(プレイヤーの位置は一切見ない=毎フレームは動かないので、移動によるコストは無い)
+function updateRoomLightCulling() {
   lightSwitches.forEach(sw => {
-    sw.fixtureMat.emissiveIntensity = (sw.on && breakerOn) ? 1.2 : 0;
+    const wantsOn = sw.on && breakerOn;
+    sw.fixtureMat.emissiveIntensity = wantsOn ? 1.2 : 0;
+    sw.rl.glowMat.opacity = wantsOn ? sw.rl.baseGlowOpacity : 0;
   });
-  if (currentRoomName && currentRoomName !== "外" && currentRoomName !== lastRoomForLight) {
-    prevRoomForLight = lastRoomForLight;
-    lastRoomForLight = currentRoomName;
-  }
-  const currentSw = lightSwitches.find(sw => sw.roomName === lastRoomForLight);
-  const prevSw = lightSwitches.find(sw => sw.roomName === prevRoomForLight);
-  applyDynamicLight(0, currentSw);
-  applyDynamicLight(1, prevSw);
 }
 applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の照明がここで消灯される
 
@@ -1686,7 +1677,7 @@ function tryInteract() {
   }
   if (nearest) {
     nearest.on = !nearest.on;
-    updateRoomLightCulling(getRoomAt(camera.position.x, camera.position.z));
+    updateRoomLightCulling();
     nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
     nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
   }
@@ -2287,7 +2278,6 @@ function animate() {
 
     updateHotbar();
     updateOrb(delta);
-    if (breakerOn) updateRoomLightCulling(currentRoomName); // ブレーカーが入っている間だけ、部屋移動を検知してライトの割り当てを更新する
   }
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)
