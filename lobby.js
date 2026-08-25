@@ -21,9 +21,9 @@ const startBtn = document.getElementById('startBtn');
 const waitingMsg = document.getElementById('waitingMsg');
 const soloBtn = document.getElementById('soloBtn');
 
-// 「1人で遊ぶ」はサーバーに一切接続せず、既存のソロプレイ用ゲーム(game/index.html)へそのまま移動する
+// 「1人で遊ぶ」はサーバーに一切接続せず、既存のソロプレイ用ゲーム(game.html)へそのまま移動する
 soloBtn.addEventListener('click', () => {
-  window.location.href = '../game/index.html';
+  window.location.href = 'game.html';
 });
 
 // ---------- 通信まわり ----------
