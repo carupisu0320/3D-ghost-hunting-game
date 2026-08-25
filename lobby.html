@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ロビー - 3D Ghost Hunting Game</title>
+    <style>
+      body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+      canvas { display: block; }
+
+      #entryScreen {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: radial-gradient(circle at center, #1a1a2a 0%, #000 100%); z-index: 20;
+      }
+      #entryBox {
+        background: #14141c; border: 1px solid #333; border-radius: 8px; padding: 28px 32px;
+        color: #eee; width: 320px;
+      }
+      #entryBox h1 { font-size: 18px; margin: 0 0 16px; color: #9fd3ff; }
+      #entryBox input {
+        width: 100%; box-sizing: border-box; padding: 8px 10px; margin-bottom: 10px;
+        background: #24242e; border: 1px solid #444; border-radius: 4px; color: #eee; font-size: 14px;
+      }
+      #entryBox button {
+        width: 100%; padding: 10px; margin-bottom: 8px; border: none; border-radius: 4px;
+        font-size: 14px; cursor: pointer;
+      }
+      #createBtn { background: #3a7ad9; color: #fff; }
+      #joinBtn { background: #2c2c38; color: #eee; }
+      #soloBtn { background: #444; color: #ddd; margin-top: 4px; }
+      #entryError { color: #ff8080; font-size: 12px; min-height: 16px; margin-top: 4px; }
+
+      #hud {
+        position: fixed; top: 8px; left: 8px; color: #9fe6a0; font-family: monospace; font-size: 13px;
+        z-index: 10; display: none; line-height: 1.6; background: rgba(0,0,0,0.35); padding: 6px 10px; border-radius: 4px;
+      }
+      #playerList { list-style: none; padding: 0; margin: 4px 0 0; }
+      #playerList li { color: #ddd; }
+
+      #clickHint {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        color: #ccc; font-family: monospace; font-size: 14px; z-index: 9; display: none;
+        background: rgba(0,0,0,0.4); padding: 6px 14px; border-radius: 4px;
+      }
+
+      #startBtn {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        padding: 12px 28px; font-size: 15px; background: #3a7ad9; color: #fff; border: none;
+        border-radius: 6px; cursor: pointer; z-index: 10; display: none;
+      }
+      #waitingMsg {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        color: #aaa; font-family: monospace; font-size: 13px; z-index: 10; display: none;
+      }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="entryScreen">
+      <div id="entryBox">
+        <h1>ゴーストハンティング ロビー</h1>
+        <input id="nameInput" type="text" placeholder="名前を入力" maxlength="12" />
+        <button id="createBtn">部屋を作成</button>
+        <hr style="border-color:#333; margin: 14px 0;" />
+        <input id="codeInput" type="text" placeholder="部屋コード(例: AB3XQ)" maxlength="5" style="text-transform:uppercase" />
+        <button id="joinBtn">コードで参加</button>
+        <div id="entryError"></div>
+        <hr style="border-color:#333; margin: 14px 0;" />
+        <button id="soloBtn">1人で遊ぶ(サーバー不要)</button>
+      </div>
+    </div>
+
+    <div id="hud">
+      部屋コード: <span id="roomCodeDisplay">-</span>(最大4人)
+      <ul id="playerList"></ul>
+    </div>
+    <div id="clickHint">クリックして視点操作を開始</div>
+    <button id="startBtn">ゲーム開始</button>
+    <div id="waitingMsg">ホストの開始を待っています…</div>
+
+    <script type="module" src="lobby.js"></script>
+  </body>
+</html>
