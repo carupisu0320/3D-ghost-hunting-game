@@ -2,6 +2,13 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // ページを再読み込みした場合は、マップの途中状態を残さずロビーへ戻す
+      const navEntry = performance.getEntriesByType('navigation')[0];
+      if (navEntry && navEntry.type === 'reload') {
+        location.replace('lobby.html');
+      }
+    </script>
     <title>3D Ghost Hunting Game</title>
     <style>
       body { margin: 0; overflow: hidden; background: #000; }
