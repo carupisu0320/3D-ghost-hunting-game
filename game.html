@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>3D Ghost Hunting Game</title>
+    <style>
+      body { margin: 0; overflow: hidden; background: #000; }
+      canvas { display: block; }
+      #info { position: fixed; top: 8px; left: 8px; color: #0f0; font-family: monospace; font-size: 14px; z-index: 10; }
+      #backToLobby {
+        position: fixed; top: 8px; right: 8px; z-index: 10; color: #9fd3ff; font-family: monospace;
+        font-size: 12px; text-decoration: none; background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 4px;
+      }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="info">クリックで開始</div>
+    <a id="backToLobby" href="../lobby-client/index.html">← ロビーに戻る</a>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
