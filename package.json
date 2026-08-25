@@ -1,0 +1,12 @@
+{
+  "name": "ghost-hunting-lobby-server",
+  "version": "1.0.0",
+  "description": "3Dゴーストハンティングゲームのマルチプレイ用ロビーサーバー",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
