@@ -10,15 +10,36 @@ function room(name) {
 }
 
 function getRoomAt(x, z) {
+  if (currentUpperFloor > 0) {
+    return rooms.find(r =>
+      r.upperFloor === currentUpperFloor &&
+      x >= r.bounds.minX && x <= r.bounds.maxX &&
+      z >= r.bounds.minZ && z <= r.bounds.maxZ
+    )?.name ?? "外";
+  }
   if (!onGroundFloor) return "地下室";
   return rooms.find(r =>
+    !r.upperFloor &&
     x >= r.bounds.minX && x <= r.bounds.maxX &&
     z >= r.bounds.minZ && z <= r.bounds.maxZ
   )?.name ?? "外";
 }
 
 
-let onGroundFloor = true; // 階段を上り下りして今いる階を判定するためのフラグ
+let onGroundFloor = true; // 階段を上り下りして今いる階(1階/地下)を判定するためのフラグ。既存マップ(一軒家)はこれだけで完結する
+
+// 2階・屋根裏など、地下とは別に「地上より上の階」を持ちたいマップ向けの仕組み。
+// 一軒家のような1階+地下だけのマップには一切影響しない(currentUpperFloorが0のときは今まで通りの分岐を通る)
+const upperFloorHeights = {}; // 階のインデックス(1,2,...) -> その階の基準Y
+const upperFloorWallBoxes = {}; // 階のインデックス -> 当たり判定の矩形一覧
+let buildingUpperFloor = 0; // 今どの階のジオメトリを組み立てているか(addWall/addFurnitureが自動でYをずらすのに使う)
+let currentUpperFloor = 0; // プレイヤーが今いる階(0=1階/地下の従来ロジックを使う、1以上=その階)
+function defineUpperFloor(index, y) {
+  upperFloorHeights[index] = y;
+  upperFloorWallBoxes[index] = [];
+}
+function setBuildingUpperFloor(i) { buildingUpperFloor = i; }
+function setCurrentUpperFloor(i) { currentUpperFloor = i; }
 
 // 床・天井に矩形の穴を開けて、その周囲を4枚の板で埋める(階段の吹き抜け用)
 function addFramedPlane(outer, hole, y, material, facingUp) {
@@ -236,10 +257,15 @@ const doorFrameMaterial = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
 const doorHandleMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
 
 function addWallSegment(minX, maxX, minZ, maxZ) {
+  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const geo = new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ);
-  geo.translate((minX + maxX) / 2, wallHeight / 2, (minZ + maxZ) / 2);
+  geo.translate((minX + maxX) / 2, y + wallHeight / 2, (minZ + maxZ) / 2);
   wallGeometries.push(geo);
-  wallBoxes.push({ minX, maxX, minZ, maxZ });
+  if (buildingUpperFloor > 0) {
+    upperFloorWallBoxes[buildingUpperFloor].push({ minX, maxX, minZ, maxZ });
+  } else {
+    wallBoxes.push({ minX, maxX, minZ, maxZ });
+  }
 }
 
 // 開け閉めできる扉(蝶番=doorAt-doorWidth/2の側。ちょうつがいのGroupごと回して開閉する)
@@ -247,10 +273,11 @@ function addDoor(axis, fixedPos, doorAt) {
   const trimW = 0.06;
   const trimDepth = wallThickness + 0.04;
   const sideLen = doorHeight + trimW;
+  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
 
   if (axis === 'x') {
     const hinge = new THREE.Group();
-    hinge.position.set(doorAt - doorWidth / 2, 0, fixedPos);
+    hinge.position.set(doorAt - doorWidth / 2, y, fixedPos);
     const panelGeo = new THREE.BoxGeometry(doorWidth, doorHeight, wallThickness);
     panelGeo.translate(doorWidth / 2, doorHeight / 2, 0);
     const panel = new THREE.Mesh(panelGeo, doorMaterial);
@@ -258,22 +285,22 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false,
+      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
       box: { minX: doorAt - doorWidth / 2, maxX: doorAt + doorWidth / 2, minZ: fixedPos - wallThickness / 2, maxZ: fixedPos + wallThickness / 2 },
       center: { x: doorAt, z: fixedPos },
     });
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(x => {
       const side = new THREE.BoxGeometry(trimW, sideLen, trimDepth);
-      side.translate(x, sideLen / 2, fixedPos);
+      side.translate(x, y + sideLen / 2, fixedPos);
       doorFrameGeometries.push(side);
     });
     const top = new THREE.BoxGeometry(doorWidth + trimW * 2, trimW, trimDepth);
-    top.translate(doorAt, doorHeight + trimW / 2, fixedPos);
+    top.translate(doorAt, y + doorHeight + trimW / 2, fixedPos);
     doorFrameGeometries.push(top);
 
     const header = new THREE.BoxGeometry(doorWidth, wallHeight - doorHeight, wallThickness);
-    header.translate(doorAt, doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
+    header.translate(doorAt, y + doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
     wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(zOff => {
@@ -283,7 +310,7 @@ function addDoor(axis, fixedPos, doorAt) {
     });
   } else {
     const hinge = new THREE.Group();
-    hinge.position.set(fixedPos, 0, doorAt - doorWidth / 2);
+    hinge.position.set(fixedPos, y, doorAt - doorWidth / 2);
     const panelGeo = new THREE.BoxGeometry(wallThickness, doorHeight, doorWidth);
     panelGeo.translate(0, doorHeight / 2, doorWidth / 2);
     const panel = new THREE.Mesh(panelGeo, doorMaterial);
@@ -291,22 +318,22 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false,
+      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
       box: { minX: fixedPos - wallThickness / 2, maxX: fixedPos + wallThickness / 2, minZ: doorAt - doorWidth / 2, maxZ: doorAt + doorWidth / 2 },
       center: { x: fixedPos, z: doorAt },
     });
 
     [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(z => {
       const side = new THREE.BoxGeometry(trimDepth, sideLen, trimW);
-      side.translate(fixedPos, sideLen / 2, z);
+      side.translate(fixedPos, y + sideLen / 2, z);
       doorFrameGeometries.push(side);
     });
     const top = new THREE.BoxGeometry(trimDepth, trimW, doorWidth + trimW * 2);
-    top.translate(fixedPos, doorHeight + trimW / 2, doorAt);
+    top.translate(fixedPos, y + doorHeight + trimW / 2, doorAt);
     doorFrameGeometries.push(top);
 
     const header = new THREE.BoxGeometry(wallThickness, wallHeight - doorHeight, doorWidth);
-    header.translate(fixedPos, doorHeight + (wallHeight - doorHeight) / 2, doorAt);
+    header.translate(fixedPos, y + doorHeight + (wallHeight - doorHeight) / 2, doorAt);
     wallGeometries.push(header);
 
     [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(xOff => {
@@ -331,12 +358,22 @@ function addWall(axis, fixedPos, from, to, doorAt) {
 }
 
 function collidesWithWalls(x, z, radius = 0.3) {
+  if (currentUpperFloor > 0) {
+    const boxes = upperFloorWallBoxes[currentUpperFloor] || [];
+    if (boxes.some(b => x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ)) {
+      return true;
+    }
+    return doors.some(d => d.upperFloor === currentUpperFloor && !d.isOpen &&
+      x + radius > d.box.minX && x - radius < d.box.maxX &&
+      z + radius > d.box.minZ && z - radius < d.box.maxZ
+    );
+  }
   const boxes = onGroundFloor ? wallBoxes : basementWallBoxes;
   if (boxes.some(b => x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ)) {
     return true;
   }
   if (onGroundFloor) {
-    return doors.some(d => !d.isOpen &&
+    return doors.some(d => !d.upperFloor && !d.isOpen &&
       x + radius > d.box.minX && x - radius < d.box.maxX &&
       z + radius > d.box.minZ && z - radius < d.box.maxZ
     );
@@ -754,12 +791,17 @@ function fridgeAt(x, z, w, d, h) {
 }
 
 function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial, baseY = 0) {
+  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, baseY + h / 2, z);
+  mesh.position.set(x, y + baseY + h / 2, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
-  wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  if (buildingUpperFloor > 0) {
+    upperFloorWallBoxes[buildingUpperFloor].push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  } else {
+    wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+  }
 }
 function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
@@ -1008,12 +1050,13 @@ const glowTexture = makeGlowTexture(); // 全部屋で共有する(部屋ごと�
 function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
   const r = room(name);
   const cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
 
   const fixtureMat = new THREE.MeshLambertMaterial({
     color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0
   });
   const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05, 16), fixtureMat);
-  fixture.position.set(cx, 2.97, cz);
+  fixture.position.set(cx, y + 2.97, cz);
   scene.add(fixture);
 
   // 床に落ちる光だまり(実際の光源ではなく、半透明の輝く円盤。加算合成っぽく見せるためdepthWriteはオフ)
@@ -1023,7 +1066,7 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
   });
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(glowSize, glowSize), glowMat);
   glow.rotation.x = -Math.PI / 2;
-  glow.position.set(cx, 0.02, cz);
+  glow.position.set(cx, y + 0.02, cz);
   scene.add(glow);
 
   return { fixtureMat, glowMat, baseGlowOpacity: Math.min(0.6, intensity / 12) };
@@ -1034,11 +1077,12 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
 const lightSwitches = [];
 function addLightSwitch(roomName, rl, customX, customZ) {
   const r = room(roomName);
+  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const x = customX !== undefined ? customX : r.maxX - 0.15;
   const z = customZ !== undefined ? customZ : r.maxZ - 0.6;
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
-  mesh.position.set(x, 1.1, z);
+  mesh.position.set(x, y + 1.1, z);
   mesh.castShadow = true;
   scene.add(mesh);
   lightSwitches.push({ x, z, roomName, rl, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
@@ -1743,7 +1787,12 @@ function animate() {
         ghost.position.z += toTarget.z * 1.0 * delta;
       }
     }
-    ghost.position.y = (huntActive ? (onGroundFloor ? 0 : basementFloorY) : 0) + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1; // ハント中はプレイヤーがいる階の高さに合わせて追ってくる
+    // ハント中はプレイヤーがいる階の高さに合わせて追ってくる(上の階にも、地下にも)
+    let huntFloorY = 0;
+    if (huntActive) {
+      huntFloorY = currentUpperFloor > 0 ? upperFloorHeights[currentUpperFloor] : (onGroundFloor ? 0 : basementFloorY);
+    }
+    ghost.position.y = huntFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
     ghost.rotation.y += delta * 0.5;
 
     // 懐中電灯を向けると少しはっきり見える
@@ -1882,9 +1931,9 @@ function animate() {
     updateOrb(delta);
   }
 
-  // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)
+  // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)。カメラが無いマップなら何もしない
   monitorTimer += delta;
-  if (monitorTimer > 0.35) {
+  if (monitorTimer > 0.35 && videoCams.length > 0) {
     monitorTimer = 0;
     const cam = videoCams[monitorCycleIndex];
     renderer.setRenderTarget(cam.rt);
@@ -1928,16 +1977,44 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// マップ選択画面でマップが選ばれたときに呼ぶ、共通の「プレイ開始」処理。
-// このクリックがそのままポインターロック開始の合図になる(別途「クリックで開始」は挟まない)
+// マップ選択画面でマップが選ばれたときに main.js から呼ぶ。マップの構築(build())は既にこの時点で終わっている前提。
+// このクリックがそのままポインターロック開始の合図になる(別途「クリックで開始」は挟まない)ので、
+// 部屋を巡回してシェーダー・影を温める処理もここで行う(選ばれなかった方のマップのぶんまで温める必要が無い)
 function enterGame() {
+  const savedX = camera.position.x, savedY = camera.position.y, savedZ = camera.position.z;
+  const savedRotY = camera.rotation.y;
+  const savedFlashIntensity = flashlight.intensity;
+  flashlight.intensity = 1.2; // 影のシェーダーも温めるため、巡回中だけ点灯させておく
+
+  rooms.forEach(r => {
+    const b = r.bounds;
+    camera.position.set((b.minX + b.maxX) / 2, savedY, (b.minZ + b.maxZ) / 2);
+    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(ry => {
+      camera.rotation.y = ry;
+      renderer.render(scene, camera);
+    });
+  });
+
+  camera.position.set(savedX, savedY, savedZ);
+  camera.rotation.y = savedRotY;
+  flashlight.intensity = savedFlashIntensity;
+
+  renderer.compile(scene, camera);
+  renderer.render(scene, camera);
+  videoCams.forEach(cam => {
+    renderer.setRenderTarget(cam.rt);
+    renderer.render(scene, cam.camera);
+  });
+  renderer.setRenderTarget(null);
+
   mapSelectOverlay.style.display = 'none';
   info.style.display = 'block';
   controls.lock();
 }
 
-// マップ(main.js側)が、自分のビルドとマップ選択への登録を全部終えた後に呼ぶ。
-// 読み込み画面 → 各部屋を一巡りして影・シェーダーを温める → マップ選択画面を表示 → animate開始、の順で進む
+// マップ(main.js側)が、マップ選択への登録を全部終えた後に呼ぶ。
+// この時点ではまだどのマップも構築されていない(選ばれてから初めてbuild()される)ので、
+// ここでの「読み込み中」はページの初期化だけを指す。部屋を巡る本格的な温めはenterGame()側で行う
 function startEngine() {
   const loadingDiv = document.createElement('div');
   loadingDiv.style.cssText = 'position:fixed;inset:0;background:#000;color:#0f0;font-family:monospace;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:100;';
@@ -1946,32 +2023,6 @@ function startEngine() {
   info.style.display = 'none';
 
   setTimeout(() => {
-    const savedX = camera.position.x, savedY = camera.position.y, savedZ = camera.position.z;
-    const savedRotY = camera.rotation.y;
-    const savedFlashIntensity = flashlight.intensity;
-    flashlight.intensity = 1.2; // 影のシェーダーも温めるため、巡回中だけ点灯させておく
-
-    rooms.forEach(r => {
-      const b = r.bounds;
-      camera.position.set((b.minX + b.maxX) / 2, 1.6, (b.minZ + b.maxZ) / 2);
-      [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(ry => {
-        camera.rotation.y = ry;
-        renderer.render(scene, camera);
-      });
-    });
-
-    camera.position.set(savedX, savedY, savedZ);
-    camera.rotation.y = savedRotY;
-    flashlight.intensity = savedFlashIntensity;
-
-    renderer.compile(scene, camera);
-    renderer.render(scene, camera);
-    videoCams.forEach(cam => {
-      renderer.setRenderTarget(cam.rt);
-      renderer.render(scene, cam.camera);
-    });
-    renderer.setRenderTarget(null);
-
     loadingDiv.remove();
     mapSelectOverlay.style.display = 'flex';
     animate();
@@ -1983,6 +2034,7 @@ export {
   THREE, mergeGeometries,
   scene, camera, renderer, controls, clock, info,
   rooms, room, getRoomAt, onGroundFloor,
+  currentUpperFloor, upperFloorHeights, defineUpperFloor, setBuildingUpperFloor, setCurrentUpperFloor,
   wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries,
   wallHeight, wallThickness, doorWidth, doorHeight,
   wallMaterial, doorMaterial, doorFrameMaterial, doorHandleMaterial,
