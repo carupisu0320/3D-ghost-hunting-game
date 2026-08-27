@@ -9,7 +9,7 @@ import {
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
   sanity, drawSanityScreen, sanityTexture,
   initHaunting, setExteriorDoor, setOrbRoom, doors,
-  onFrame, setCurrentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
+  onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
 } from './engine.js';
 
 export const mapId = 'grafton';
@@ -120,18 +120,53 @@ export function build() {
       }
     }
   }
-  // 階段の吹き抜け(1階⇔2階、2階⇔屋根裏)
-  const stairsA = { minX: 5.5, maxX: 7.5, bottomZ: 1, topZ: 5 };   // 1階Dining Room ⇔ 2階Upstairs Hallway
-  const stairsB = { minX: 5.5, maxX: 7.5, bottomZ: 7, topZ: 11 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
+  // ---- 階段の吹き抜け(1階⇔2階、2階⇔屋根裏)。通路として壁で囲い、部屋を歩いているだけでは入れないようにする ----
+  const stairsA = { minX: 5.8, maxX: 7.2, bottomZ: 1, topZ: 5 };   // 1階Dining Room ⇔ 2階Upstairs Hallway
+  const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 11 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
   layFloor({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, 0, []);                 // 1階の床(穴なし)
   layFloor({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, y2F, [stairsA]);        // 1階の天井 兼 2階の床
   layFloor({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, yAttic, [stairsB]);     // 2階の天井 兼 屋根裏の床
 
-  // ---- 階段の昇り降り(Zの位置に応じてYを補間する。毎フレームengineから呼ばれる) ----
+  // 階段の両脇に壁を立てて、通路をきちんと囲う(昇り降りの最中はどちらの階の当たり判定を見ているか変わるので、
+  // 同じ壁を行き来する両方の階の当たり判定に登録しておく)
+  [FLOOR_1F, FLOOR_2F].forEach(fl => {
+    setBuildingUpperFloor(fl);
+    addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
+    addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
+  });
+  [FLOOR_2F, FLOOR_ATTIC].forEach(fl => {
+    setBuildingUpperFloor(fl);
+    addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
+    addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
+  });
+  setBuildingUpperFloor(FLOOR_1F);
+
+  // 見た目だけの階段(踏み板を並べるだけの簡易版)
+  const stepMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#4a3a28'), 1, 1) });
+  function addSteps(stairs, baseY, topY) {
+    const stepCount = 14;
+    for (let i = 0; i < stepCount; i++) {
+      const t = i / (stepCount - 1);
+      const z = stairs.bottomZ + t * (stairs.topZ - stairs.bottomZ);
+      const stepY = baseY + t * (topY - baseY);
+      const step = new THREE.Mesh(new THREE.BoxGeometry(stairs.maxX - stairs.minX - 0.1, 0.05, (stairs.topZ - stairs.bottomZ) / stepCount + 0.02), stepMat);
+      step.position.set((stairs.minX + stairs.maxX) / 2, stepY, z);
+      step.receiveShadow = true; step.castShadow = true;
+      scene.add(step);
+    }
+  }
+  addSteps(stairsA, 0, y2F);
+  addSteps(stairsB, y2F, yAttic);
+
+  // ---- 階段の昇り降り(Zの位置に応じてYを補間する。毎フレームengineから呼ばれる)。
+  // 今いる階が、その階段がつなぐ2つの階のどちらかであるときだけ判定する(でないと、
+  // 別の階のたまたま同じX/Z座標を歩いただけで階段の判定に巻き込まれてしまう) ----
   function updateGraftonFloor() {
     const x = camera.position.x, z = camera.position.z;
-    const inA = x >= stairsA.minX && x <= stairsA.maxX && z >= stairsA.bottomZ && z <= stairsA.topZ;
-    const inB = x >= stairsB.minX && x <= stairsB.maxX && z >= stairsB.bottomZ && z <= stairsB.topZ;
+    const onFloorForA = currentUpperFloor === FLOOR_1F || currentUpperFloor === FLOOR_2F;
+    const onFloorForB = currentUpperFloor === FLOOR_2F || currentUpperFloor === FLOOR_ATTIC;
+    const inA = onFloorForA && x >= stairsA.minX && x <= stairsA.maxX && z >= stairsA.bottomZ && z <= stairsA.topZ;
+    const inB = onFloorForB && x >= stairsB.minX && x <= stairsB.maxX && z >= stairsB.bottomZ && z <= stairsB.topZ;
     if (inA) {
       const t = (z - stairsA.bottomZ) / (stairsA.topZ - stairsA.bottomZ); // 0(1階側)〜1(2階側)
       camera.position.y = t * y2F + 1.6;
