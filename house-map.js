@@ -3,6 +3,12 @@ import {
   THREE, mergeGeometries, scene, camera, rooms, room, onGroundFloor, wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, wallMaterial, doorFrameMaterial, addFramedPlane, addMergedMesh, addWall, addFurniture, makeWoodTexture, makeConcreteTexture, makeGrassTexture, scaled, woodBase, tileBase, ceramicMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addSurveillanceCamera, videoCams, addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, sanity, drawSanityScreen, sanityTexture, addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBasementFloorY, initHaunting, setExteriorDoor, setOrbRoom, onFrame, setOnGroundFloor, setNotebookWorldMesh,
 } from './engine.js';
 
+export const mapId = 'house';
+export const mapLabel = '一軒家';
+
+// 実際にこの家を組み立てる。main.js がこのマップを選んだ瞬間だけ呼ばれる(常に読み込み時に作られるわけではない)
+export function build() {
+
 // このマップの部屋一覧(engineが持つ空のroomsに登録する)
 rooms.push(
   { name: "玄関",              bounds: { minX: 0,   maxX: 1.7, minZ: 6.3, maxZ: 8.2 } },
@@ -642,5 +648,4 @@ rooms.forEach(r => {
 });
 
 // このマップの情報(main.js がマップ選択画面に登録するときに使う)
-export const mapId = 'house';
-export const mapLabel = '一軒家';
+}
