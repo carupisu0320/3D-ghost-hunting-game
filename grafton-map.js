@@ -3,10 +3,11 @@
 import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
-  addWall, makeWoodTexture, scaled, woodBase,
+  addWall, makeWoodTexture, scaled,
   addRoomLight, addLightSwitch, updateRoomLightCulling, registerBreaker,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
-  makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool,
+  makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
+  sanity, drawSanityScreen, sanityTexture,
   initHaunting, setExteriorDoor, setOrbRoom, doors,
   onFrame, setCurrentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
 } from './engine.js';
@@ -184,35 +185,166 @@ export function build() {
   registerBreaker(breakerBox, applyBreakerState);
   applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の照明がここで消灯される
 
-  // ---- 道具一式(Utility Roomの作業台に置いておく。テントは無いので、この部屋が拠点になる) ----
-  const toolTableMat = new THREE.MeshLambertMaterial({ map: scaled(woodBase, 1, 1) });
-  const toolTable = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.75, 0.6), toolTableMat);
-  toolTable.position.set(2, 0.375, 3.6);
-  toolTable.castShadow = true; toolTable.receiveShadow = true;
-  scene.add(toolTable);
-  wallBoxes.push({ minX: 0.9, maxX: 3.1, minZ: 3.3, maxZ: 3.9 });
+  // ---- 拠点のテント(家の東側、玄関と同じZに正面を合わせて設置) ----
+  const tentX = 26, tentZ = -1.0;
+  {
+    const tentMat = new THREE.MeshLambertMaterial({ color: 0x4a5540 });
+    const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
 
-  const toolSlots = [
-    ['flashlight', makeFlashlightItemMesh, 1.1],
-    ['emf', makeEMFItemMesh, 1.5],
-    ['thermometer', makeThermoItemMesh, 1.9],
-    ['notebook', makeNotebookItemMesh, 2.3],
-    ['spiritbox', makeSpiritBoxItemMesh, 2.7],
-    ['uv', makeUVItemMesh, 3.1],
-    ['dots', makeDotsItemMesh, 3.5],
-  ];
-  toolSlots.forEach(([tool, maker, x]) => {
-    const item = maker();
-    item.position.y = 0.75 + toolRestOffset[tool];
-    addPickupItem(x, 3.6, item, () => collectTool(tool));
-  });
+    // 入口は-X側(家に向く側)。側面の壁はX方向に、背面の壁はテントの+X側に
+    [1, -1].forEach(zSign => {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(depth, wallH, 0.1), tentMat);
+      wall.position.set(tentX, wallH / 2, tentZ + zSign * halfWidth);
+      wall.castShadow = true; wall.receiveShadow = true;
+      scene.add(wall);
+      wallBoxes.push({ minX: tentX - depth / 2, maxX: tentX + depth / 2, minZ: wall.position.z - 0.15, maxZ: wall.position.z + 0.15 });
+    });
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, wallH, halfWidth * 2), tentMat);
+    backWall.position.set(tentX + depth / 2, wallH / 2, tentZ);
+    backWall.castShadow = true; backWall.receiveShadow = true;
+    scene.add(backWall);
+
+    // 正気度モニター(入口を入ってすぐ左の壁)
+    drawSanityScreen(sanity);
+    const sanityFrame = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.05), new THREE.MeshLambertMaterial({ color: 0x1a1a1a }));
+    sanityFrame.position.set(tentX - 1.6, 1.5, tentZ - halfWidth + 0.03);
+    sanityFrame.castShadow = true;
+    scene.add(sanityFrame);
+    const sanityScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.32), new THREE.MeshBasicMaterial({ map: sanityTexture }));
+    sanityScreen.position.set(tentX - 1.6, 1.5, tentZ - halfWidth + 0.06);
+    scene.add(sanityScreen);
+    wallBoxes.push({ minX: tentX + depth / 2 - 0.15, maxX: tentX + depth / 2 + 0.15, minZ: tentZ - halfWidth, maxZ: tentZ + halfWidth });
+
+    // 壁の上に乗る切妻屋根(棟はX方向)
+    const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.5;
+    const angle = Math.atan2(rise, halfWidth);
+    [1, -1].forEach(zSign => {
+      const geo = new THREE.BoxGeometry(depth + 0.3, 0.25, slopeLen);
+      const mesh = new THREE.Mesh(geo, tentMat);
+      mesh.rotation.x = zSign * angle;
+      mesh.position.set(tentX, wallH + rise / 2, tentZ + zSign * halfWidth / 2);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      scene.add(mesh);
+    });
+
+    // 妻側のすき間を三角の板で塞ぐ(+X側が背面、-X側が入口)
+    {
+      const gableShape = new THREE.Shape();
+      gableShape.moveTo(-halfWidth, 0);
+      gableShape.lineTo(halfWidth, 0);
+      gableShape.lineTo(0, rise);
+      gableShape.closePath();
+      const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 0.12, bevelEnabled: false });
+      const gable = new THREE.Mesh(gableGeo, tentMat);
+      gable.rotation.y = Math.PI / 2;
+      gable.position.set(tentX + depth / 2 + 0.06, wallH, tentZ);
+      gable.castShadow = true; gable.receiveShadow = true;
+      scene.add(gable);
+    }
+
+    // テント内のランタン
+    const lanternLight = new THREE.PointLight(0xffcc77, 4, 7);
+    lanternLight.position.set(tentX + 1.6, wallH + 0.4, tentZ);
+    scene.add(lanternLight);
+    const lanternMat = new THREE.MeshLambertMaterial({ color: 0xffdd99, emissive: 0xffaa44, emissiveIntensity: 1.5 });
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), lanternMat);
+    lantern.position.copy(lanternLight.position);
+    scene.add(lantern);
+
+    // テーブルと道具(2列に並べる)
+    const tableX = tentX + depth / 2 - 0.8;
+    const tableMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1) });
+    const table = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.75, 2.0), tableMat);
+    table.position.set(tableX, 0.375, tentZ);
+    table.castShadow = true; table.receiveShadow = true;
+    scene.add(table);
+    wallBoxes.push({ minX: tableX - 0.5, maxX: tableX + 0.5, minZ: tentZ - 1.0, maxZ: tentZ + 1.0 });
+
+    const rowFrontX = tableX - 0.26, rowBackX = tableX + 0.26;
+    const toolSlots = [
+      ['flashlight', makeFlashlightItemMesh, rowFrontX, tentZ - 0.75],
+      ['emf', makeEMFItemMesh, rowBackX, tentZ - 0.5],
+      ['thermometer', makeThermoItemMesh, rowFrontX, tentZ + 0.25],
+      ['spiritbox', makeSpiritBoxItemMesh, rowFrontX, tentZ - 0.25],
+      ['uv', makeUVItemMesh, rowFrontX, tentZ + 0.75],
+      ['dots', makeDotsItemMesh, rowBackX, tentZ],
+    ];
+    toolSlots.forEach(([tool, maker, x, z]) => {
+      const item = maker();
+      item.position.y = 0.75 + toolRestOffset[tool];
+      addPickupItem(x, z, item, () => collectTool(tool));
+    });
+    const notebookItem = makeNotebookItemMesh();
+    notebookItem.position.y = 0.75 + toolRestOffset.notebook;
+    setNotebookWorldMesh(notebookItem);
+    addPickupItem(rowBackX, tentZ + 0.5, notebookItem, () => collectTool('notebook'));
+  }
+
+  // ---- テントから玄関までの導線を照らす作業灯 ----
+  {
+    const legMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+    const headMat = new THREE.MeshLambertMaterial({ color: 0x2d5c3f });
+    const lensMat = new THREE.MeshLambertMaterial({ color: 0xfffbe0, emissive: 0xfffbe0, emissiveIntensity: 1.4 });
+
+    function addLegBetween(group, from, to) {
+      const dir = to.clone().sub(from);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, dir.length(), 6), legMat);
+      leg.position.copy(from).add(to).multiplyScalar(0.5);
+      leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      group.add(leg);
+    }
+    function addWorkLight(x, z, facingAngle) {
+      const group = new THREE.Group();
+      const hub = new THREE.Vector3(0, 0.55, 0);
+      for (let i = 0; i < 3; i++) {
+        const angle = (i / 3) * Math.PI * 2;
+        addLegBetween(group, hub, new THREE.Vector3(Math.cos(angle) * 0.4, 0, Math.sin(angle) * 0.4));
+      }
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.026, 1.2, 8), legMat);
+      pole.position.y = 1.15;
+      group.add(pole);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.03), legMat);
+      bar.position.y = 1.75;
+      group.add(bar);
+      [-0.18, 0.18].forEach(dx => {
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.06), headMat);
+        head.position.set(dx, 1.75, 0.045);
+        group.add(head);
+        const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.11), lensMat);
+        lens.position.set(dx, 1.75, 0.076);
+        group.add(lens);
+      });
+      group.position.set(x, 0, z);
+      group.rotation.y = facingAngle;
+      group.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      scene.add(group);
+      const light = new THREE.PointLight(0xfff6e0, 6, 11);
+      light.position.set(x, 1.75, z);
+      scene.add(light);
+      wallBoxes.push({ minX: x - 0.42, maxX: x + 0.42, minZ: z - 0.42, maxZ: z + 0.42 });
+    }
+
+    const tentDepthHalf = 2.25;
+    const doorPoint = new THREE.Vector2(11, -1.0); // 玄関を出てすぐの位置
+    const tentEntrance = new THREE.Vector2(tentX - tentDepthHalf - 1.0, tentZ);
+    const pathDir = tentEntrance.clone().sub(doorPoint).normalize();
+    const pathPerp = new THREE.Vector2(-pathDir.y, pathDir.x);
+    const pathFacing = Math.atan2(-pathDir.x, -pathDir.y);
+    const pathStands = [0.2, 0.4, 0.6, 0.8].map((t, i) => {
+      const base = doorPoint.clone().lerp(tentEntrance, t);
+      const side = i % 2 === 0 ? 1 : -1;
+      const p = base.addScaledVector(pathPerp, side * 1.2);
+      return { x: p.x, z: p.y };
+    });
+    pathStands.forEach(p => addWorkLight(p.x, p.z, pathFacing));
+  }
 
   // ---- 幽霊の出没部屋(Upstairs Hallwayは通路なので除外) ----
   const hauntableRooms = rooms.filter(r => !r.hallway);
   initHaunting(hauntableRooms);
   setOrbRoom(room("Dining Room"));
 
-  // ---- スポーン地点(玄関を入ってすぐのFoyer) ----
-  camera.position.set(11, 1.6, 1.5);
-  camera.rotation.y = Math.PI;
+  // ---- スポーン地点(テント入口を入ってすぐ) ----
+  camera.position.set(tentX - 1.2, 1.6, tentZ);
+  camera.rotation.y = -Math.PI / 2;
 }
