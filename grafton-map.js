@@ -19,8 +19,8 @@ export const mapLabel = 'Grafton Farmhouse';
 export function build() {
   // ---- 階の基準Yを決める(1階=0、2階=3.3、屋根裏=6.6) ----
   const FLOOR_1F = 0, FLOOR_2F = 1, FLOOR_ATTIC = 2;
-  const y2F = wallHeight + 0.3;   // 3.3
-  const yAttic = y2F * 2;         // 6.6
+  const y2F = wallHeight;   // 3 (階と階の間に隙間を作らない。壁がそのまま次の階の壁の土台になる)
+  const yAttic = y2F * 2;   // 6
   defineUpperFloor(FLOOR_2F, y2F);
   defineUpperFloor(FLOOR_ATTIC, yAttic);
 
@@ -122,18 +122,15 @@ export function build() {
   addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, true);    // 1階の天井 兼 2階の床(stairsAの穴)
   addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, true); // 2階の天井 兼 屋根裏の床(stairsBの穴)
 
-  // 階段の両脇に壁を立てて、通路をきちんと囲う(昇り降りの最中はどちらの階の当たり判定を見ているか変わるので、
-  // 同じ壁を行き来する両方の階の当たり判定に登録しておく)
-  [FLOOR_1F, FLOOR_2F].forEach(fl => {
-    setBuildingUpperFloor(fl);
-    addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
-    addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
-  });
-  [FLOOR_2F, FLOOR_ATTIC].forEach(fl => {
-    setBuildingUpperFloor(fl);
-    addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
-    addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
-  });
+  // 階段の両脇に壁を立てて、通路をきちんと囲う。1階分の高さ(wallHeight)だけあれば階段自体は覆えるので、
+  // 上側の階でも同じ壁を作ると2階分の高さに積み上がって不自然に大きくなってしまう。見た目は下側の階でだけ作る
+  // (昇っている間、後半だけ横方向の当たり判定が緩くなるが、通路の外に出ても見た目上の壁の大きさの方を優先する)
+  setBuildingUpperFloor(FLOOR_1F);
+  addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
+  addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
+  setBuildingUpperFloor(FLOOR_2F);
+  addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
+  addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
   setBuildingUpperFloor(FLOOR_1F);
 
   // 見た目だけの階段(踏み板を並べるだけの簡易版)
