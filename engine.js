@@ -1145,6 +1145,7 @@ function tryInteract() {
 
   let nearestDoor = null, nearestDoorDist = 1.5;
   for (const door of doors) {
+    if ((door.upperFloor || 0) !== currentUpperFloor) continue; // 違う階に同じX/Zの扉があっても混同しない
     const dx = camera.position.x - door.center.x, dz = camera.position.z - door.center.z;
     const d = Math.sqrt(dx * dx + dz * dz);
     if (d < nearestDoorDist) { nearestDoor = door; nearestDoorDist = d; }
