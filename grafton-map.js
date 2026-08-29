@@ -106,7 +106,7 @@ export function build() {
   const floorMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 7, 7), side: THREE.DoubleSide });
 
   // ---- 階段の吹き抜け(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。通路として壁で囲う ----
-  const stairsA = { minX: 8.1, maxX: 9.4, bottomZ: 1, topZ: 5 };   // 1階Foyer ⇔ 2階Upstairs Hallway
+  const stairsA = { minX: 8.1, maxX: 9.4, bottomZ: 1.5, topZ: 4 };   // 1階Foyer ⇔ 2階Upstairs Hallway(奥行きを詰めた)
   const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 11 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
   const holeA = { minX: stairsA.minX, maxX: stairsA.maxX, minZ: stairsA.bottomZ, maxZ: stairsA.topZ };
   const holeB = { minX: stairsB.minX, maxX: stairsB.maxX, minZ: stairsB.bottomZ, maxZ: stairsB.topZ };
