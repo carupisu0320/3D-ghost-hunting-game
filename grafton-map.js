@@ -63,6 +63,8 @@ export function build() {
   addWall('z', 4, 8, 13, 10.5); // Utility Room / Library
   addWall('x', 8, 4, 8, 6);     // Dining Room / Library
   addWall('z', 8, 5, 8, 6.5);   // Dining Room / Work Room
+  addWall('z', 8, 8, 10, 9);    // Library / Work Room(壁が抜けていたので追加)
+  addWall('z', 8, 10, 13, 11.5); // Library / Downstairs Bathroom(壁が抜けていたので追加)
   addWall('x', 5, 8, 13, 11);   // Foyer / Work Room(階段から離して東寄りに)
   addWall('x', 10, 8, 13, 11);  // Work Room / Downstairs Bathroom
   // Foyer / Dining Roomの間は、階段の通路そのものなのであえて壁を作らない(階段側で塞ぐ)
@@ -106,7 +108,7 @@ export function build() {
   const floorMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 7, 7), side: THREE.DoubleSide });
 
   // ---- 階段の吹き抜け(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。通路として壁で囲う ----
-  const stairsA = { minX: 8.1, maxX: 9.4, bottomZ: 1.5, topZ: 4 };   // 1階Foyer ⇔ 2階Upstairs Hallway(奥行きを詰めた)
+  const stairsA = { minX: 8.0, maxX: 9.6, bottomZ: 1.8, topZ: 3.6 };   // 1階Foyer ⇔ 2階Upstairs Hallway(幅を広く・奥行きを急に)
   const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 11 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
   const holeA = { minX: stairsA.minX, maxX: stairsA.maxX, minZ: stairsA.bottomZ, maxZ: stairsA.topZ };
   const holeB = { minX: stairsB.minX, maxX: stairsB.maxX, minZ: stairsB.bottomZ, maxZ: stairsB.topZ };
