@@ -1105,6 +1105,8 @@ function registerBreaker(box, onToggle) {
   breakerBox = box;
   onBreakerToggle = onToggle;
 }
+// マップ側から直接ブレーカーの状態を変えたいとき用(テストプレイで最初から電気を点けておきたい場合など)
+function setBreakerOn(v) { breakerOn = v; }
 // 地下室の深さなど、階をまたぐ演出(ハント中の幽霊の追跡など)に使うマップ固有の値。マップ側が設定する
 let basementFloorY = 0;
 function setBasementFloorY(y) { basementFloorY = y; }
@@ -2059,7 +2061,7 @@ export {
   showPickupNotice,
   sanity, drawSanityScreen, sanityTexture,
   addRoomLight, addLightSwitch, lightSwitches, updateRoomLightCulling,
-  breakerOn, registerBreaker, setBasementFloorY,
+  breakerOn, registerBreaker, setBreakerOn, setBasementFloorY,
   ghostTypes, initHaunting, setExteriorDoor, setOrbRoom, currentGhost, hauntedRoom, ghost,
   onFrame,
   addMapCard, startEngine, enterGame,
