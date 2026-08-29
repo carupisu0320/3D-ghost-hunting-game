@@ -1643,11 +1643,17 @@ const mapCtx = mapCanvas.getContext('2d');
 function drawMap() {
   mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
   const pad = 6;
-  // 表示範囲は家の寸法を直接持たず、部屋一覧(マップ側が登録したもの)の外接矩形から毎回計算する
-  const boundsMinX = Math.min(...rooms.map(r => r.bounds.minX));
-  const boundsMaxX = Math.max(...rooms.map(r => r.bounds.maxX));
-  const boundsMinZ = Math.min(...rooms.map(r => r.bounds.minZ));
-  const boundsMaxZ = Math.max(...rooms.map(r => r.bounds.maxZ));
+  // 今いる階の部屋だけを表示する(階が違う部屋の外枠まで重ねて描くと見づらいため)
+  const floorRooms = currentUpperFloor > 0
+    ? rooms.filter(r => r.upperFloor === currentUpperFloor)
+    : rooms.filter(r => !r.upperFloor);
+  if (floorRooms.length === 0) return;
+
+  // 表示範囲は家の寸法を直接持たず、今の階の部屋一覧の外接矩形から毎回計算する
+  const boundsMinX = Math.min(...floorRooms.map(r => r.bounds.minX));
+  const boundsMaxX = Math.max(...floorRooms.map(r => r.bounds.maxX));
+  const boundsMinZ = Math.min(...floorRooms.map(r => r.bounds.minZ));
+  const boundsMaxZ = Math.max(...floorRooms.map(r => r.bounds.maxZ));
   const scale = Math.min(
     (mapCanvas.width - pad * 2) / (boundsMaxX - boundsMinX),
     (mapCanvas.height - pad * 2) / (boundsMaxZ - boundsMinZ)
@@ -1657,7 +1663,7 @@ function drawMap() {
 
   mapCtx.strokeStyle = '#0f0';
   mapCtx.lineWidth = 1;
-  rooms.forEach(r => {
+  floorRooms.forEach(r => {
     const x0 = toMapX(r.bounds.minX);
     const y0 = toMapY(r.bounds.maxZ);
     const w = (r.bounds.maxX - r.bounds.minX) * scale;
