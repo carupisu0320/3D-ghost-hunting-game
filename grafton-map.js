@@ -4,7 +4,7 @@ import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
   addWall, makeWoodTexture, scaled, addFramedPlane,
-  addRoomLight, addLightSwitch, updateRoomLightCulling, registerBreaker,
+  addRoomLight, addLightSwitch, updateRoomLightCulling, registerBreaker, setBreakerOn,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
   sanity, drawSanityScreen, sanityTexture,
@@ -172,30 +172,32 @@ export function build() {
   onFrame(updateGraftonFloor);
 
   // ---- 照明(部屋ごとに天井灯+スイッチ。ブレーカーはUtility Roomに設置) ----
+  // テストプレイ用の補助的な全体照明(部屋の隅など、天井灯の光が届きにくい場所を底上げする)
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x605040, 0.9));
   const roomLights = {
-    "Living Room": addRoomLight("Living Room", 6),
-    "Kitchen": addRoomLight("Kitchen", 6),
-    "Utility Room": addRoomLight("Utility Room", 4),
-    "Library": addRoomLight("Library", 5),
-    "Dining Room": addRoomLight("Dining Room", 7),
-    "Downstairs Bathroom": addRoomLight("Downstairs Bathroom", 3.5, 0xdcecff),
-    "Work Room": addRoomLight("Work Room", 4),
-    "Foyer": addRoomLight("Foyer", 4),
+    "Living Room": addRoomLight("Living Room", 16, 0xfff2cc, 18),
+    "Kitchen": addRoomLight("Kitchen", 16, 0xfff2cc, 18),
+    "Utility Room": addRoomLight("Utility Room", 12, 0xfff2cc, 18),
+    "Library": addRoomLight("Library", 14, 0xfff2cc, 18),
+    "Dining Room": addRoomLight("Dining Room", 18, 0xfff2cc, 20),
+    "Downstairs Bathroom": addRoomLight("Downstairs Bathroom", 10, 0xdcecff, 18),
+    "Work Room": addRoomLight("Work Room", 12, 0xfff2cc, 18),
+    "Foyer": addRoomLight("Foyer", 12, 0xfff2cc, 18),
   };
   rooms.filter(r => !r.upperFloor).forEach(r => addLightSwitch(r.name, roomLights[r.name]));
 
   setBuildingUpperFloor(FLOOR_2F);
   const roomLights2F = {
-    "Master Bathroom": addRoomLight("Master Bathroom", 4, 0xdcecff),
-    "Master Bedroom": addRoomLight("Master Bedroom", 6),
-    "Upstairs Hallway": addRoomLight("Upstairs Hallway", 5),
-    "Twin Bedroom": addRoomLight("Twin Bedroom", 5),
-    "Child Bedroom": addRoomLight("Child Bedroom", 5),
+    "Master Bathroom": addRoomLight("Master Bathroom", 11, 0xdcecff, 18),
+    "Master Bedroom": addRoomLight("Master Bedroom", 16, 0xfff2cc, 18),
+    "Upstairs Hallway": addRoomLight("Upstairs Hallway", 16, 0xfff2cc, 22),
+    "Twin Bedroom": addRoomLight("Twin Bedroom", 14, 0xfff2cc, 18),
+    "Child Bedroom": addRoomLight("Child Bedroom", 14, 0xfff2cc, 18),
   };
   rooms.filter(r => r.upperFloor === FLOOR_2F).forEach(r => addLightSwitch(r.name, roomLights2F[r.name]));
 
   setBuildingUpperFloor(FLOOR_ATTIC);
-  const roomLightsAttic = { "Attic": addRoomLight("Attic", 4) };
+  const roomLightsAttic = { "Attic": addRoomLight("Attic", 14, 0xfff2cc, 20) };
   addLightSwitch("Attic", roomLightsAttic["Attic"]);
 
   setBuildingUpperFloor(FLOOR_1F);
@@ -210,7 +212,8 @@ export function build() {
     updateRoomLightCulling();
   }
   registerBreaker(breakerBox, applyBreakerState);
-  applyBreakerState(); // 開始時点ではbreakerOnがfalseなので、家中の照明がここで消灯される
+  setBreakerOn(true); // ※テストプレイ用に最初から電気を点けてある。本番はfalseに戻す
+  applyBreakerState();
 
   // ---- 拠点のテント(家の南側、玄関と同じXに正面を合わせて設置) ----
   const tentX = 2, tentZ = -15;
