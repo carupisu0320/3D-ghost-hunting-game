@@ -40,9 +40,9 @@ export function build() {
   rooms.push(
     { name: "Master Bathroom", bounds: { minX: 0, maxX: 4, minZ: 8, maxZ: 13 }, upperFloor: FLOOR_2F },
     { name: "Master Bedroom",  bounds: { minX: 0, maxX: 4, minZ: 0, maxZ: 8 }, upperFloor: FLOOR_2F },
-    { name: "Upstairs Hallway", bounds: { minX: 4, maxX: 9.5, minZ: 0, maxZ: 13 }, upperFloor: FLOOR_2F, hallway: true },
-    { name: "Twin Bedroom",    bounds: { minX: 9.5, maxX: 13, minZ: 8, maxZ: 13 }, upperFloor: FLOOR_2F },
-    { name: "Child Bedroom",   bounds: { minX: 9.5, maxX: 13, minZ: 0, maxZ: 8 }, upperFloor: FLOOR_2F },
+    { name: "Upstairs Hallway", bounds: { minX: 4, maxX: 10.5, minZ: 0, maxZ: 13 }, upperFloor: FLOOR_2F, hallway: true },
+    { name: "Twin Bedroom",    bounds: { minX: 10.5, maxX: 13, minZ: 8, maxZ: 13 }, upperFloor: FLOOR_2F },
+    { name: "Child Bedroom",   bounds: { minX: 10.5, maxX: 13, minZ: 0, maxZ: 8 }, upperFloor: FLOOR_2F },
   );
   // 屋根裏(1部屋)
   rooms.push(
@@ -80,9 +80,9 @@ export function build() {
   addWall('x', 8, 0, 4, 2);       // Master Bedroom / Master Bathroom
   addWall('z', 4, 0, 8, 4);       // Master Bedroom / Upstairs Hallway
   addWall('z', 4, 8, 13, 10.5);   // Master Bathroom / Upstairs Hallway
-  addWall('z', 9.5, 0, 8, 4);     // Upstairs Hallway / Child Bedroom
-  addWall('z', 9.5, 8, 13, 10.5); // Upstairs Hallway / Twin Bedroom
-  addWall('x', 8, 9.5, 13, 11);   // Child Bedroom / Twin Bedroom
+  addWall('z', 10.5, 0, 8, 4);    // Upstairs Hallway / Child Bedroom
+  addWall('z', 10.5, 8, 13, 11.5); // Upstairs Hallway / Twin Bedroom
+  addWall('x', 8, 10.5, 13, 11.5); // Child Bedroom / Twin Bedroom
 
   // ---- 屋根裏の壁(単一の部屋なので外周のみ) ----
   setBuildingUpperFloor(FLOOR_ATTIC);
