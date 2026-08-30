@@ -803,6 +803,15 @@ function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial, baseY = 0
     wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
   }
 }
+// 見た目のメッシュは自前で作りたいが、当たり判定だけは「今組み立てている階」に正しく登録したい場合に使う
+// (addFurnitureと同じ振り分けルールを、矩形の当たり判定だけ単独で使えるようにしたもの)
+function pushWallBox(box) {
+  if (buildingUpperFloor > 0) {
+    upperFloorWallBoxes[buildingUpperFloor].push(box);
+  } else {
+    wallBoxes.push(box);
+  }
+}
 function furnitureIn(name, dx, dz, w, d, h, material) {
   const r = room(name);
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
@@ -2048,7 +2057,7 @@ export {
   wallHeight, wallThickness, doorWidth, doorHeight,
   wallMaterial, doorMaterial, doorFrameMaterial, doorHandleMaterial,
   addWallSegment, addFramedPlane, addMergedMesh, addWall, addDoor,
-  addFurniture, addDetailMesh, addLeg, addLegsUnder, collidesWithWalls,
+  addFurniture, addDetailMesh, addLeg, addLegsUnder, collidesWithWalls, pushWallBox,
   makeWoodTexture, makeTileTexture, makeWallTexture, makeConcreteTexture, makeDoorTexture, makeGrassTexture, scaled,
   woodBase, tileBase, wallBase,
   woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial,
