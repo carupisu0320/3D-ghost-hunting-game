@@ -3,7 +3,7 @@
 import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
-  addWall, makeWoodTexture, scaled, addFramedPlane,
+  addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
   addRoomLight, addLightSwitch, updateRoomLightCulling, registerBreaker, setBreakerOn,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
@@ -134,13 +134,9 @@ export function build() {
   setBuildingUpperFloor(FLOOR_1F);
   addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
   addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
-  // 下側の入口にもドア付きの壁を作る。ここが開いたままだと、Foyerをただ歩いているだけで
-  // 階段のゾーンに入ってしまい、意図せず2階に上がってしまうため
-  addWall('x', stairsA.bottomZ, stairsA.minX, stairsA.maxX, (stairsA.minX + stairsA.maxX) / 2);
   setBuildingUpperFloor(FLOOR_2F);
   addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
   addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
-  addWall('x', stairsB.bottomZ, stairsB.minX, stairsB.maxX, (stairsB.minX + stairsB.maxX) / 2); // 下側の入口にもドア
   setBuildingUpperFloor(FLOOR_1F);
 
   // 見た目だけの階段(踏み板を並べるだけの簡易版)
@@ -159,6 +155,46 @@ export function build() {
   }
   addSteps(stairsA, 0, y2F);
   addSteps(stairsB, y2F, yAttic);
+
+  // 階段の登った先(吹き抜けの縁)に落下防止の柵を作る。細い柱+上の横木のシンプルな作り。
+  // 東西の両側面だけに柵を立てる(南北は階段の乗り降り口として塞がずに残す)
+  const railMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#8a6642'), 1, 1) });
+  function addStairRailing(hole, y) {
+    const railHeight = 0.9, postSize = 0.05, railSize = 0.06, postSpacing = 0.3;
+    const edges = [
+      { x0: hole.minX, z0: hole.minZ, x1: hole.minX, z1: hole.maxZ }, // 西辺
+      { x0: hole.maxX, z0: hole.minZ, x1: hole.maxX, z1: hole.maxZ }, // 東辺
+    ];
+    edges.forEach(e => {
+      const dx = e.x1 - e.x0, dz = e.z1 - e.z0;
+      const len = Math.sqrt(dx * dx + dz * dz);
+      const postCount = Math.max(2, Math.round(len / postSpacing) + 1);
+      for (let i = 0; i < postCount; i++) {
+        const t = i / (postCount - 1);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(postSize, railHeight, postSize), railMat);
+        post.position.set(e.x0 + dx * t, y + railHeight / 2, e.z0 + dz * t);
+        post.castShadow = true;
+        scene.add(post);
+      }
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(dz === 0 ? len + postSize : railSize, railSize, dx === 0 ? len + postSize : railSize),
+        railMat
+      );
+      rail.position.set((e.x0 + e.x1) / 2, y + railHeight, (e.z0 + e.z1) / 2);
+      rail.castShadow = true;
+      scene.add(rail);
+      // 柵の当たり判定(通り抜けできないように、今組み立てている階に正しく登録する)
+      pushWallBox({
+        minX: Math.min(e.x0, e.x1) - postSize, maxX: Math.max(e.x0, e.x1) + postSize,
+        minZ: Math.min(e.z0, e.z1) - postSize, maxZ: Math.max(e.z0, e.z1) + postSize,
+      });
+    });
+  }
+  setBuildingUpperFloor(FLOOR_2F);
+  addStairRailing(holeA, y2F); // 2階側、階段Aの吹き抜けの縁
+  setBuildingUpperFloor(FLOOR_ATTIC);
+  addStairRailing(holeB, yAttic); // 屋根裏側、階段Bの吹き抜けの縁
+  setBuildingUpperFloor(FLOOR_1F);
 
   // ---- 階段の昇り降り(Zの位置に応じてYを補間する。毎フレームengineから呼ばれる)。
   // 今いる階が、その階段がつなぐ2つの階のどちらかであるときだけ判定する(でないと、
