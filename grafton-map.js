@@ -111,7 +111,7 @@ export function build() {
 
   // ---- 階段の吹き抜け(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。通路として壁で囲う ----
   const stairsA = { minX: 8.0, maxX: 9.6, bottomZ: 1.8, topZ: 3.6 };   // 1階Foyer ⇔ 2階Upstairs Hallway(幅を広く・奥行きを急に)
-  const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 11 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
+  const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 8.8 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic(登り始めは据え置き、奥行きをstairsAと同じ1.8mに)
   const holeA = { minX: stairsA.minX, maxX: stairsA.maxX, minZ: stairsA.bottomZ, maxZ: stairsA.topZ };
   const holeB = { minX: stairsB.minX, maxX: stairsB.maxX, minZ: stairsB.bottomZ, maxZ: stairsB.topZ };
 
@@ -157,13 +157,14 @@ export function build() {
   addSteps(stairsB, y2F, yAttic);
 
   // 階段の登った先(吹き抜けの縁)に落下防止の柵を作る。細い柱+上の横木のシンプルな作り。
-  // 東西の両側面だけに柵を立てる(南北は階段の乗り降り口として塞がずに残す)
+  // 東西の側面と、降り始めではない側の短辺(手前側)に柵を立てる。降り始め側だけは乗り降り口として塞がずに残す
   const railMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#8a6642'), 1, 1) });
   function addStairRailing(hole, y) {
     const railHeight = 0.9, postSize = 0.05, railSize = 0.06, postSpacing = 0.3;
     const edges = [
       { x0: hole.minX, z0: hole.minZ, x1: hole.minX, z1: hole.maxZ }, // 西辺
       { x0: hole.maxX, z0: hole.minZ, x1: hole.maxX, z1: hole.maxZ }, // 東辺
+      { x0: hole.minX, z0: hole.minZ, x1: hole.maxX, z1: hole.minZ }, // 手前側の短辺(降り始めの反対側)
     ];
     edges.forEach(e => {
       const dx = e.x1 - e.x0, dz = e.z1 - e.z0;
