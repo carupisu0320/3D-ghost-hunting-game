@@ -105,7 +105,9 @@ export function build() {
 
   // ---- 床(見た目だけの板)。階段の吹き抜け部分だけ、addFramedPlaneで正確に穴を開ける
   // 下からも見えるよう両面表示にしておく(片面だけだと下の階から素通しになってしまう)
-  const floorMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 7, 7), side: THREE.DoubleSide });
+  // 天井/床の板。DoubleSide一枚で両面をまかなうと、裏側がライティングの都合で真っ黒に見えることがあるため、
+  // 上向き・下向きの板をそれぞれ別に(法線を正しく)敷いて両方向からきちんと見えるようにする
+  const floorMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 7, 7) });
 
   // ---- 階段の吹き抜け(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。通路として壁で囲う ----
   const stairsA = { minX: 8.0, maxX: 9.6, bottomZ: 1.8, topZ: 3.6 };   // 1階Foyer ⇔ 2階Upstairs Hallway(幅を広く・奥行きを急に)
@@ -121,8 +123,10 @@ export function build() {
     mesh.receiveShadow = true;
     scene.add(mesh);
   }
-  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, true);    // 1階の天井 兼 2階の床(stairsAの穴)
-  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, true); // 2階の天井 兼 屋根裏の床(stairsBの穴)
+  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, true);     // 1階の天井(上から見た2階の床)
+  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, false);    // 2階の床(下から見た1階の天井)
+  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, true);  // 2階の天井(上から見た屋根裏の床)
+  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, false); // 屋根裏の床(下から見た2階の天井)
 
   // 階段の両脇に壁を立てて、通路をきちんと囲う。1階分の高さ(wallHeight)だけあれば階段自体は覆えるので、
   // 上側の階でも同じ壁を作ると2階分の高さに積み上がって不自然に大きくなってしまう。見た目は下側の階でだけ作る
@@ -130,9 +134,13 @@ export function build() {
   setBuildingUpperFloor(FLOOR_1F);
   addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
   addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
+  // 下側の入口にもドア付きの壁を作る。ここが開いたままだと、Foyerをただ歩いているだけで
+  // 階段のゾーンに入ってしまい、意図せず2階に上がってしまうため
+  addWall('x', stairsA.bottomZ, stairsA.minX, stairsA.maxX, (stairsA.minX + stairsA.maxX) / 2);
   setBuildingUpperFloor(FLOOR_2F);
   addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
   addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
+  addWall('x', stairsB.bottomZ, stairsB.minX, stairsB.maxX, (stairsB.minX + stairsB.maxX) / 2); // 下側の入口にもドア
   setBuildingUpperFloor(FLOOR_1F);
 
   // 見た目だけの階段(踏み板を並べるだけの簡易版)
@@ -205,7 +213,7 @@ export function build() {
   setBuildingUpperFloor(FLOOR_1F);
 
   // ブレーカー(Utility Room内、部屋の隅に設置。Utility RoomはZ8-13に移動したのでそちらに合わせる)
-  const breakerBox = { x: 0.6, z: 12.4 };
+  const breakerBox = { x: 0.6, z: 12.82 }; // 北側の壁(Z=13)にきちんと接するように
   const breakerMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
   const breakerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.15), breakerMat);
   breakerMesh.position.set(breakerBox.x, 1.4, breakerBox.z);
