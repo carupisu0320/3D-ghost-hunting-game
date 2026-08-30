@@ -63,6 +63,9 @@ export function build() {
   addWall('z', 4, 8, 13, 10.5); // Utility Room / Library
   addWall('x', 8, 4, 8, 6);     // Dining Room / Library
   addWall('z', 8, 5, 8, 6.5);   // Dining Room / Work Room
+  // Dining Room / Foyer(階段そのものの区間Z1.8〜3.6は階段の側壁で塞がれているので、それ以外を壁で埋める)
+  addWall('z', 8, 0, 1.8);
+  addWall('z', 8, 3.6, 5);
   addWall('z', 8, 8, 10, 9);    // Library / Work Room(壁が抜けていたので追加)
   addWall('z', 8, 10, 13, 11.5); // Library / Downstairs Bathroom(壁が抜けていたので追加)
   addWall('x', 5, 8, 13, 11);   // Foyer / Work Room(階段から離して東寄りに)
