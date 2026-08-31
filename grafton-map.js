@@ -159,6 +159,26 @@ export function build() {
   addSteps(stairsA, 0, y2F);
   addSteps(stairsB, y2F, yAttic);
 
+  // 階段の下(踏み板と床の間の空洞)を塞ぐ。各段の位置に、床からその段の高さまでの箱を積んで埋める
+  function addStairFill(stairs, baseY, topY) {
+    const stepCount = 14;
+    for (let i = 0; i < stepCount; i++) {
+      const t = i / (stepCount - 1);
+      const z = stairs.bottomZ + t * (stairs.topZ - stairs.bottomZ);
+      const stepY = baseY + t * (topY - baseY);
+      const fillHeight = Math.max(0.05, stepY - baseY);
+      const fill = new THREE.Mesh(
+        new THREE.BoxGeometry(stairs.maxX - stairs.minX - 0.1, fillHeight, (stairs.topZ - stairs.bottomZ) / stepCount + 0.02),
+        stepMat
+      );
+      fill.position.set((stairs.minX + stairs.maxX) / 2, baseY + fillHeight / 2, z);
+      fill.receiveShadow = true; fill.castShadow = true;
+      scene.add(fill);
+    }
+  }
+  addStairFill(stairsA, 0, y2F);
+  addStairFill(stairsB, y2F, yAttic);
+
   // 階段の登った先(吹き抜けの縁)に落下防止の柵を作る。細い柱+上の横木のシンプルな作り。
   // 東西の側面と、降り始めではない側の短辺(手前側)に柵を立てる。降り始め側だけは乗り降り口として塞がずに残す
   const railMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#8a6642'), 1, 1) });
