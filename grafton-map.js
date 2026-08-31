@@ -98,14 +98,6 @@ export function build() {
 
   setBuildingUpperFloor(FLOOR_1F); // 以降の呼び出しは1階の扱いに戻す
 
-  // 壁・ドア枠をまとめて描画(全階ぶんまとめて1回でよい)
-  const mergedWall = new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial);
-  mergedWall.castShadow = true; mergedWall.receiveShadow = true;
-  scene.add(mergedWall);
-  const mergedFrame = new THREE.Mesh(mergeGeometries(doorFrameGeometries), doorFrameMaterial);
-  mergedFrame.castShadow = true; mergedFrame.receiveShadow = true;
-  scene.add(mergedFrame);
-
   // ---- 床(見た目だけの板)。階段の吹き抜け部分だけ、addFramedPlaneで正確に穴を開ける
   // 下からも見えるよう両面表示にしておく(片面だけだと下の階から素通しになってしまう)
   // 天井/床の板。DoubleSide一枚で両面をまかなうと、裏側がライティングの都合で真っ黒に見えることがあるため、
@@ -141,6 +133,16 @@ export function build() {
   addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
   addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
   setBuildingUpperFloor(FLOOR_1F);
+
+  // 壁・ドア枠をまとめて描画(全階ぶんまとめて1回でよい)。
+  // ここまでで壁を追加するaddWallの呼び出しは全部終わっているので、必ずこのタイミングでまとめて描画する
+  // (これより前でmergeしてしまうと、階段の側壁など後から追加した壁が見た目に反映されない=当たり判定はあるのに見えない、というバグになる)
+  const mergedWall = new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial);
+  mergedWall.castShadow = true; mergedWall.receiveShadow = true;
+  scene.add(mergedWall);
+  const mergedFrame = new THREE.Mesh(mergeGeometries(doorFrameGeometries), doorFrameMaterial);
+  mergedFrame.castShadow = true; mergedFrame.receiveShadow = true;
+  scene.add(mergedFrame);
 
   // 見た目だけの階段(踏み板を並べるだけの簡易版)
   const stepMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#4a3a28'), 1, 1) });
