@@ -10,6 +10,7 @@ import {
   sanity, drawSanityScreen, sanityTexture,
   initHaunting, setExteriorDoor, setOrbRoom, doors,
   onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
+  bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addFurniture,
 } from './engine.js';
 
 export const mapId = 'grafton';
@@ -132,6 +133,20 @@ export function build() {
   setBuildingUpperFloor(FLOOR_2F);
   addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
   addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
+  setBuildingUpperFloor(FLOOR_1F);
+
+  // 階段のゾーンは「正しい側から少しずつ上る」以外の入り方をすると、Z座標だけで高さが決まる都合上、
+  // 逆側からいきなり足を踏み入れた瞬間に高さが飛んでしまう(踏んだだけでワープする)。
+  // これを防ぐため、上側の入口を「まだ下の階のつもりでいる間」だけ塞ぐ壁と、
+  // 下側の入口を「まだ上の階のつもりでいる間」だけ塞ぐ壁を追加する。
+  // (実際に下から登り切る頃には既に「上の階」判定に切り替わっているので、この壁には引っかからない)
+  setBuildingUpperFloor(FLOOR_1F);
+  addWall('x', stairsA.topZ, stairsA.minX, stairsA.maxX); // Foyer側から誤って上の入口に踏み込むのを防ぐ
+  setBuildingUpperFloor(FLOOR_2F);
+  addWall('x', stairsA.bottomZ, stairsA.minX, stairsA.maxX); // Upstairs Hallway側から誤って下の入口に踏み込むのを防ぐ
+  addWall('x', stairsB.topZ, stairsB.minX, stairsB.maxX); // Upstairs Hallway側から誤って上の入口に踏み込むのを防ぐ
+  setBuildingUpperFloor(FLOOR_ATTIC);
+  addWall('x', stairsB.bottomZ, stairsB.minX, stairsB.maxX); // Attic側から誤って下の入口に踏み込むのを防ぐ
   setBuildingUpperFloor(FLOOR_1F);
 
   // 壁・ドア枠をまとめて描画(全階ぶんまとめて1回でよい)。
@@ -286,6 +301,39 @@ export function build() {
   registerBreaker(breakerBox, applyBreakerState);
   setBreakerOn(true); // ※テストプレイ用に最初から電気を点けてある。本番はfalseに戻す
   applyBreakerState();
+
+  // ---- 家具 ----
+  // 1階
+  sofaAt(2, 3.5, 2.4, 0.8);                                  // Living Room: 北側の壁際
+  furnitureIn("Living Room", 1.4, 0.4, 1.2, 0.5, 0.4);       // Living Room: 南側にローテーブル
+  counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
+  fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
+  furnitureIn("Utility Room", 2.6, 0.6, 1.2, 0.5, 1.0);      // Utility Room: 棚(ブレーカーの反対側)
+  addFurniture(6, 4, 1.8, 1.0, 0.75);                        // Dining Room: 中央にダイニングテーブル
+  wardrobeIn("Dining Room", 3.6, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
+  wardrobeIn("Library", 3.6, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
+  furnitureIn("Library", 0.6, 3.5, 1.0, 0.6, 0.75);          // Library: 読書用の机
+  furnitureIn("Foyer", 3.8, 0.4, 1.0, 0.4, 0.9);             // Foyer: 玄関そばに靴箱(階段から離した位置)
+  counterAt(12.4, 7.5, 0.6, 3.0, 0.9);                       // Work Room: 東側の壁際に作業台
+  toiletIn("Downstairs Bathroom", 3.8, 0.5);
+  washstandIn("Downstairs Bathroom", 0.7, 0.4, 0.9, 0.5, 0.85);
+
+  // 2階
+  setBuildingUpperFloor(FLOOR_2F);
+  washstandIn("Master Bathroom", 0.6, 0.4, 0.9, 0.5, 0.85);
+  toiletIn("Master Bathroom", 3.2, 0.5);
+  bedIn("Master Bedroom", 1.1, 1.2, 1.8, 2.0);
+  wardrobeIn("Master Bedroom", 3.6, 6.5, 0.9, 0.6, 1.9);
+  bedIn("Twin Bedroom", 0.3, 0.3, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド
+  bedIn("Twin Bedroom", 0.3, 2.7, 1.0, 1.8);
+  bedIn("Child Bedroom", 0.3, 1.0, 1.0, 1.8);
+  wardrobeIn("Child Bedroom", 1.9, 5.5, 0.9, 0.5, 1.7);
+
+  // 屋根裏(階段(stairsB: X5.8-7.2, Z7-8.8)を避けて配置)
+  setBuildingUpperFloor(FLOOR_ATTIC);
+  furnitureIn("Attic", 0.5, 0.5, 1.2, 0.8, 0.9);              // 古びたトランク
+  furnitureIn("Attic", 7.5, 1.0, 1.0, 0.6, 1.6);              // 古い戸棚
+  setBuildingUpperFloor(FLOOR_1F);
 
   // ---- 拠点のテント(家の南側、玄関と同じXに正面を合わせて設置) ----
   const tentX = 2, tentZ = -15;
