@@ -305,7 +305,7 @@ export function build() {
   // ---- 家具 ----
   // 1階
   sofaAt(2, 3.5, 2.4, 0.8);                                  // Living Room: 北側の壁際
-  furnitureIn("Living Room", 1.4, 0.4, 1.2, 0.5, 0.4);       // Living Room: 南側にローテーブル
+  furnitureIn("Living Room", 2.0, 2.5, 1.0, 0.5, 0.4);        // Living Room: ソファの前にローテーブル(玄関の動線からは外す)
   counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
   furnitureIn("Utility Room", 2.6, 0.6, 1.2, 0.5, 1.0);      // Utility Room: 棚(ブレーカーの反対側)
