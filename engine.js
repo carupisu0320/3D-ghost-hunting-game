@@ -694,8 +694,9 @@ const countertopMaterial = new THREE.MeshLambertMaterial({ color: 0xb8b4ac });
 
 // 見た目だけの飾りパーツ(当たり判定には登録しない。細かい部品なので影は落とさず、受けるだけにして負荷を抑える)
 function addDetailMesh(x, y, z, w, h, d, material) {
+  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y, z);
+  mesh.position.set(x, floorY + y, z);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -703,8 +704,9 @@ function addDetailMesh(x, y, z, w, h, d, material) {
 }
 // 脚(円柱)。ベッド・ソファ・カウンター・冷蔵庫などの「浮いている感」をなくす細部パーツ
 function addLeg(x, y, z, radius, height, material = woodFurnitureMaterial) {
+  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.1, height, 8), material);
-  mesh.position.set(x, y + height / 2, z);
+  mesh.position.set(x, floorY + y + height / 2, z);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
   scene.add(mesh);
@@ -820,16 +822,17 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
 function washstandIn(name, dx, dz, w, d, h) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
+  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   addLeg(x, 0, z, 0.035, h * 0.55, ceramicMaterial); // 中央の支柱
   addFurniture(x, z, w, d, h, ceramicMaterial);
   const basinR = Math.min(w, d) * 0.36;
   addDetailMesh(x, h + 0.02, z, w - 0.04, 0.04, d - 0.04, ceramicMaterial); // 天板
   const basinRim = new THREE.Mesh(new THREE.CylinderGeometry(basinR, basinR * 0.9, 0.05, 16), ceramicMaterial);
-  basinRim.position.set(x, h + 0.035, z);
+  basinRim.position.set(x, floorY + h + 0.035, z);
   basinRim.receiveShadow = true;
   scene.add(basinRim);
   const basinWell = new THREE.Mesh(new THREE.CylinderGeometry(basinR * 0.78, basinR * 0.6, 0.04, 16), new THREE.MeshLambertMaterial({ color: 0xd8d6ce }));
-  basinWell.position.set(x, h + 0.025, z);
+  basinWell.position.set(x, floorY + h + 0.025, z);
   basinWell.receiveShadow = true;
   scene.add(basinWell);
   addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial); // 蛇口の柱
@@ -840,11 +843,12 @@ function washstandIn(name, dx, dz, w, d, h) {
 function toiletIn(name, dx, dz) {
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
+  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const bowlW = 0.38, bowlD = 0.48, bowlH = 0.38;
   addFurniture(x, z, bowlW, bowlD, bowlH, ceramicMaterial);
   // 座面リング(楕円に近づけるため薄い円柱)+ 蓋(少し立て掛けた板)
   const seatRing = new THREE.Mesh(new THREE.CylinderGeometry(bowlW * 0.52, bowlW * 0.5, 0.03, 16), ceramicMaterial);
-  seatRing.position.set(x, bowlH + 0.02, z + bowlD * 0.05);
+  seatRing.position.set(x, floorY + bowlH + 0.02, z + bowlD * 0.05);
   seatRing.scale.z = bowlD / bowlW * 1.05;
   seatRing.receiveShadow = true;
   scene.add(seatRing);
