@@ -310,8 +310,8 @@ export function build() {
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
   furnitureIn("Utility Room", 2.6, 0.6, 1.2, 0.5, 1.0);      // Utility Room: 棚(ブレーカーの反対側)
   addFurniture(6, 4, 1.8, 1.0, 0.75);                        // Dining Room: 中央にダイニングテーブル
-  wardrobeIn("Dining Room", 3.6, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
-  wardrobeIn("Library", 3.6, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
+  wardrobeIn("Dining Room", 3.5, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
+  wardrobeIn("Library", 3.5, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
   furnitureIn("Library", 0.6, 3.5, 1.0, 0.6, 0.75);          // Library: 読書用の机
   furnitureIn("Foyer", 3.8, 0.4, 1.0, 0.4, 0.9);             // Foyer: 玄関そばに靴箱(階段から離した位置)
   counterAt(12.4, 7.5, 0.6, 3.0, 0.9);                       // Work Room: 東側の壁際に作業台
@@ -323,15 +323,15 @@ export function build() {
   washstandIn("Master Bathroom", 0.6, 0.4, 0.9, 0.5, 0.85);
   toiletIn("Master Bathroom", 3.2, 0.5);
   bedIn("Master Bedroom", 1.1, 1.2, 1.8, 2.0);
-  wardrobeIn("Master Bedroom", 3.6, 6.5, 0.9, 0.6, 1.9);
-  bedIn("Twin Bedroom", 0.3, 0.3, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド
-  bedIn("Twin Bedroom", 0.3, 2.7, 1.0, 1.8);
-  bedIn("Child Bedroom", 0.3, 1.0, 1.0, 1.8);
+  wardrobeIn("Master Bedroom", 3.5, 6.5, 0.9, 0.6, 1.9);
+  bedIn("Twin Bedroom", 0.65, 1.0, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド
+  bedIn("Twin Bedroom", 0.65, 3.1, 1.0, 1.8);
+  bedIn("Child Bedroom", 0.65, 1.0, 1.0, 1.8);
   wardrobeIn("Child Bedroom", 1.9, 5.5, 0.9, 0.5, 1.7);
 
   // 屋根裏(階段(stairsB: X5.8-7.2, Z7-8.8)を避けて配置)
   setBuildingUpperFloor(FLOOR_ATTIC);
-  furnitureIn("Attic", 0.5, 0.5, 1.2, 0.8, 0.9);              // 古びたトランク
+  furnitureIn("Attic", 0.7, 0.5, 1.2, 0.8, 0.9);              // 古びたトランク
   furnitureIn("Attic", 7.5, 1.0, 1.0, 0.6, 1.6);              // 古い戸棚
   setBuildingUpperFloor(FLOOR_1F);
 
