@@ -11,10 +11,32 @@ import {
   initHaunting, setExteriorDoor, setOrbRoom, doors,
   onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addFurniture,
+  addDetailMesh, addLeg, addLegsUnder, fabricMaterial, handleMaterial,
 } from './engine.js';
 
 export const mapId = 'grafton';
 export const mapLabel = 'Grafton Farmhouse';
+
+// ソファ(東側の壁を背にして、部屋の中央側=西向きに座る配置)。engineのsofaAtを90度回転させたもの
+// w=左右の幅(Z方向)、d=前後の奥行き(X方向)。背もたれは+X側(壁側)に来る
+function sofaAtFacingWest(x, z, w, d) {
+  const legH = 0.1, seatH = 0.32, cushionH = 0.14, backH = 0.4, backT = 0.16, armW = 0.14;
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+    addLeg(x + sx * (d / 2 - 0.06), 0, z + sz * (w / 2 - 0.06), 0.02, legH, handleMaterial);
+  });
+  addFurniture(x, z, d, w, seatH, fabricMaterial, legH);
+  const cushionW = (w - armW * 2 - 0.04) / 2;
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x - backT / 2, legH + seatH + cushionH / 2, z + sz * (cushionW / 2 + 0.02), d - backT - 0.06, cushionH, cushionW, fabricMaterial);
+  });
+  const armH = 0.32;
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x, legH + armH / 2, z + sz * (w / 2 - armW / 2), d, armH, armW, fabricMaterial);
+  });
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x + d / 2 - backT / 2, legH + seatH + backH / 2, z + sz * (cushionW / 2 + 0.02), backT, backH, cushionW, fabricMaterial);
+  });
+}
 
 // 実際にこの家を組み立てる。main.js がこのマップを選んだ瞬間だけ呼ばれる
 export function build() {
@@ -304,11 +326,11 @@ export function build() {
 
   // ---- 家具 ----
   // 1階
-  sofaAt(2, 3.5, 2.4, 0.8);                                  // Living Room: 北側の壁際
-  furnitureIn("Living Room", 2.0, 2.5, 1.0, 0.5, 0.4);        // Living Room: ソファの前にローテーブル(玄関の動線からは外す)
+  sofaAtFacingWest(3.5, 2.0, 2.4, 0.8);                      // Living Room: 東側の壁際(玄関から見て右手)、部屋の中央を向く
+  furnitureIn("Living Room", 2.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
   counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
-  furnitureIn("Utility Room", 2.6, 0.6, 1.2, 0.5, 1.0);      // Utility Room: 棚(ブレーカーの反対側)
+  furnitureIn("Utility Room", 3.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 東側の壁際に棚(キッチンのドアからは離した)
   addFurniture(6, 4, 1.8, 1.0, 0.75);                        // Dining Room: 中央にダイニングテーブル
   wardrobeIn("Dining Room", 3.5, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
   wardrobeIn("Library", 3.5, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
@@ -324,8 +346,8 @@ export function build() {
   toiletIn("Master Bathroom", 3.2, 0.5);
   bedIn("Master Bedroom", 1.1, 1.2, 1.8, 2.0);
   wardrobeIn("Master Bedroom", 3.5, 6.5, 0.9, 0.6, 1.9);
-  bedIn("Twin Bedroom", 0.65, 1.0, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド
-  bedIn("Twin Bedroom", 0.65, 3.1, 1.0, 1.8);
+  bedIn("Twin Bedroom", 1.85, 1.0, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド(東側の壁際に変更)
+  bedIn("Twin Bedroom", 1.85, 3.1, 1.0, 1.8);
   bedIn("Child Bedroom", 0.65, 1.0, 1.0, 1.8);
   wardrobeIn("Child Bedroom", 1.9, 5.5, 0.9, 0.5, 1.7);
 
