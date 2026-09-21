@@ -38,6 +38,26 @@ function sofaAtFacingWest(x, z, w, d) {
   });
 }
 
+// ソファ(西側の壁を背にして、部屋の中央側=東向きに座る配置)。sofaAtFacingWestを左右反転させたもの
+function sofaAtFacingEast(x, z, w, d) {
+  const legH = 0.1, seatH = 0.32, cushionH = 0.14, backH = 0.4, backT = 0.16, armW = 0.14;
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+    addLeg(x + sx * (d / 2 - 0.06), 0, z + sz * (w / 2 - 0.06), 0.02, legH, handleMaterial);
+  });
+  addFurniture(x, z, d, w, seatH, fabricMaterial, legH);
+  const cushionW = (w - armW * 2 - 0.04) / 2;
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x + backT / 2, legH + seatH + cushionH / 2, z + sz * (cushionW / 2 + 0.02), d - backT - 0.06, cushionH, cushionW, fabricMaterial);
+  });
+  const armH = 0.32;
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x, legH + armH / 2, z + sz * (w / 2 - armW / 2), d, armH, armW, fabricMaterial);
+  });
+  [-1, 1].forEach(sz => {
+    addDetailMesh(x - d / 2 + backT / 2, legH + seatH + backH / 2, z + sz * (cushionW / 2 + 0.02), backT, backH, cushionW, fabricMaterial);
+  });
+}
+
 // 実際にこの家を組み立てる。main.js がこのマップを選んだ瞬間だけ呼ばれる
 export function build() {
   // ---- 階の基準Yを決める(1階=0、2階=3.3、屋根裏=6.6) ----
@@ -326,8 +346,8 @@ export function build() {
 
   // ---- 家具 ----
   // 1階
-  sofaAtFacingWest(3.5, 2.0, 2.4, 0.8);                      // Living Room: 東側の壁際(玄関から見て右手)、部屋の中央を向く
-  furnitureIn("Living Room", 2.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
+  sofaAtFacingEast(0.5, 2.0, 2.4, 0.8);                      // Living Room: 西側の壁際、部屋の中央を向く
+  furnitureIn("Living Room", 1.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
   counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
   furnitureIn("Utility Room", 3.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 東側の壁際に棚(キッチンのドアからは離した)
