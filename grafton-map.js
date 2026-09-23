@@ -350,7 +350,7 @@ export function build() {
   furnitureIn("Living Room", 2.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
   counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
-  furnitureIn("Utility Room", 3.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 東側の壁際に棚(キッチンのドアからは離した)
+  furnitureIn("Utility Room", 0.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 西側の壁際に棚(キッチンのドアからは離した・反対側の壁)
   addFurniture(6, 4, 1.8, 1.0, 0.75);                        // Dining Room: 中央にダイニングテーブル
   wardrobeIn("Dining Room", 3.5, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
   wardrobeIn("Library", 3.5, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
