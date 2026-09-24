@@ -346,8 +346,8 @@ export function build() {
 
   // ---- 家具 ----
   // 1階
-  sofaAtFacingWest(3.5, 2.0, 2.4, 0.8);                      // Living Room: 東側の壁際(玄関から見て右手)、部屋の中央を向く
-  furnitureIn("Living Room", 2.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
+  sofaAtFacingEast(0.5, 2.0, 2.4, 0.8);                      // Living Room: 西側の壁際、部屋の中央を向く
+  furnitureIn("Living Room", 1.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
   counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
   fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
   furnitureIn("Utility Room", 0.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 西側の壁際に棚(キッチンのドアからは離した・反対側の壁)
