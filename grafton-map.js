@@ -161,9 +161,12 @@ export function build() {
     mesh.receiveShadow = true;
     scene.add(mesh);
   }
-  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, true);     // 1階の天井(上から見た2階の床)
+  // 歩く面(上向き)は、真下の階の壁の上端とちょうど同じ高さだとZファイティングで壁が透けて見えるため、
+  // ほんの少しだけ上にずらして厚みを持たせる(見上げたときの天井側=下向きの面はそのままの高さでよい)
+  const floorLift = 0.03;
+  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F + floorLift, floorMat, true);     // 1階の天井(上から見た2階の床)
   addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, false);    // 2階の床(下から見た1階の天井)
-  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, true);  // 2階の天井(上から見た屋根裏の床)
+  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic + floorLift, floorMat, true);  // 2階の天井(上から見た屋根裏の床)
   addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, false); // 屋根裏の床(下から見た2階の天井)
 
   // 階段の両脇に壁を立てて、通路をきちんと囲う。1階分の高さ(wallHeight)だけあれば階段自体は覆えるので、
