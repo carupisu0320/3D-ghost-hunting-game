@@ -58,6 +58,252 @@ function sofaAtFacingEast(x, z, w, d) {
   });
 }
 
+// ---- 外装(ツタまみれ+汚れ) ----
+// 外壁の外側に、壁から少し浮かせた透明な板を貼って表現する(壁そのものや内装、当たり判定は一切変えない)。
+// 1階・2階・屋根裏の外周4面それぞれに「汚れの板」と「ツタの板(奥行きが出るよう2枚重ね)」を貼る。
+
+// 乱数(毎回同じ見た目になるようシード固定。マップを選び直しても外装が変わらない)
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+}
+
+// ツタ1枚分の絵を描く。横は端でつながる(左右をまたぐものは反対側にも描く)ので、どこで切っても継ぎ目が出ない。
+// variant 0=1階用(地面から密に生い茂る)、1=2階用、2=屋根裏用(まばら+上から垂れ下がる)
+function drawIvyCanvas(canvas, variant, seed) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const rnd = makeRng(seed);
+  ctx.clearRect(0, 0, W, H);
+  const density = [(v) => 0.98 - v * 0.3, (v) => 0.78 - v * 0.28, (v) => 0.55 - v * 0.25][variant];
+  const leafCount = [2800, 2000, 1300][variant];
+  const vineCount = [46, 34, 22][variant];
+  const greens = ['#2f5a2a', '#3f7a34', '#264a22', '#4c8a3c', '#1f3d1c', '#5a9a44', '#35682e'];
+  const dead = ['#5a4a2a', '#6b5a33', '#4a3d22'];
+
+  function wrapDraw(x, fn) { // 左右の端をまたぐ場合は反対側にも描く
+    fn(x);
+    if (x < 60) fn(x + W);
+    if (x > W - 60) fn(x - W);
+  }
+  function leaf(x, y, size, angle) {
+    const isDead = rnd() < 0.12;
+    const col = isDead ? dead[Math.floor(rnd() * dead.length)] : greens[Math.floor(rnd() * greens.length)];
+    wrapDraw(x, (px) => {
+      ctx.save();
+      ctx.translate(px, y);
+      ctx.rotate(angle);
+      ctx.beginPath(); // ハート形の葉(先端が下)
+      ctx.moveTo(0, -size);
+      ctx.bezierCurveTo(size * 0.95, -size * 0.95, size * 0.95, size * 0.3, 0, size * 0.85);
+      ctx.bezierCurveTo(-size * 0.95, size * 0.3, -size * 0.95, -size * 0.95, 0, -size);
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(10,20,8,0.55)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.beginPath(); // 葉脈
+      ctx.moveTo(0, -size * 0.7);
+      ctx.lineTo(0, size * 0.6);
+      ctx.strokeStyle = isDead ? 'rgba(200,180,120,0.25)' : 'rgba(200,235,150,0.28)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+  function stem(points, width) {
+    [-W, 0, W].forEach((dx) => {
+      ctx.beginPath();
+      points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x + dx, p.y) : ctx.lineTo(p.x + dx, p.y)));
+      ctx.strokeStyle = '#2b2415';
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    });
+  }
+  // つるを生やして、その途中に葉をつける(葉は最後にまとめて描くと、つるが葉の下になって自然)
+  function growVine(x, y, angle, length, width) {
+    const pts = [{ x, y }];
+    const leaves = [];
+    let cx = x, cy = y, a = angle;
+    for (let d = 0; d < length; d += 9) {
+      a += (rnd() - 0.5) * 0.7;
+      cx += Math.cos(a) * 9;
+      cy += Math.sin(a) * 9;
+      pts.push({ x: cx, y: cy }); // 折り返さず生の座標のまま持つ(描くときに左右へずらして描くので、横線が走らない)
+      if (cy < 0 || cy > H) break;
+      if (rnd() < 0.9) leaves.push([cx, cy, 11 + rnd() * 12, a + Math.PI / 2 + (rnd() - 0.5) * 2.2]);
+      if (rnd() < 0.05 && width > 2) { // 枝分かれ
+        const sub = growVine(cx, cy, a + (rnd() - 0.5) * 1.6, length * 0.35, width * 0.6);
+        leaves.push(...sub);
+      }
+    }
+    stem(pts, width);
+    return leaves;
+  }
+
+  const allLeaves = [];
+  // 下から這い上がるつる(1階は地面から。2階・屋根裏は途中から)
+  for (let i = 0; i < vineCount; i++) {
+    const startY = variant === 0 ? H + 5 : H * (0.4 + rnd() * 0.7);
+    const len = H * (0.4 + rnd() * (variant === 0 ? 0.9 : 0.6));
+    allLeaves.push(...growVine(rnd() * W, startY, -Math.PI / 2 + (rnd() - 0.5) * 0.6, len, 2.5 + rnd() * 2.5));
+  }
+  // 上の縁から垂れ下がるつる(屋根裏ほど多い)
+  const hang = [10, 26, 40][variant];
+  for (let i = 0; i < hang; i++) {
+    allLeaves.push(...growVine(rnd() * W, -4, Math.PI / 2 + (rnd() - 0.5) * 0.4, 50 + rnd() * H * 0.45, 1.6 + rnd() * 1.6));
+  }
+  // 面を覆う葉のかたまり(高さごとの濃さに従って置く。下ほど密)
+  for (let i = 0; i < leafCount; i++) {
+    const y = rnd() * H;
+    const v = 1 - y / H; // 下=0、上=1
+    if (rnd() > density(v)) continue;
+    allLeaves.push([rnd() * W, y, 10 + rnd() * 15, rnd() * Math.PI * 2]);
+  }
+  allLeaves.sort((a, b) => a[1] - b[1]); // 上から順に描くと、下の葉が上に重なって瓦のように見える
+  allLeaves.forEach(([x, y, s, a]) => leaf(x, y, s, a));
+}
+
+// 汚れ1枚分の絵を描く(雨だれ・地面のはね返りの泥・カビ・シミ・ひび割れ・塗装のはがれ)。背景は透明
+function drawGrimeCanvas(canvas, seed) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const rnd = makeRng(seed);
+  ctx.clearRect(0, 0, W, H);
+  // 大きなシミ(暗い+緑がかったカビ)
+  for (let i = 0; i < 30; i++) {
+    const x = rnd() * W, y = rnd() * H, r = 30 + rnd() * 110;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const mold = rnd() < 0.4;
+    g.addColorStop(0, mold ? 'rgba(55,85,40,0.32)' : 'rgba(25,22,15,0.30)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  // 雨だれの筋(上から下へ)
+  for (let i = 0; i < 260; i++) {
+    const x = rnd() * W, y0 = rnd() * H * 0.5, len = 40 + rnd() * H * 0.7;
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    let cx = x;
+    for (let y = y0; y < y0 + len; y += 8) { cx += (rnd() - 0.5) * 1.6; ctx.lineTo(cx, y); }
+    ctx.strokeStyle = `rgba(20,18,12,${0.06 + rnd() * 0.22})`;
+    ctx.lineWidth = 1 + rnd() * 3.5;
+    ctx.stroke();
+  }
+  // 下端の泥はね(地面に近いほど濃い茶色)
+  const mud = ctx.createLinearGradient(0, H, 0, H * 0.55);
+  mud.addColorStop(0, 'rgba(45,32,20,0.85)');
+  mud.addColorStop(0.5, 'rgba(45,32,20,0.35)');
+  mud.addColorStop(1, 'rgba(45,32,20,0)');
+  ctx.fillStyle = mud;
+  ctx.fillRect(0, H * 0.55, W, H * 0.45);
+  for (let i = 0; i < 500; i++) { // 泥の飛沫
+    ctx.fillStyle = `rgba(40,28,16,${0.2 + rnd() * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(rnd() * W, H - Math.pow(rnd(), 2) * H * 0.5, 1 + rnd() * 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 上端の暗い汚れ(雨どい代わりの縁から流れる汚水)
+  const top = ctx.createLinearGradient(0, 0, 0, H * 0.18);
+  top.addColorStop(0, 'rgba(20,18,12,0.5)');
+  top.addColorStop(1, 'rgba(20,18,12,0)');
+  ctx.fillStyle = top;
+  ctx.fillRect(0, 0, W, H * 0.18);
+  // ひび割れ
+  for (let i = 0; i < 14; i++) {
+    let x = rnd() * W, y = rnd() * H;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < 14; s++) { x += (rnd() - 0.5) * 26; y += rnd() * 22; ctx.lineTo(x, y); }
+    ctx.strokeStyle = 'rgba(10,8,6,0.5)';
+    ctx.lineWidth = 1 + rnd() * 1.5;
+    ctx.stroke();
+  }
+  // 塗装のはがれ(明るい下地+暗い縁)
+  for (let i = 0; i < 26; i++) {
+    const x = rnd() * W, y = rnd() * H, r = 8 + rnd() * 26;
+    ctx.beginPath();
+    for (let k = 0; k < 9; k++) {
+      const ang = (k / 9) * Math.PI * 2, rr = r * (0.6 + rnd() * 0.6);
+      k === 0 ? ctx.moveTo(x + Math.cos(ang) * rr, y + Math.sin(ang) * rr * 0.7) : ctx.lineTo(x + Math.cos(ang) * rr, y + Math.sin(ang) * rr * 0.7);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(190,175,140,0.16)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(15,12,8,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+// 外壁の外側に、汚れとツタの板を貼る。yFloors=[1階のY, 2階のY, 屋根裏のY]
+function addOvergrownExterior(yFloors) {
+  const makeTex = (draw, w, h, ...args) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    draw(canvas, ...args);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    return tex;
+  };
+  // 階ごと(0=1階,1=2階,2=屋根裏)に2種類ずつ用意。奥行きが出るよう、手前の層は別の絵と別の位置を使う
+  const ivyTex = [0, 1, 2].map(v => [makeTex(drawIvyCanvas, 2048, 512, v, 100 + v), makeTex(drawIvyCanvas, 2048, 512, v, 200 + v)]);
+  const grimeTex = [0, 1, 2].map(v => makeTex(drawGrimeCanvas, 1024, 256, 300 + v));
+  const ivyMats = ivyTex.map(pair => pair.map(t => new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.45 })));
+  const grimeMats = grimeTex.map(t => new THREE.MeshLambertMaterial({ map: t, transparent: true, depthWrite: false }));
+
+  const floors = [
+    { y: yFloors[0], min: 0, max: 13 },
+    { y: yFloors[1], min: 0, max: 13 },
+    { y: yFloors[2], min: 1, max: 12 },
+  ];
+  const H = wallHeight, TEX_W = 13; // 絵の横幅=13m分
+  // 面ごとの向き。dは板のローカルX方向が世界のどちらの軸方向に進むか(絵を壁に沿って正しくつなぐため)
+  const sides = [
+    { name: 'south', rotY: Math.PI, d: -1, shift: 0 },
+    { name: 'east', rotY: Math.PI / 2, d: -1, shift: 3.7 },
+    { name: 'north', rotY: 0, d: 1, shift: 7.1 },
+    { name: 'west', rotY: -Math.PI / 2, d: 1, shift: 10.3 },
+  ];
+
+  // 1枚の板を貼る。a0〜a1は壁に沿った範囲(南北面ならX、東西面ならZ)、offは壁面からの浮かせ量
+  function addPatch(fi, side, a0, a1, mat, off, uShift) {
+    const f = floors[fi];
+    const w = a1 - a0, ac = (a0 + a1) / 2;
+    const geo = new THREE.PlaneGeometry(w, H);
+    const pos = geo.attributes.position, uv = geo.attributes.uv;
+    for (let i = 0; i < pos.count; i++) {
+      uv.setX(i, (ac + side.d * pos.getX(i) + side.shift + uShift) / TEX_W);
+    }
+    const mesh = new THREE.Mesh(geo, mat);
+    const dist = 0.1 + off; // 壁の厚み(0.2)の半分+浮かせ量
+    if (side.name === 'south') mesh.position.set(ac, f.y + H / 2, f.min - dist);
+    else if (side.name === 'north') mesh.position.set(ac, f.y + H / 2, f.max + dist);
+    else if (side.name === 'west') mesh.position.set(f.min - dist, f.y + H / 2, ac);
+    else mesh.position.set(f.max + dist, f.y + H / 2, ac);
+    mesh.rotation.y = side.rotY;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    scene.add(mesh);
+  }
+
+  floors.forEach((f, fi) => {
+    sides.forEach(side => {
+      // 1階の南面は玄関のドア(X=2、幅1.2)とその枠を避ける
+      const ranges = (fi === 0 && side.name === 'south') ? [[f.min, 1.3], [2.7, f.max]] : [[f.min, f.max]];
+      ranges.forEach(([a0, a1]) => {
+        addPatch(fi, side, a0, a1, grimeMats[fi], 0.012, 0);
+        addPatch(fi, side, a0, a1, ivyMats[fi][0], 0.04, 0);
+        addPatch(fi, side, a0, a1, ivyMats[fi][1], 0.08, 6.5);
+      });
+    });
+  });
+}
+
 // 実際にこの家を組み立てる。main.js がこのマップを選んだ瞬間だけ呼ばれる
 export function build() {
   // ---- 階の基準Yを決める(1階=0、2階=3.3、屋根裏=6.6) ----
@@ -140,6 +386,9 @@ export function build() {
   addWall('z', 12, 1, 12);
 
   setBuildingUpperFloor(FLOOR_1F); // 以降の呼び出しは1階の扱いに戻す
+
+  // ---- 外装: ツタまみれ+汚れ(見た目だけ。壁・当たり判定は変えない) ----
+  addOvergrownExterior([0, y2F, yAttic]);
 
   // ---- 床(見た目だけの板)。階段の吹き抜け部分だけ、addFramedPlaneで正確に穴を開ける
   // 下からも見えるよう両面表示にしておく(片面だけだと下の階から素通しになってしまう)
