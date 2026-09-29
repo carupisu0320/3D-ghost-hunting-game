@@ -1570,7 +1570,7 @@ function triggerDeath() {
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     scareModel.position.copy(camera.position).addScaledVector(forward, 1.3);
-    scareModel.position.y = camera.position.y - 0.3; // 見下ろす高さに合わせて少し低めに立たせる
+    scareModel.position.y = camera.position.y - 1.6; // 目の高さ(1.6m)ぶん下げて、足元を床に合わせる。もっと上/下にしたいときはこの1.6を増減する
     scareModel.lookAt(camera.position.x, scareModel.position.y, camera.position.z);
     scareModel.scale.setScalar(1.0); // ※モデルの実寸に応じて、大きすぎ/小さすぎる場合はここを調整する
     scareModel.traverse((o) => { if (o.isMesh) o.frustumCulled = false; }); // 動くスキンメッシュが画面端で消えないように
