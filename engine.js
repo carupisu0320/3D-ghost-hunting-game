@@ -919,6 +919,19 @@ new FBXLoader().load('./ghost-model.fbx', (fbx) => {
   console.warn('幽霊モデル(ghost-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
 });
 
+// 隠しコマンド: マップを選んだあとに「hayato」とキーボードで打つと、確定で幽霊がモデル版になる
+let secretBuffer = '';
+window.addEventListener('keydown', (e) => {
+  if (!hauntedRoom || ghostUsesModel) return; // マップ選択前(幽霊がまだいない)や、すでにモデル版のときは何もしない
+  if (typeof e.key !== 'string' || e.key.length !== 1) return;
+  secretBuffer = (secretBuffer + e.key.toLowerCase()).slice(-6);
+  if (secretBuffer === 'hayato') {
+    ghostUsesModel = true;
+    applyGhostModel(); // モデルの読み込みがまだなら、読み込み完了時に自動で入れ替わる
+    showPickupNotice('…何かが変わった…');
+  }
+});
+
 // 抽選に当たっていて、モデルの読み込みも終わっているときに、カプセルをモデルへ入れ替える(どちらが先に揃っても一度だけ実行される)
 function applyGhostModel() {
   if (!ghostUsesModel || !ghostModel || ghostModel.parent === ghost) return;
