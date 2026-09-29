@@ -984,19 +984,34 @@ function setExteriorDoor(door) { exteriorDoor = door; }
 
 let currentGhost = null;
 let hauntedRoom = null;
+let hauntedFloor = 0; // 幽霊の部屋がある階(0=1階/地下側、1=2階、2=屋根裏など。マップのupperFloorと同じ番号)
+let ghostFloorY = 0;  // 幽霊が今いる階の床の高さ(階を移るときは滑らかに動かす)
 let ghostTarget = null;
+
+function hauntedFloorY() {
+  return hauntedFloor > 0 ? upperFloorHeights[hauntedFloor] : 0;
+}
+// プレイヤーが「幽霊の部屋」の中にいるか(XZの範囲だけでなく、階も一致しているときだけtrue)
+function playerInHauntedRoom(x, z) {
+  if (!hauntedRoom) return false;
+  const sameFloor = hauntedFloor > 0 ? currentUpperFloor === hauntedFloor : (currentUpperFloor === 0 && onGroundFloor);
+  return sameFloor && x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
+}
 
 // 幽霊を1体ランダムに選び、渡された候補部屋(マップ側が「出没してよい部屋」として絞り込んだもの)の中に配置する
 function initHaunting(hauntableRoomEntries) {
   currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
   const hauntedRoomEntry = hauntableRoomEntries[Math.floor(Math.random() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
+  hauntedFloor = hauntedRoomEntry.upperFloor || 0;
+  ghostFloorY = hauntedFloorY();
   console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence, "出没部屋:", hauntedRoomEntry.name);
 
   ghostTarget = randomPointInRoom(hauntedRoom);
   ghost.position.copy(ghostTarget);
+  ghost.position.y = ghostFloorY + 1.0;
 
-  const hauntedRoomDoors = doors.filter(d => doorBordersRoom(d, hauntedRoom));
+  const hauntedRoomDoors = doors.filter(d => (d.upperFloor || 0) === hauntedFloor && doorBordersRoom(d, hauntedRoom));
   if (hauntedRoomDoors.length > 0) {
     const doorObj = hauntedRoomDoors[Math.floor(Math.random() * hauntedRoomDoors.length)];
     // 扉のヒンジGroupの子として付けることで、開閉に合わせて一緒に動くようにする。取っ手のすぐ下あたりに手のひらが来るよう配置
@@ -1011,7 +1026,7 @@ function initHaunting(hauntableRoomEntries) {
   } else {
     // 該当する部屋にドアが見つからなかった場合のフォールバック(部屋の中に浮かべる)
     const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9);
-    fingerprintSpot.position.set(fingerprintSpotPos.x, 1.1, fingerprintSpotPos.z);
+    fingerprintSpot.position.set(fingerprintSpotPos.x, hauntedFloorY() + 1.1, fingerprintSpotPos.z);
     scene.add(fingerprintSpot);
   }
 }
@@ -1684,7 +1699,7 @@ function emfLevelAt(distance, hasEMF5) {
 
 // 幽霊の部屋(hauntedRoom)の中だけ気温が下がる。「冷えた温度」を証拠に持つ幽霊のときだけ氷点下まで下がる
 function temperatureAt(x, z, t) {
-  const inHauntedRoom = x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
+  const inHauntedRoom = playerInHauntedRoom(x, z);
   const wobble = Math.sin(t * 0.6) * 0.4; // 表示がぴたっと止まって見えないよう、ごくゆっくり揺らす
   if (inHauntedRoom) {
     return (currentGhost.evidence.includes("冷えた温度") ? -1 : 13) + wobble;
@@ -1819,8 +1834,12 @@ function animate() {
     }
 
     // 正気度: 家の中(地下含む。テントや屋外は対象外)にいる間、じわじわ減っていく
+    // ブレーカーが上がっていて、その部屋のスイッチもオン(=電気がついている)の部屋では減らない
     if (currentRoomName !== "外") {
-      sanity = Math.max(0, sanity - (100 / 300) * delta); // 約5分で0まで減る計算
+      const roomIsLit = breakerOn && lightSwitches.some(sw => sw.roomName === currentRoomName && sw.on);
+      if (!roomIsLit) {
+        sanity = Math.max(0, sanity - (100 / 180) * delta); // 約3分で0まで減る計算
+      }
     }
     sanityScreenTimer += delta;
     if (sanityScreenTimer > 0.5) {
@@ -1854,12 +1873,12 @@ function animate() {
         ghost.position.z += toTarget.z * 1.0 * delta;
       }
     }
-    // ハント中はプレイヤーがいる階の高さに合わせて追ってくる(上の階にも、地下にも)
-    let huntFloorY = 0;
-    if (huntActive) {
-      huntFloorY = currentUpperFloor > 0 ? upperFloorHeights[currentUpperFloor] : (onGroundFloor ? 0 : basementFloorY);
-    }
-    ghost.position.y = huntFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
+    // 普段は幽霊の部屋がある階の高さ、ハント中はプレイヤーがいる階の高さ(上の階にも、地下にも)。階の移動は滑らかに行う
+    const targetFloorY = huntActive
+      ? (currentUpperFloor > 0 ? upperFloorHeights[currentUpperFloor] : (onGroundFloor ? 0 : basementFloorY))
+      : hauntedFloorY();
+    ghostFloorY += (targetFloorY - ghostFloorY) * Math.min(1, delta * 4);
+    ghost.position.y = ghostFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
     ghost.rotation.y += delta * 0.5;
 
     // 懐中電灯を向けると少しはっきり見える
@@ -1939,8 +1958,7 @@ function animate() {
 
     // ノート(ゴーストライティングが証拠の幽霊なら、幽霊のいる部屋に滞在した時間の合計で一度だけ書き込みが現れる)
     if (!notebookWritten && notebookTimer > 0) {
-      const inHauntedRoomForNotebook = camera.position.x >= hauntedRoom.minX && camera.position.x <= hauntedRoom.maxX &&
-        camera.position.z >= hauntedRoom.minZ && camera.position.z <= hauntedRoom.maxZ;
+      const inHauntedRoomForNotebook = playerInHauntedRoom(camera.position.x, camera.position.z);
       if (inHauntedRoomForNotebook) {
         notebookTimer -= delta;
         if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
