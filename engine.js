@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // 部屋一覧。中身は空のまま持っておき、マップ側(house-map.js)がpush()で登録する
 const rooms = [];
@@ -1545,14 +1546,17 @@ let gameStartTime = null; // 最初にポインターロックした時刻(生�
 let gameOver = false;
 controls.addEventListener('lock', () => { if (gameStartTime === null) gameStartTime = performance.now(); });
 
-// 死亡時にジャンプスケア的に目の前へ出す3Dモデル。同じフォルダに death-model.glb を置いておくと読み込まれる
+// 死亡時にジャンプスケア的に目の前へ出す3Dモデル(アニメーション付きFBX)。同じフォルダに death-model.fbx を置いておくと読み込まれる
 // (無い/読み込みに失敗した場合はコンソールに警告を出すだけで、血の画面・リザルト画面はいつも通り動く)
-const gltfLoader = new GLTFLoader();
+const fbxLoader = new FBXLoader();
 let deathModel = null;
-gltfLoader.load('./death-model.glb', (gltf) => {
-  deathModel = gltf.scene;
+let deathClips = [];
+let deathMixer = null;
+fbxLoader.load('./death-model.fbx', (fbx) => {
+  deathModel = fbx;
+  deathClips = fbx.animations;
 }, undefined, () => {
-  console.warn('死亡演出モデル(death-model.glb)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+  console.warn('死亡演出モデル(death-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
 });
 
 function triggerDeath() {
@@ -1562,14 +1566,22 @@ function triggerDeath() {
 
   // 死亡演出モデルを、カメラの目の前に出す(ジャンプスケア)。読み込みが間に合っていなければ何もしない
   if (deathModel) {
-    const scareModel = deathModel.clone();
+    const scareModel = SkeletonUtils.clone(deathModel);
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
     scareModel.position.copy(camera.position).addScaledVector(forward, 1.3);
     scareModel.position.y = camera.position.y - 0.3; // 見下ろす高さに合わせて少し低めに立たせる
     scareModel.lookAt(camera.position.x, scareModel.position.y, camera.position.z);
     scareModel.scale.setScalar(1.0); // ※モデルの実寸に応じて、大きすぎ/小さすぎる場合はここを調整する
+    scareModel.traverse((o) => { if (o.isMesh) o.frustumCulled = false; }); // 動くスキンメッシュが画面端で消えないように
     scene.add(scareModel);
+    if (deathClips.length > 0) {
+      deathMixer = new THREE.AnimationMixer(scareModel);
+      const action = deathMixer.clipAction(deathClips[0]);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true; // 再生が終わったら最後のポーズで止める
+      action.play();
+    }
     const scareLight = new THREE.PointLight(0xff3333, 6, 4);
     scareLight.position.copy(camera.position);
     scene.add(scareLight);
@@ -1744,6 +1756,7 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  if (deathMixer) deathMixer.update(delta);
 
   if (controls.isLocked) {
     const move = speed * delta;
