@@ -1634,8 +1634,13 @@ function showIdentifyResult(correct, elapsedSeconds, reward) {
 }
 
 const keys = {};
+let debugKeyBuffer = ''; // デバッグ用: 「sinu」と連続で打つと、幽霊に捕まらなくても死亡画面を確認できる
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
+  if (e.key && e.key.length === 1) {
+    debugKeyBuffer = (debugKeyBuffer + e.key.toLowerCase()).slice(-4);
+    if (debugKeyBuffer === 'sinu') triggerDeath();
+  }
   if (gameOver) return; // 死亡後はリザルト画面の「ロビーに戻る」以外の操作を受け付けない
   if (e.code === 'KeyE') toggleCurrentTool();
   if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
