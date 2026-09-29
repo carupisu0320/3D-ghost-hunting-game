@@ -1628,6 +1628,11 @@ fbxLoader.load('./death-model.fbx', (fbx) => {
   console.warn('死亡演出モデル(death-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
 });
 
+// 幽霊がこの距離(m)まで近づいたら死亡演出が始まる
+const DEATH_TRIGGER_DIST = 1.0;
+// 死亡演出のモデルを、プレイヤーの正面何m先に出すか。大きいほど遠くに出る(以前は1.3)
+const DEATH_MODEL_DIST = 3.0;
+
 function triggerDeath() {
   if (gameOver) return;
   gameOver = true;
@@ -1638,7 +1643,7 @@ function triggerDeath() {
     const scareModel = SkeletonUtils.clone(deathModel);
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
-    scareModel.position.copy(camera.position).addScaledVector(forward, 1.3);
+    scareModel.position.copy(camera.position).addScaledVector(forward, DEATH_MODEL_DIST);
     scareModel.position.y = camera.position.y - 1.6; // 目の高さ(1.6m)ぶん下げて、足元を床に合わせる。もっと上/下にしたいときはこの1.6を増減する
     scareModel.lookAt(camera.position.x, scareModel.position.y, camera.position.z);
     scareModel.scale.setScalar(1.0); // ※モデルの実寸に応じて、大きすぎ/小さすぎる場合はここを調整する
@@ -1948,7 +1953,7 @@ function animate() {
     if (sanity <= 30) {
       if (huntActive) {
         huntTimer -= delta;
-        if (ghostDist < 1.0) {
+        if (ghostDist < DEATH_TRIGGER_DIST) {
           triggerDeath();
         } else if (huntTimer <= 0) {
           huntActive = false;
