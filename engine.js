@@ -905,6 +905,44 @@ for (let i = 0; i < 6; i++) {
   ghostDotMarkers.push(dot);
 }
 
+// 低確率で、幽霊の見た目がカプセル型ではなく、寝転がって自転車こぎ運動をする人型モデル(ghost-model.fbx)になる
+// (モデルが無い/読み込みに失敗した場合は、コンソールに警告を出すだけでカプセル型のまま動く)
+const GHOST_MODEL_CHANCE = 0.1; // モデル版になる確率(0.1 = 10%)。変えたいときはこの数字だけ変える
+let ghostUsesModel = false;     // このゲームでモデル版になるか(initHaunting()で抽選する)
+let ghostModel = null;
+let ghostMixer = null;
+let ghostModelMaterials = [];
+new FBXLoader().load('./ghost-model.fbx', (fbx) => {
+  ghostModel = fbx;
+  applyGhostModel();
+}, undefined, () => {
+  console.warn('幽霊モデル(ghost-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+});
+
+// 抽選に当たっていて、モデルの読み込みも終わっているときに、カプセルをモデルへ入れ替える(どちらが先に揃っても一度だけ実行される)
+function applyGhostModel() {
+  if (!ghostUsesModel || !ghostModel || ghostModel.parent === ghost) return;
+  ghostModel.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false; // 動くスキンメッシュが画面端で消えないように
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+      m.transparent = true;
+      m.opacity = ghostMaterial.opacity;
+      m.color.copy(ghostMaterial.color); // 普段の幽霊と同じ青白い半透明にそろえる
+      if (m.emissive) { m.emissive.copy(ghostMaterial.emissive); m.emissiveIntensity = ghostMaterial.emissiveIntensity; }
+      ghostModelMaterials.push(m);
+    });
+  });
+  ghostModel.position.y = -0.85; // カプセルの中心(床から約1m)から下げて、寝転がった体が床すれすれになるようにする
+  ghost.add(ghostModel);
+  ghostMaterial.visible = false; // カプセル本体だけ隠す(D.O.T.S.の光点は子なので残る)
+  ghostDotMarkers.forEach((dot) => dot.position.set(-0.25 + Math.random() * 0.6, -0.9 + Math.random() * 0.5, -0.6 + Math.random() * 1.3));
+  if (ghostModel.animations.length > 0) {
+    ghostMixer = new THREE.AnimationMixer(ghostModel);
+    ghostMixer.clipAction(ghostModel.animations[0]).play(); // ずっとループ再生
+  }
+}
+
 // スピリットボックスが返す単語(証拠に一致する幽霊が近くにいるときだけ、雑音の代わりにこの中から返る)
 const spiritBoxWords = ['Y6uB4†b', 'P0см0три n4 меня', '0л4 0л4 0л4 0л4'];
 let spiritBoxTimer = 2;
@@ -1003,6 +1041,9 @@ function initHaunting(hauntableRoomEntries) {
   currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
   const hauntedRoomEntry = hauntableRoomEntries[Math.floor(Math.random() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
+  ghostUsesModel = Math.random() < GHOST_MODEL_CHANCE;
+  console.log("[デバッグ] 幽霊の見た目:", ghostUsesModel ? "人型モデル" : "カプセル");
+  applyGhostModel();
   hauntedFloor = hauntedRoomEntry.upperFloor || 0;
   ghostFloorY = hauntedFloorY();
   console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence, "出没部屋:", hauntedRoomEntry.name);
@@ -1772,6 +1813,7 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   if (deathMixer) deathMixer.update(delta);
+  if (ghostMixer) ghostMixer.update(delta);
 
   if (controls.isLocked) {
     const move = speed * delta;
@@ -1923,6 +1965,7 @@ function animate() {
     }
 
     ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
+    ghostModelMaterials.forEach((m) => { m.opacity = ghostMaterial.opacity; }); // モデル版のときも同じ透明度にそろえる
 
     if (pickupNoticeTimer > 0) {
       pickupNoticeTimer -= delta;
