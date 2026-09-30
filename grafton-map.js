@@ -685,15 +685,16 @@ export function build() {
     // 監視カメラの映像を映すモニターは、東側の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
     const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
     const monitorW = 0.6, monitorH = 0.45, monitorSpacing = 0.7;
+    const monitorY = 1.0; // 中心の高さ。テントの壁の高さは1.6mなので、上端(中心+0.27)が壁からはみ出さない高さにする
     videoCams.forEach((cam, i) => {
       const zOffset = (i - (videoCams.length - 1) / 2) * monitorSpacing;
       const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, monitorH + 0.08, monitorW + 0.08), monitorFrameMat);
-      monitorFrame.position.set(tentX + halfWidth - 0.06, 1.5, tentZ + zOffset);
+      monitorFrame.position.set(tentX + halfWidth - 0.06, monitorY, tentZ + zOffset);
       monitorFrame.castShadow = true;
       scene.add(monitorFrame);
       const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(monitorW, monitorH), cam.material);
       monitorScreen.rotation.y = -Math.PI / 2;
-      monitorScreen.position.set(tentX + halfWidth - 0.11, 1.5, tentZ + zOffset);
+      monitorScreen.position.set(tentX + halfWidth - 0.11, monitorY, tentZ + zOffset);
       scene.add(monitorScreen);
     });
 
