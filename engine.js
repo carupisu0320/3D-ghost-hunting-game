@@ -931,15 +931,21 @@ new FBXLoader().load('./ghost-model.fbx', (fbx) => {
   console.warn('幽霊モデル(ghost-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
 });
 
-// 隠しコマンド: マップを選んだあとに「hayato」とキーボードで打つと、確定で幽霊がモデル版になる
+// 隠しコマンド: マップを選んだあとに「hayato」とキーボードで打つと、その回の幽霊が確定でハヤトになる
+// (見た目は人型モデル、証拠はスピリットボックスのみ、襲ってこない。進行中のハントもその場で終わる)
 let secretBuffer = '';
 window.addEventListener('keydown', (e) => {
-  if (!hauntedRoom || ghostUsesModel) return; // マップ選択前(幽霊がまだいない)や、すでにモデル版のときは何もしない
+  if (!hauntedRoom || (currentGhost && currentGhost.name === 'ハヤト')) return; // マップ選択前(幽霊がまだいない)や、すでにハヤトのときは何もしない
   if (typeof e.key !== 'string' || e.key.length !== 1) return;
   secretBuffer = (secretBuffer + e.key.toLowerCase()).slice(-6);
   if (secretBuffer === 'hayato') {
+    const hayato = ghostTypes.find(g => g.name === 'ハヤト');
+    if (hayato) currentGhost = hayato;
+    huntActive = false; // 襲ってこない幽霊になるので、ハント中ならその場で打ち切る
+    if (exteriorDoor) exteriorDoor.locked = false;
     ghostUsesModel = true;
     applyGhostModel(); // モデルの読み込みがまだなら、読み込み完了時に自動で入れ替わる
+    console.log("[デバッグ] 幽霊の種類:", currentGhost.name, "証拠:", currentGhost.evidence);
     showPickupNotice('…何かが変わった…');
   }
 });
