@@ -4,6 +4,7 @@ import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
   addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
+  addSurveillanceCamera, videoCams,
   addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBreakerOn,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
@@ -641,6 +642,14 @@ export function build() {
   furnitureIn("Attic", 7.5, 1.0, 1.0, 0.6, 1.6);              // 古い戸棚
   setBuildingUpperFloor(FLOOR_1F);
 
+  // ---- 監視カメラ(1階3台・2階2台・屋根裏1台。映像はテントの東側の壁のモニターに映る) ----
+  addSurveillanceCamera("Foyer");
+  addSurveillanceCamera("Living Room");
+  addSurveillanceCamera("Dining Room");
+  addSurveillanceCamera("Master Bedroom", y2F);
+  addSurveillanceCamera("Child Bedroom", y2F);
+  addSurveillanceCamera("Attic", yAttic);
+
   // ---- 拠点のテント(家の南側、玄関と同じXに正面を合わせて設置) ----
   const tentX = 2, tentZ = -15;
   {
@@ -672,6 +681,21 @@ export function build() {
     sanityScreen.rotation.y = Math.PI / 2;
     scene.add(sanityScreen);
     wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
+
+    // 監視カメラの映像を映すモニターは、東側の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
+    const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
+    const monitorW = 0.6, monitorH = 0.45, monitorSpacing = 0.7;
+    videoCams.forEach((cam, i) => {
+      const zOffset = (i - (videoCams.length - 1) / 2) * monitorSpacing;
+      const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, monitorH + 0.08, monitorW + 0.08), monitorFrameMat);
+      monitorFrame.position.set(tentX + halfWidth - 0.06, 1.5, tentZ + zOffset);
+      monitorFrame.castShadow = true;
+      scene.add(monitorFrame);
+      const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(monitorW, monitorH), cam.material);
+      monitorScreen.rotation.y = -Math.PI / 2;
+      monitorScreen.position.set(tentX + halfWidth - 0.11, 1.5, tentZ + zOffset);
+      scene.add(monitorScreen);
+    });
 
     // 壁の上に乗る切妻屋根(棟はZ方向)
     const slopeLen = Math.sqrt(halfWidth * halfWidth + rise * rise) + 0.5;
