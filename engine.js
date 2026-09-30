@@ -445,14 +445,14 @@ function addPickupItem(x, z, mesh, onCollect) {
 
 // 監視カメラ(複数の部屋に設置し、テントの複数モニターへ映像を送る)
 const videoCams = []; // { camera, rt, material, roomName }
-function addSurveillanceCamera(roomName) {
+function addSurveillanceCamera(roomName, floorY = 0) {
   const r = room(roomName);
   const rt = new THREE.WebGLRenderTarget(192, 144);
   const material = new THREE.MeshBasicMaterial({ map: rt.texture });
   const cam = new THREE.PerspectiveCamera(60, 256 / 192, 0.1, 30);
   cam.layers.enable(1);
-  cam.position.set(r.minX + 1.0, 2.4, r.minZ + 1.0);
-  cam.lookAt(r.maxX - 1.0, 1.0, r.maxZ - 1.0);
+  cam.position.set(r.minX + 1.0, floorY + 2.4, r.minZ + 1.0);
+  cam.lookAt(r.maxX - 1.0, floorY + 1.0, r.maxZ - 1.0);
   scene.add(cam);
   videoCams.push({ camera: cam, rt, material, roomName });
 }
@@ -872,6 +872,15 @@ const ghostTypes = [
   { name: "Mare", evidence: ["スピリットボックス", "オーブ", "指紋"] },
   { name: "Revenant", evidence: ["ゴーストライティング", "オーブ", "D.O.T.S"] },
   { name: "Yurei", evidence: ["冷えた温度", "指紋", "D.O.T.S"] },
+  // ここから追加分。どれも既存の幽霊と証拠の組み合わせが被らない(証拠がそろえば1体に絞れる)
+  { name: "Phantom", evidence: ["スピリットボックス", "指紋", "D.O.T.S"] },
+  { name: "Shade", evidence: ["EMF5", "ゴーストライティング", "オーブ"] },
+  { name: "Demon", evidence: ["ゴーストライティング", "指紋", "冷えた温度"] },
+  { name: "Yokai", evidence: ["スピリットボックス", "オーブ", "D.O.T.S"] },
+  { name: "Hantu", evidence: ["オーブ", "指紋", "冷えた温度"] },
+  { name: "Goryo", evidence: ["EMF5", "指紋", "D.O.T.S"] },
+  { name: "Onryo", evidence: ["スピリットボックス", "オーブ", "冷えた温度"] },
+  { name: "Obake", evidence: ["EMF5", "オーブ", "指紋"] },
 ];
 
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
@@ -1391,6 +1400,7 @@ journalRightTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:
 journalRightPage.appendChild(journalRightTitle);
 
 const journalGhostList = document.createElement('div');
+journalGhostList.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;column-gap:8px;max-height:calc(min(560px,82vh) - 200px);overflow-y:auto;';
 journalRightPage.appendChild(journalGhostList);
 
 const journalIdentifyBtn = document.createElement('button');
