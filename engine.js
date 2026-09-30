@@ -881,6 +881,9 @@ const ghostTypes = [
   { name: "Goryo", evidence: ["EMF5", "指紋", "D.O.T.S"] },
   { name: "Onryo", evidence: ["スピリットボックス", "オーブ", "冷えた温度"] },
   { name: "Obake", evidence: ["EMF5", "オーブ", "指紋"] },
+  // 特別な幽霊。証拠はスピリットボックスだけで、スピリットボックスには必ず同じ言葉で応える。
+  // 見た目は常に人型モデル(ghost-model.fbx)で、襲ってこない(ハントも死亡もゲームオーバーも起きない)
+  { name: "ハヤト", evidence: ["スピリットボックス"], spiritBoxWord: "いらっしゃいませ////", alwaysModel: true, noHunt: true },
 ];
 
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
@@ -1063,7 +1066,7 @@ function initHaunting(hauntableRoomEntries) {
   currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
   const hauntedRoomEntry = hauntableRoomEntries[Math.floor(Math.random() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
-  ghostUsesModel = Math.random() < GHOST_MODEL_CHANCE;
+  ghostUsesModel = currentGhost.alwaysModel === true || Math.random() < GHOST_MODEL_CHANCE;
   console.log("[デバッグ] 幽霊の見た目:", ghostUsesModel ? "人型モデル" : "カプセル");
   applyGhostModel();
   hauntedFloor = hauntedRoomEntry.upperFloor || 0;
@@ -1960,7 +1963,7 @@ function animate() {
     const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
 
     // 正気度が30以下の間、幽霊がいつプレイヤーを襲ってきてもおかしくない状態にする
-    if (sanity <= 30) {
+    if (sanity <= 30 && !currentGhost.noHunt) { // 襲ってこない幽霊(ハヤト)は、正気度が下がってもハントを起こさない
       if (huntActive) {
         huntTimer -= delta;
         if (ghostDist < DEATH_TRIGGER_DIST) {
@@ -2053,8 +2056,9 @@ function animate() {
       if (spiritBoxTimer <= 0) {
         spiritBoxTimer = 2 + Math.random() * 2;
         const canRespond = currentGhost.evidence.includes("スピリットボックス") && ghostDist < 6;
-        if (canRespond && Math.random() < 0.5) {
-          const word = spiritBoxWords[Math.floor(Math.random() * spiritBoxWords.length)];
+        // 決まった言葉を持つ幽霊(ハヤト)は、範囲内なら毎回その言葉で応える。それ以外は今まで通り半分の確率でランダムな言葉
+        if (canRespond && (currentGhost.spiritBoxWord || Math.random() < 0.5)) {
+          const word = currentGhost.spiritBoxWord || spiritBoxWords[Math.floor(Math.random() * spiritBoxWords.length)];
           spiritBoxDisplay.textContent = `スピリットボックス: 「${word}」`;
         } else {
           spiritBoxDisplay.textContent = 'スピリットボックス: …ザザ…';
