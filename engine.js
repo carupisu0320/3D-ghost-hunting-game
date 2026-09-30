@@ -445,6 +445,9 @@ function addPickupItem(x, z, mesh, onCollect) {
 
 // 監視カメラ(複数の部屋に設置し、テントの複数モニターへ映像を送る)
 const videoCams = []; // { camera, rt, material, roomName }
+// カメラ映像を1台ぶん描き直す間隔(秒)。小さいほど映像がなめらかになるが、そのぶん重くなる(以前は0.35)
+const MONITOR_INTERVAL = 0.12;
+
 function addSurveillanceCamera(roomName, floorY = 0) {
   const r = room(roomName);
   const rt = new THREE.WebGLRenderTarget(192, 144);
@@ -2098,8 +2101,9 @@ function animate() {
   }
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)。カメラが無いマップなら何もしない
+  // 1台が更新される間隔 = MONITOR_INTERVAL × カメラの台数(Graftonの6台なら0.12×6≒0.7秒、一軒家の4台なら約0.5秒)
   monitorTimer += delta;
-  if (monitorTimer > 0.35 && videoCams.length > 0) {
+  if (monitorTimer > MONITOR_INTERVAL && videoCams.length > 0) {
     monitorTimer = 0;
     const cam = videoCams[monitorCycleIndex];
     renderer.setRenderTarget(cam.rt);
