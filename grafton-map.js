@@ -642,7 +642,7 @@ export function build() {
   furnitureIn("Attic", 7.5, 1.0, 1.0, 0.6, 1.6);              // 古い戸棚
   setBuildingUpperFloor(FLOOR_1F);
 
-  // ---- 監視カメラ(1階3台・2階2台・屋根裏1台。映像はテントの東側の壁のモニターに映る) ----
+  // ---- 監視カメラ(1階3台・2階2台・屋根裏1台。映像はテントの奥の壁(机の後ろ)のモニターに映る) ----
   addSurveillanceCamera("Foyer");
   addSurveillanceCamera("Living Room");
   addSurveillanceCamera("Dining Room");
@@ -682,19 +682,19 @@ export function build() {
     scene.add(sanityScreen);
     wallBoxes.push({ minX: tentX - halfWidth, maxX: tentX + halfWidth, minZ: tentZ - depth / 2 - 0.15, maxZ: tentZ - depth / 2 + 0.15 });
 
-    // 監視カメラの映像を映すモニターは、東側の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
+    // 監視カメラの映像を映すモニターは、道具を置いた机の奥の壁(背面の壁)に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
     const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
     const monitorW = 0.6, monitorH = 0.45, monitorSpacing = 0.7;
-    const monitorY = 1.0; // 中心の高さ。テントの壁の高さは1.6mなので、上端(中心+0.27)が壁からはみ出さない高さにする
+    const monitorY = 1.15; // 中心の高さ。机の面(0.75m)より上で、上端が壁の高さ(1.6m)を超えない高さ
+    const backWallZ = tentZ - depth / 2;
     videoCams.forEach((cam, i) => {
-      const zOffset = (i - (videoCams.length - 1) / 2) * monitorSpacing;
-      const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(0.06, monitorH + 0.08, monitorW + 0.08), monitorFrameMat);
-      monitorFrame.position.set(tentX + halfWidth - 0.06, monitorY, tentZ + zOffset);
+      const xOffset = (i - (videoCams.length - 1) / 2) * monitorSpacing;
+      const monitorFrame = new THREE.Mesh(new THREE.BoxGeometry(monitorW + 0.08, monitorH + 0.08, 0.06), monitorFrameMat);
+      monitorFrame.position.set(tentX + xOffset, monitorY, backWallZ + 0.06);
       monitorFrame.castShadow = true;
       scene.add(monitorFrame);
       const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(monitorW, monitorH), cam.material);
-      monitorScreen.rotation.y = -Math.PI / 2;
-      monitorScreen.position.set(tentX + halfWidth - 0.11, monitorY, tentZ + zOffset);
+      monitorScreen.position.set(tentX + xOffset, monitorY, backWallZ + 0.11);
       scene.add(monitorScreen);
     });
 
