@@ -554,7 +554,10 @@ export function build() {
 
   // ---- 照明(部屋ごとに天井灯+スイッチ。ブレーカーはUtility Roomに設置) ----
   // テストプレイ用の補助的な全体照明(部屋の隅など、天井灯の光が届きにくい場所を底上げする)
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x605040, 0.9));
+  const HEMI_ON = 0.9;   // ブレーカーが入っている間の全体照明の強さ
+  const HEMI_OFF = 0;    // ブレーカーが落ちている間の全体照明の強さ(0=なし。暗くしたいほど0に近づける、明るくしたいときは上げる)
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x605040, HEMI_ON);
+  scene.add(hemiLight);
   const roomLights = {
     "Living Room": addRoomLight("Living Room", 16, 0xfff2cc, 18),
     "Kitchen": addRoomLight("Kitchen", 16, 0xfff2cc, 18),
@@ -597,6 +600,7 @@ export function build() {
   // ブレーカーの状態を全ての照明とレバーに反映する
   function applyBreakerState() {
     updateRoomLightCulling();
+    hemiLight.intensity = breakerOn ? HEMI_ON : HEMI_OFF; // 停電中は補助の全体照明も落として、暗くする
     breakerLeverMat.color.set(breakerOn ? 0x2f6b2f : 0x552222);
     breakerLeverMat.emissive.set(breakerOn ? 0x113311 : 0x220000);
   }
