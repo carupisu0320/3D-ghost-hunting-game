@@ -4,7 +4,7 @@ import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
   addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
-  addSurveillanceCamera, videoCams,
+  addSurveillanceCamera, videoCams, addToolPegboard,
   addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBreakerOn,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
@@ -919,20 +919,12 @@ export function build() {
     scene.add(table);
     wallBoxes.push({ minX: tentX - 1.0, maxX: tentX + 1.0, minZ: tableZ - 0.5, maxZ: tableZ + 0.5 });
 
-    const rowFrontZ = tableZ - 0.26, rowBackZ = tableZ + 0.26;
-    const toolSlots = [
-      ['flashlight', makeFlashlightItemMesh, tentX - 0.75, rowFrontZ],
-      ['emf', makeEMFItemMesh, tentX - 0.5, rowBackZ],
-      ['thermometer', makeThermoItemMesh, tentX + 0.25, rowFrontZ],
-      ['spiritbox', makeSpiritBoxItemMesh, tentX - 0.25, rowFrontZ],
-      ['uv', makeUVItemMesh, tentX + 0.75, rowFrontZ],
-      ['dots', makeDotsItemMesh, tentX, rowBackZ],
-    ];
-    toolSlots.forEach(([tool, maker, x, z]) => {
-      const item = maker();
-      item.position.y = 0.75 + toolRestOffset[tool];
-      addPickupItem(x, z, item, () => collectTool(tool));
+    // 道具は、東の壁に掛けたペグボードに並べる(視線を向けてクリックで取る)。ノートだけは机の上に置く
+    addToolPegboard({
+      x: tentX + halfWidth - 0.05 - 0.03, z: tentZ - 0.2, rotY: -Math.PI / 2, // 東の壁の内側の面に付け、ボードの前を西(テントの中)へ向ける
+      tools: ['flashlight', 'emf', 'thermometer', 'spiritbox', 'uv', 'dots'],
     });
+    const rowBackZ = tableZ + 0.26;
     const notebookItem = makeNotebookItemMesh();
     notebookItem.position.y = 0.75 + toolRestOffset.notebook;
     setNotebookWorldMesh(notebookItem);
