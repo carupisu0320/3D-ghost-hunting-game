@@ -422,12 +422,12 @@ export function build() {
   // 内壁(ドアの位置は、図でつながっている部屋同士に開けてある)
   addWall('z', 4.85, 1, 5.66, 3.2);   // Living Room / Foyer
   addWall('z', 4.85, 5.66, 13, 8.0);  // Kitchen・Utility Room / Dining Room(ドアはKitchen側)
-  addWall('x', 5.66, 0, 4.85, 2.5);   // Living Room / Kitchen
+  addWall('x', 5.66, 0, 4.85, 4.0);   // Living Room / Kitchen(ソファの前を避けて東寄り)
   addWall('x', 10.4, 0, 4.85, 3.6);   // Kitchen / Utility Room
   addWall('x', 5.66, 4.85, 7.8, 5.85); // Foyer / Dining Room
   addWall('z', 7.8, 1, 5.66, 1.75);   // Foyer / Work Room(階段の手前)
   addWall('x', 5.66, 7.8, 13, 9.4);   // Work Room / Dining Room(回り込んだ部分)・Downstairs Bathroom
-  addWall('z', 10.76, 5.66, 7.96, 6.8); // Dining Room / Downstairs Bathroom
+  addWall('z', 10.76, 5.66, 7.96, 7.0); // Dining Room / Downstairs Bathroom(洗面台を避けて北寄り)
   addWall('x', 7.96, 8.87, 13, 9.8);  // Library / Dining Room(回り込んだ部分)・Downstairs Bathroom
   addWall('z', 8.87, 7.96, 13, 9.6);  // Library / Dining Room
 
@@ -789,7 +789,7 @@ export function build() {
   wardrobeIn("Library", 3.85, 2.0, 0.5, 1.6, 1.9);            // Library: 東の壁際の本棚(2つ)
   wardrobeIn("Library", 3.85, 4.0, 0.5, 1.6, 1.9);
   addFurniture(10.0, 12.3, 1.4, 0.7, 0.75);                    // Library: 北の壁際の読書机
-  addFurniture(5.1, 4.7, 0.4, 1.0, 1.0);                       // Foyer: 西の壁際の靴箱(階段とドアから離した位置)
+  addFurniture(5.05, 4.8, 0.3, 0.9, 1.0);                      // Foyer: 西の壁際の靴箱(2つのドアの通り道を避けた位置)
   addFurniture(10.6, 3.2, 1.6, 0.9, 0.75);                     // Work Room: 作業テーブル
   counterAt(12.6, 3.4, 0.7, 2.8, 0.9);                         // Work Room: 東の壁際の作業台
   addFurniture(11.8, 1.5, 1.8, 0.45, 1.6);                     // Work Room: 南の壁際の棚
