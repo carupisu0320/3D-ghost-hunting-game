@@ -643,6 +643,136 @@ function collectTool(tool) {
   updateViewmodel();
 }
 
+// 持っている道具の数(インベントリは3つまで)
+function countHeldTools() {
+  return (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0) +
+    (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
+}
+
+// 壁掛けの道具置き場(ペグボード)。道具を壁に掛けて並べ、視線を向けてクリックすると、その道具が取れる。
+//   x, z   : ボードの前面の中心(壁の面の位置)
+//   rotY   : ボードの前(部屋の側)を向ける回転。0なら+Z側が前、-Math.PI/2なら-X側が前(東の壁に付けるとき)
+//   length : 壁に沿った長さ(m)、baseY: ボード下端の高さ、height: ボードの高さ
+//   tools  : 掛ける道具の名前の配列(flashlight, emf, thermometer, spiritbox, uv, dots)。左から順に並ぶ
+function addToolPegboard({ x, z, rotY, length = 3.6, baseY = 0.6, height = 0.9, tools }) {
+  const cosR = Math.cos(rotY), sinR = Math.sin(rotY);
+  // ボード上の座標(lx=壁に沿って右、ly=高さ、lz=壁から部屋側へ)を、世界の座標に直す
+  const toWorld = (lx, ly, lz) => new THREE.Vector3(x + lx * cosR + lz * sinR, ly, z - lx * sinR + lz * cosR);
+
+  // ---- ボード本体(穴あきの灰色の板+上の梁+下の棚+上の照明+道具の名札) ----
+  const board = new THREE.Group();
+  board.position.set(x, 0, z);
+  board.rotation.y = rotY;
+  scene.add(board);
+
+  const holeCanvas = document.createElement('canvas');
+  holeCanvas.width = holeCanvas.height = 128;
+  const hctx = holeCanvas.getContext('2d');
+  hctx.fillStyle = '#80858a';
+  hctx.fillRect(0, 0, 128, 128);
+  hctx.fillStyle = '#2e3134';
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+    hctx.beginPath(); hctx.arc(8 + i * 16, 8 + j * 16, 2.6, 0, Math.PI * 2); hctx.fill();
+  }
+  const holeTex = new THREE.CanvasTexture(holeCanvas);
+  holeTex.colorSpace = THREE.SRGBColorSpace;
+  holeTex.wrapS = holeTex.wrapT = THREE.RepeatWrapping;
+  holeTex.repeat.set(length / 0.25, height / 0.25); // 0.25mごとに8つの穴(約3cm間隔)
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(length, height, 0.03), new THREE.MeshLambertMaterial({ map: holeTex }));
+  panel.position.set(0, baseY + height / 2, -0.015);
+  board.add(panel);
+
+  const woodMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1) });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(length + 0.1, 0.1, 0.1), woodMat);
+  beam.position.set(0, baseY + height + 0.05, 0.02);
+  board.add(beam);
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(length + 0.1, 0.05, 0.14), woodMat);
+  shelf.position.set(0, baseY - 0.025, 0.04);
+  board.add(shelf);
+
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff4d6 });
+  for (let i = 0; i < 4; i++) { // 上の細長い照明(見た目だけ)
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.022, 0.05), lampMat);
+    lamp.position.set(((i + 0.5) / 4 - 0.5) * length, baseY + height - 0.03, 0.05);
+    board.add(lamp);
+  }
+
+  // ---- 道具の掛け方(ボードの前面を+Zとして、どの向きで掛けると自然か) ----
+  // rx: 横倒しの形で作られている道具を、縦に立てる回転。ry: 画面・レンズ・先端を向けたい向きに合わせる回転
+  const hang = {
+    flashlight: { make: makeFlashlightItemMesh, rx: Math.PI / 2, ry: 0 },             // 頭を上にして縦に掛ける
+    emf: { make: makeEMFItemMesh, rx: 0, ry: 0 },                                      // LEDを部屋側に向ける
+    thermometer: { make: makeThermoItemMesh, rx: 0, ry: -Math.PI / 2 },               // 先端を壁に沿って横に向ける(グリップを下に)
+    spiritbox: { make: makeSpiritBoxItemMesh, rx: 0, ry: 0 },
+    uv: { make: makeUVItemMesh, rx: Math.PI / 2, ry: 0 },                              // レンズを上にして縦に掛ける
+    dots: { make: makeDotsItemMesh, rx: 0, ry: Math.PI },                              // レンズを部屋側に向ける
+  };
+  const rowY = baseY + 0.5; // 道具の中心の高さ
+  tools.forEach((tool, i) => {
+    const h = hang[tool];
+    if (!h) return;
+    const lx = ((i + 0.5) / tools.length - 0.5) * length;
+    const w = new THREE.Group(); // 向きを整えるための入れ物(中の道具が持つ元の向きは変えない)
+    w.add(h.make());
+    w.rotation.order = 'YXZ';
+    w.rotation.set(h.rx, h.ry, 0);
+    w.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(w); // ボード上の向きでの大きさ(まだ壁の向きは掛けていない)
+    const cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;
+    const depth = box.max.z - box.min.z;
+    w.position.copy(toWorld(lx - cx, rowY - cy, 0.012 - box.min.z)); // 背面をボードの面に付ける
+    w.rotation.set(h.rx, h.ry + rotY, 0);
+    scene.add(w);
+    const center = toWorld(lx, rowY, 0.012 + depth / 2);
+    pickupItems.push({ x: center.x, z: center.z, mesh: w, collected: false, onCollect: () => collectTool(tool), gaze: true, center, tool });
+
+    // 道具の名札(下に掛ける)
+    const labelCanvas = document.createElement('canvas');
+    labelCanvas.width = 256; labelCanvas.height = 52;
+    const lctx = labelCanvas.getContext('2d');
+    lctx.fillStyle = 'rgba(15,15,15,0.55)';
+    lctx.fillRect(0, 0, 256, 52);
+    lctx.fillStyle = '#e8e8e8';
+    lctx.font = 'bold 26px sans-serif';
+    lctx.textAlign = 'center';
+    lctx.fillText(toolNames[tool], 128, 36);
+    const labelTex = new THREE.CanvasTexture(labelCanvas);
+    labelTex.colorSpace = THREE.SRGBColorSpace;
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.1), new THREE.MeshBasicMaterial({ map: labelTex, transparent: true }));
+    label.position.set(lx, baseY + 0.16, 0.004);
+    board.add(label);
+  });
+}
+
+// 壁掛けの道具のうち、今画面の中央(視線)の先にあるものを返す(1.8m以内、約12度以内。なければnull)
+const _gazeDir = new THREE.Vector3(), _gazeTo = new THREE.Vector3();
+function findGazePickup() {
+  camera.getWorldDirection(_gazeDir);
+  let best = null, bestAngle = 0.22;
+  for (const item of pickupItems) {
+    if (item.collected || !item.gaze) continue;
+    _gazeTo.copy(item.center).sub(camera.position);
+    if (_gazeTo.length() > 1.8) continue;
+    const angle = _gazeDir.angleTo(_gazeTo.normalize());
+    if (angle < bestAngle) { bestAngle = angle; best = item; }
+  }
+  return best;
+}
+// 視線の先に取れる道具があるとき、画面に名前を出す
+let gazeHintEl = null;
+function updateGazeHint() {
+  if (!pickupItems.some(i => i.gaze && !i.collected)) { if (gazeHintEl) gazeHintEl.style.display = 'none'; return; }
+  if (!gazeHintEl) {
+    gazeHintEl = document.createElement('div');
+    gazeHintEl.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:4px;font-family:monospace;font-size:14px;z-index:50;pointer-events:none;display:none;';
+    document.body.appendChild(gazeHintEl);
+  }
+  const item = controls.isLocked ? findGazePickup() : null;
+  if (!item) { gazeHintEl.style.display = 'none'; return; }
+  gazeHintEl.textContent = toolNames[item.tool] + (countHeldTools() >= 3 ? '(持ち物がいっぱい)' : '(クリックで取る)');
+  gazeHintEl.style.display = 'block';
+}
+
 // 今持っている道具を、今いるその場に置いて手放す(Qキー/ゲームパッド十字キー下)
 function dropCurrentTool() {
   if (!currentTool) return;
@@ -1228,8 +1358,16 @@ function onFrame(fn) { onFrameCallbacks.push(fn); }
 function tryInteract() {
   const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0) +
     (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
+  // 壁掛けの道具(ペグボード)は、近くにあるどれでもではなく、視線を向けているものを取る
+  const gazeItem = findGazePickup();
+  if (gazeItem && heldCount < 3) {
+    gazeItem.collected = true;
+    scene.remove(gazeItem.mesh);
+    gazeItem.onCollect();
+    return;
+  }
   for (const item of pickupItems) {
-    if (item.collected) continue;
+    if (item.collected || item.gaze) continue;
     if (heldCount >= 3) break; // インベントリは3つまで
     const dx = camera.position.x - item.x, dz = camera.position.z - item.z;
     if (Math.sqrt(dx * dx + dz * dz) < 1.2) {
@@ -2112,6 +2250,8 @@ function animate() {
     monitorCycleIndex = (monitorCycleIndex + 1) % videoCams.length;
   }
 
+  updateGazeHint();
+
   renderer.render(scene, camera);
 }
 // マップ選択画面。今は「一軒家」の1つだけだが、今後マップを追加してもここに並べていくだけで済むようにしてある
@@ -2215,7 +2355,7 @@ export {
   woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn,
   addSurveillanceCamera, videoCams,
-  addPickupItem, pickupItems,
+  addPickupItem, pickupItems, addToolPegboard,
   makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool,
   notebookWorldMesh,
