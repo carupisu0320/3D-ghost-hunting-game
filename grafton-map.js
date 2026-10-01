@@ -1,4 +1,4 @@
-// Grafton Farmhouse マップ。今回は間取り(部屋・壁・ドア・階段・最低限の照明)だけを作ってあり、
+// Grafton Farmhouse マップ。間取り(部屋・壁・ドア・階段)は実際のGrafton Farmhouseの間取り図に合わせてあり、
 // 「玄関・屋根裏が常に暗い」「壁に穴が開いている部屋は暖房が効かない」といった特殊ルールはまだ実装していない
 import {
   THREE, mergeGeometries, scene, camera, rooms, room,
@@ -12,7 +12,7 @@ import {
   initHaunting, setExteriorDoor, setOrbRoom, doors,
   onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addFurniture,
-  addDetailMesh, addLeg, addLegsUnder, fabricMaterial, handleMaterial,
+  addDetailMesh, addLeg, addLegsUnder, fabricMaterial, handleMaterial, ceramicMaterial,
 } from './engine.js';
 
 export const mapId = 'grafton';
@@ -239,8 +239,9 @@ function drawGrimeCanvas(canvas, seed) {
   }
 }
 
-// 外壁の外側に、汚れとツタの板を貼る。yFloors=[1階のY, 2階のY, 屋根裏のY]
-function addOvergrownExterior(yFloors) {
+// 外壁の外側に、汚れとツタの板を貼る。facesByFloor=[{ y: その階の床のY, faces: [{ side, fixed, a0, a1, cuts? }] }]。
+// sideは外を向く方角(south/north/east/west)、fixedはその壁のX(東西面)またはZ(南北面)、a0〜a1は壁に沿った範囲、cutsは板を貼らずに空ける範囲
+function addOvergrownExterior(facesByFloor) {
   const makeTex = (draw, w, h, ...args) => {
     const canvas = document.createElement('canvas');
     canvas.width = w; canvas.height = h;
@@ -257,23 +258,18 @@ function addOvergrownExterior(yFloors) {
   const ivyMats = ivyTex.map(pair => pair.map(t => new THREE.MeshLambertMaterial({ map: t, alphaTest: 0.45 })));
   const grimeMats = grimeTex.map(t => new THREE.MeshLambertMaterial({ map: t, transparent: true, depthWrite: false }));
 
-  const floors = [
-    { y: yFloors[0], min: 0, max: 13 },
-    { y: yFloors[1], min: 0, max: 13 },
-    { y: yFloors[2], min: 1, max: 12 },
-  ];
   const H = wallHeight, TEX_W = 13; // 絵の横幅=13m分
   // 面ごとの向き。dは板のローカルX方向が世界のどちらの軸方向に進むか(絵を壁に沿って正しくつなぐため)
-  const sides = [
-    { name: 'south', rotY: Math.PI, d: -1, shift: 0 },
-    { name: 'east', rotY: Math.PI / 2, d: -1, shift: 3.7 },
-    { name: 'north', rotY: 0, d: 1, shift: 7.1 },
-    { name: 'west', rotY: -Math.PI / 2, d: 1, shift: 10.3 },
-  ];
+  const sides = {
+    south: { rotY: Math.PI, d: -1, shift: 0 },
+    east: { rotY: Math.PI / 2, d: -1, shift: 3.7 },
+    north: { rotY: 0, d: 1, shift: 7.1 },
+    west: { rotY: -Math.PI / 2, d: 1, shift: 10.3 },
+  };
 
-  // 1枚の板を貼る。a0〜a1は壁に沿った範囲(南北面ならX、東西面ならZ)、offは壁面からの浮かせ量
-  function addPatch(fi, side, a0, a1, mat, off, uShift) {
-    const f = floors[fi];
+  // 1枚の板を貼る。a0〜a1は壁に沿った範囲(南北面ならX、東西面ならZ)、fixedは壁の位置、offは壁面からの浮かせ量
+  function addPatch(y, face, a0, a1, mat, off, uShift) {
+    const side = sides[face.side];
     const w = a1 - a0, ac = (a0 + a1) / 2;
     const geo = new THREE.PlaneGeometry(w, H);
     const pos = geo.attributes.position, uv = geo.attributes.uv;
@@ -282,166 +278,332 @@ function addOvergrownExterior(yFloors) {
     }
     const mesh = new THREE.Mesh(geo, mat);
     const dist = 0.1 + off; // 壁の厚み(0.2)の半分+浮かせ量
-    if (side.name === 'south') mesh.position.set(ac, f.y + H / 2, f.min - dist);
-    else if (side.name === 'north') mesh.position.set(ac, f.y + H / 2, f.max + dist);
-    else if (side.name === 'west') mesh.position.set(f.min - dist, f.y + H / 2, ac);
-    else mesh.position.set(f.max + dist, f.y + H / 2, ac);
+    if (face.side === 'south') mesh.position.set(ac, y + H / 2, face.fixed - dist);
+    else if (face.side === 'north') mesh.position.set(ac, y + H / 2, face.fixed + dist);
+    else if (face.side === 'west') mesh.position.set(face.fixed - dist, y + H / 2, ac);
+    else mesh.position.set(face.fixed + dist, y + H / 2, ac);
     mesh.rotation.y = side.rotY;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     scene.add(mesh);
   }
 
-  floors.forEach((f, fi) => {
-    sides.forEach(side => {
-      // 1階の南面は玄関のドア(X=2、幅1.2)とその枠を避ける
-      const ranges = (fi === 0 && side.name === 'south') ? [[f.min, 1.3], [2.7, f.max]] : [[f.min, f.max]];
+  facesByFloor.forEach((floor, fi) => {
+    floor.faces.forEach(face => {
+      // cuts(ドアとその枠など)に当たる範囲は、板を貼らずに空ける
+      let ranges = [[face.a0, face.a1]];
+      (face.cuts || []).forEach(([c0, c1]) => {
+        ranges = ranges.flatMap(([s0, e0]) => {
+          if (c1 <= s0 || c0 >= e0) return [[s0, e0]];
+          const out = [];
+          if (c0 > s0) out.push([s0, c0]);
+          if (c1 < e0) out.push([c1, e0]);
+          return out;
+        });
+      });
       ranges.forEach(([a0, a1]) => {
-        addPatch(fi, side, a0, a1, grimeMats[fi], 0.012, 0);
-        addPatch(fi, side, a0, a1, ivyMats[fi][0], 0.04, 0);
-        addPatch(fi, side, a0, a1, ivyMats[fi][1], 0.08, 6.5);
+        addPatch(floor.y, face, a0, a1, grimeMats[fi], 0.012, 0);
+        addPatch(floor.y, face, a0, a1, ivyMats[fi][0], 0.04, 0);
+        addPatch(floor.y, face, a0, a1, ivyMats[fi][1], 0.08, 6.5);
       });
     });
   });
 }
 
+// 白黒のチェック柄(タイル張りの床用)。2×2マスの絵を描き、呼び出し側でrepeatして使う
+function makeCheckerTexture(colorA, colorB) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  for (let i = 0; i < 2; i++) {
+    for (let j = 0; j < 2; j++) {
+      ctx.fillStyle = (i + j) % 2 === 0 ? colorA : colorB;
+      ctx.fillRect(i * 64, j * 64, 64, 64);
+    }
+  }
+  for (let i = 0; i < 500; i++) { // 汚れ
+    ctx.fillStyle = `rgba(30,22,10,${Math.random() * 0.12})`;
+    ctx.fillRect(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 6, 2 + Math.random() * 6);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// ラグ(敷物)の絵。同心円の縁取り+すり切れた汚れ。eye=trueで中央に目の模様を描く(Master Bedroomのラグ)
+function makeRugTexture(base, accent, eye, round) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 6;
+  if (round) {
+    [118, 100, 70].forEach(r => { ctx.beginPath(); ctx.arc(128, 128, r, 0, Math.PI * 2); ctx.stroke(); });
+  } else {
+    [[6, 6], [24, 24]].forEach(([m]) => ctx.strokeRect(m, m, 256 - m * 2, 256 - m * 2));
+    ctx.lineWidth = 3;
+    ctx.strokeRect(50, 50, 156, 156);
+  }
+  for (let i = 0; i < 700; i++) { // すり切れ・シミ
+    ctx.fillStyle = `rgba(20,14,8,${Math.random() * 0.22})`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (eye) {
+    ctx.fillStyle = 'rgba(235,225,200,0.9)'; // まぶた(レモン形)
+    ctx.beginPath();
+    ctx.moveTo(62, 128);
+    ctx.quadraticCurveTo(128, 70, 194, 128);
+    ctx.quadraticCurveTo(128, 186, 62, 128);
+    ctx.fill();
+    ctx.strokeStyle = '#1a100a';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.fillStyle = '#6b1a14'; // 虹彩
+    ctx.beginPath(); ctx.arc(128, 128, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0a0606'; // 瞳孔
+    ctx.beginPath(); ctx.arc(128, 128, 9, 0, Math.PI * 2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // 実際にこの家を組み立てる。main.js がこのマップを選んだ瞬間だけ呼ばれる
 export function build() {
-  // ---- 階の基準Yを決める(1階=0、2階=3.3、屋根裏=6.6) ----
+  // ---- 階の基準Yを決める(1階=0、2階=3、屋根裏=6) ----
   const FLOOR_1F = 0, FLOOR_2F = 1, FLOOR_ATTIC = 2;
   const y2F = wallHeight;   // 3 (階と階の間に隙間を作らない。壁がそのまま次の階の壁の土台になる)
   const yAttic = y2F * 2;   // 6
   defineUpperFloor(FLOOR_2F, y2F);
   defineUpperFloor(FLOOR_ATTIC, yAttic);
 
-  // ---- 部屋一覧 ----
-  // 1階(8部屋)。Living Roomが玄関側(南)、Utility Roomは奥(北)
+  // ---- 部屋一覧(実際のGrafton Farmhouseの間取り図を、13m四方に収まるよう縮尺して写したもの) ----
+  // X=東西(0が西端)、Z=南北(0が南端=玄関側)。L字の部屋は、同じ名前で長方形を2つ登録している
+  // 1階(8部屋)。Living Roomだけ南へ1m張り出している(Z=0〜1、X=0〜3.87)。家の南面はそれ以外Z=1
   rooms.push(
-    { name: "Living Room",  bounds: { minX: 0, maxX: 4, minZ: 0, maxZ: 4 } },
-    { name: "Kitchen",      bounds: { minX: 0, maxX: 4, minZ: 4, maxZ: 8 } },
-    { name: "Utility Room", bounds: { minX: 0, maxX: 4, minZ: 8, maxZ: 13 } },
-    { name: "Dining Room",  bounds: { minX: 4, maxX: 8, minZ: 0, maxZ: 8 } },
-    { name: "Library",      bounds: { minX: 4, maxX: 8, minZ: 8, maxZ: 13 } },
-    { name: "Foyer",        bounds: { minX: 8, maxX: 13, minZ: 0, maxZ: 5 } },
-    { name: "Work Room",    bounds: { minX: 8, maxX: 13, minZ: 5, maxZ: 10 } },
-    { name: "Downstairs Bathroom", bounds: { minX: 8, maxX: 13, minZ: 10, maxZ: 13 } },
+    { name: "Living Room",  bounds: { minX: 0, maxX: 4.85, minZ: 1, maxZ: 5.66 } },
+    { name: "Living Room",  bounds: { minX: 0, maxX: 3.87, minZ: 0, maxZ: 1 } },       // 南に張り出した部分
+    { name: "Kitchen",      bounds: { minX: 0, maxX: 4.85, minZ: 5.66, maxZ: 10.4 } },
+    { name: "Utility Room", bounds: { minX: 0, maxX: 4.85, minZ: 10.4, maxZ: 13 } },
+    { name: "Library",      bounds: { minX: 8.87, maxX: 13, minZ: 7.96, maxZ: 13 } },
+    { name: "Dining Room",  bounds: { minX: 4.85, maxX: 8.87, minZ: 5.66, maxZ: 13 } },
+    { name: "Dining Room",  bounds: { minX: 8.87, maxX: 10.76, minZ: 5.66, maxZ: 7.96 } }, // Libraryの下に回り込んだ部分
+    { name: "Downstairs Bathroom", bounds: { minX: 10.76, maxX: 13, minZ: 5.66, maxZ: 7.96 } },
+    { name: "Foyer",        bounds: { minX: 4.85, maxX: 7.8, minZ: 1, maxZ: 5.66 } },
+    { name: "Work Room",    bounds: { minX: 7.8, maxX: 13, minZ: 1, maxZ: 5.66 } },
   );
-  // 2階(5部屋)。Upstairs HallwayをFoyerの階段と噛み合うよう少し東へ広げてある
+  // 2階(5部屋+廊下は2区画)。Master BedroomがLiving Roomの真上、廊下の東端は行き止まり
   rooms.push(
-    { name: "Master Bathroom", bounds: { minX: 0, maxX: 4, minZ: 8, maxZ: 13 }, upperFloor: FLOOR_2F },
-    { name: "Master Bedroom",  bounds: { minX: 0, maxX: 4, minZ: 0, maxZ: 8 }, upperFloor: FLOOR_2F },
-    { name: "Upstairs Hallway", bounds: { minX: 4, maxX: 10.5, minZ: 0, maxZ: 13 }, upperFloor: FLOOR_2F, hallway: true },
-    { name: "Twin Bedroom",    bounds: { minX: 10.5, maxX: 13, minZ: 8, maxZ: 13 }, upperFloor: FLOOR_2F },
-    { name: "Child Bedroom",   bounds: { minX: 10.5, maxX: 13, minZ: 0, maxZ: 8 }, upperFloor: FLOOR_2F },
+    { name: "Master Bedroom",   bounds: { minX: 0, maxX: 3.87, minZ: 0, maxZ: 7.25 }, upperFloor: FLOOR_2F },
+    { name: "Master Bathroom",  bounds: { minX: 5.65, maxX: 8.35, minZ: 7.25, maxZ: 13 }, upperFloor: FLOOR_2F },
+    { name: "Twin Bedroom",     bounds: { minX: 8.35, maxX: 13, minZ: 7.25, maxZ: 13 }, upperFloor: FLOOR_2F },
+    { name: "Child Bedroom",    bounds: { minX: 8.87, maxX: 13, minZ: 1, maxZ: 5.25 }, upperFloor: FLOOR_2F },
+    { name: "Upstairs Hallway", bounds: { minX: 3.87, maxX: 8.87, minZ: 1, maxZ: 7.25 }, upperFloor: FLOOR_2F, hallway: true },
+    { name: "Upstairs Hallway", bounds: { minX: 8.87, maxX: 13, minZ: 5.25, maxZ: 7.25 }, upperFloor: FLOOR_2F, hallway: true }, // 東へ伸びる廊下(屋根裏への階段がある)
   );
-  // 屋根裏(1部屋)
+  // 屋根裏(1部屋)。2階の真上に載る
   rooms.push(
-    { name: "Attic", bounds: { minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, upperFloor: FLOOR_ATTIC },
+    { name: "Attic", bounds: { minX: 6.5, maxX: 12.6, minZ: 5.4, maxZ: 12.6 }, upperFloor: FLOOR_ATTIC },
   );
 
   // ---- 1階の壁・ドア ----
-  // 外壁(南側、Living Roomの位置に玄関を開ける)
-  addWall('x', 0, 0, 13, 2);
-  addWall('x', 13, 0, 13);
-  addWall('z', 0, 0, 13);
-  addWall('z', 13, 0, 13);
-  // 内壁
-  addWall('x', 4, 0, 4, 2);     // Living Room / Kitchen
-  addWall('x', 8, 0, 4, 2);     // Kitchen / Utility Room
-  addWall('z', 4, 0, 4, 2);     // Living Room / Dining Room
-  addWall('z', 4, 4, 8, 6);     // Kitchen / Dining Room
-  addWall('z', 4, 8, 13, 10.5); // Utility Room / Library
-  addWall('x', 8, 4, 8, 6);     // Dining Room / Library
-  addWall('z', 8, 5, 8, 6.5);   // Dining Room / Work Room
-  // Dining Room / Foyer(階段そのものの区間Z1.8〜3.6は階段の側壁で塞がれているので、それ以外を壁で埋める)
-  addWall('z', 8, 0, 1.8);
-  addWall('z', 8, 3.6, 5);
-  addWall('z', 8, 8, 10, 9);    // Library / Work Room(壁が抜けていたので追加)
-  addWall('z', 8, 10, 13, 11.5); // Library / Downstairs Bathroom(壁が抜けていたので追加)
-  addWall('x', 5, 8, 13, 11);   // Foyer / Work Room(階段から離して東寄りに)
-  addWall('x', 10, 8, 13, 11);  // Work Room / Downstairs Bathroom
-  // Foyer / Dining Roomの間は、階段の通路そのものなのであえて壁を作らない(階段側で塞ぐ)
+  // 外壁(玄関ドアはFoyerの南壁、X=5.75)
+  addWall('x', 0, 0, 3.87);          // Living Roomの南(張り出した部分)
+  addWall('z', 3.87, 0, 1);          // 張り出した部分の東側
+  addWall('x', 1, 3.87, 13, 5.75);   // 家の南面(玄関ドア付き)
+  addWall('z', 13, 1, 13);           // 東
+  addWall('x', 13, 0, 13);           // 北
+  addWall('z', 0, 0, 13);            // 西
+  // 内壁(ドアの位置は、図でつながっている部屋同士に開けてある)
+  addWall('z', 4.85, 1, 5.66, 3.2);   // Living Room / Foyer
+  addWall('z', 4.85, 5.66, 13, 8.0);  // Kitchen・Utility Room / Dining Room(ドアはKitchen側)
+  addWall('x', 5.66, 0, 4.85, 2.5);   // Living Room / Kitchen
+  addWall('x', 10.4, 0, 4.85, 3.6);   // Kitchen / Utility Room
+  addWall('x', 5.66, 4.85, 7.8, 5.85); // Foyer / Dining Room
+  addWall('z', 7.8, 1, 5.66, 1.75);   // Foyer / Work Room(階段の手前)
+  addWall('x', 5.66, 7.8, 13, 9.4);   // Work Room / Dining Room(回り込んだ部分)・Downstairs Bathroom
+  addWall('z', 10.76, 5.66, 7.96, 6.8); // Dining Room / Downstairs Bathroom
+  addWall('x', 7.96, 8.87, 13, 9.8);  // Library / Dining Room(回り込んだ部分)・Downstairs Bathroom
+  addWall('z', 8.87, 7.96, 13, 9.6);  // Library / Dining Room
 
   // 玄関の外に出られるドアを、後でハント時にロックできるよう控えておく
-  const entranceDoor = doors.find(d => !d.upperFloor && Math.abs(d.center.x - 2) < 0.01 && Math.abs(d.center.z - 0) < 0.01);
+  const entranceDoor = doors.find(d => !d.upperFloor && Math.abs(d.center.x - 5.75) < 0.01 && Math.abs(d.center.z - 1) < 0.01);
   if (entranceDoor) setExteriorDoor(entranceDoor);
 
   // ---- 2階の壁・ドア ----
   setBuildingUpperFloor(FLOOR_2F);
-  addWall('x', 0, 0, 13);   // 外壁(2階に玄関は無い)
-  addWall('x', 13, 0, 13);
-  addWall('z', 0, 0, 13);
-  addWall('z', 13, 0, 13);
-  addWall('x', 8, 0, 4, 2);       // Master Bedroom / Master Bathroom
-  addWall('z', 4, 0, 8, 4);       // Master Bedroom / Upstairs Hallway
-  addWall('z', 4, 8, 13, 10.5);   // Master Bathroom / Upstairs Hallway
-  addWall('z', 10.5, 0, 8, 4);    // Upstairs Hallway / Child Bedroom
-  addWall('z', 10.5, 8, 13, 11.5); // Upstairs Hallway / Twin Bedroom
-  addWall('x', 8, 10.5, 13, 11.5); // Child Bedroom / Twin Bedroom
+  // 外壁
+  addWall('x', 0, 0, 3.87);          // Master Bedroomの南
+  addWall('z', 0, 0, 7.25);          // Master Bedroomの西
+  addWall('x', 1, 3.87, 13);         // 家の南面(廊下とChild Bedroomの南)
+  addWall('z', 13, 1, 13);           // 東
+  addWall('x', 13, 5.65, 13);        // 北
+  addWall('z', 5.65, 7.25, 13);      // Master Bathroomの西
+  addWall('x', 7.25, 0, 3.87);       // Master Bedroomの北
+  // 内壁
+  addWall('z', 3.87, 0, 7.25, 6.0);      // Master Bedroom / 廊下
+  addWall('x', 7.25, 3.87, 8.35, 6.4);   // 廊下 / Master Bathroom(西側は外壁)
+  addWall('z', 8.35, 7.25, 13);          // Master Bathroom / Twin Bedroom
+  addWall('x', 7.25, 8.35, 13, 9.3);     // 廊下 / Twin Bedroom
+  addWall('x', 5.25, 8.87, 13);          // 東の廊下 / Child Bedroom
+  addWall('z', 8.87, 1, 5.25, 3.0);      // 廊下 / Child Bedroom
 
   // ---- 屋根裏の壁(単一の部屋なので外周のみ) ----
   setBuildingUpperFloor(FLOOR_ATTIC);
-  addWall('x', 1, 1, 12);
-  addWall('x', 12, 1, 12);
-  addWall('z', 1, 1, 12);
-  addWall('z', 12, 1, 12);
+  addWall('x', 5.4, 6.5, 12.6);
+  addWall('x', 12.6, 6.5, 12.6);
+  addWall('z', 6.5, 5.4, 12.6);
+  addWall('z', 12.6, 5.4, 12.6);
 
   setBuildingUpperFloor(FLOOR_1F); // 以降の呼び出しは1階の扱いに戻す
 
-  // ---- 外装: ツタまみれ+汚れ(見た目だけ。壁・当たり判定は変えない) ----
-  addOvergrownExterior([0, y2F, yAttic]);
+  // ---- 外装: ツタまみれ+汚れ(見た目だけ。壁・当たり判定は変えない)。外壁のある辺ごとに貼る ----
+  addOvergrownExterior([
+    { y: 0, faces: [
+      { side: 'south', fixed: 0, a0: 0, a1: 3.87 },
+      { side: 'east', fixed: 3.87, a0: 0, a1: 1 },
+      { side: 'south', fixed: 1, a0: 3.87, a1: 13, cuts: [[5.05, 6.45]] }, // 玄関のドアとその枠を避ける
+      { side: 'east', fixed: 13, a0: 1, a1: 13 },
+      { side: 'north', fixed: 13, a0: 0, a1: 13 },
+      { side: 'west', fixed: 0, a0: 0, a1: 13 },
+    ] },
+    { y: y2F, faces: [
+      { side: 'south', fixed: 0, a0: 0, a1: 3.87 },
+      { side: 'east', fixed: 3.87, a0: 0, a1: 1 },
+      { side: 'south', fixed: 1, a0: 3.87, a1: 13 },
+      { side: 'east', fixed: 13, a0: 1, a1: 13 },
+      { side: 'north', fixed: 13, a0: 5.65, a1: 13 },
+      { side: 'west', fixed: 5.65, a0: 7.25, a1: 13 },
+      { side: 'north', fixed: 7.25, a0: 0, a1: 5.65 },
+      { side: 'west', fixed: 0, a0: 0, a1: 7.25 },
+    ] },
+    { y: yAttic, faces: [
+      { side: 'south', fixed: 5.4, a0: 6.5, a1: 12.6 },
+      { side: 'east', fixed: 12.6, a0: 5.4, a1: 12.6 },
+      { side: 'north', fixed: 12.6, a0: 6.5, a1: 12.6 },
+      { side: 'west', fixed: 6.5, a0: 5.4, a1: 12.6 },
+    ] },
+  ]);
 
-  // ---- 床(見た目だけの板)。階段の吹き抜け部分だけ、addFramedPlaneで正確に穴を開ける
-  // 下からも見えるよう両面表示にしておく(片面だけだと下の階から素通しになってしまう)
-  // 天井/床の板。DoubleSide一枚で両面をまかなうと、裏側がライティングの都合で真っ黒に見えることがあるため、
-  // 上向き・下向きの板をそれぞれ別に(法線を正しく)敷いて両方向からきちんと見えるようにする
-  const floorMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 7, 7) });
+  // ---- 階段(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。axisは登る向き('z'=北へ、'x'=東へ)。通路として壁で囲う ----
+  // 階段Aは図の通りFoyerの東側(Work Roomとの壁沿い)、階段Bは図の通り2階廊下の東端
+  const stairsA = { minX: 6.55, maxX: 7.75, minZ: 2.4, maxZ: 5.3, axis: 'z' };   // 1階Foyer ⇔ 2階Upstairs Hallway
+  const stairsB = { minX: 9.6, maxX: 11.4, minZ: 5.65, maxZ: 6.85, axis: 'x' };  // 2階Upstairs Hallway ⇔ 屋根裏Attic
+  const holeA = { minX: stairsA.minX, maxX: stairsA.maxX, minZ: stairsA.minZ, maxZ: stairsA.maxZ };
+  const holeB = { minX: stairsB.minX, maxX: stairsB.maxX, minZ: stairsB.minZ, maxZ: stairsB.maxZ };
+  // 登る向きの「始点の辺」と「終点の辺」を返す(始点=降り口側、終点=登りきった先)
+  const stairLen = (s) => (s.axis === 'z' ? s.maxZ - s.minZ : s.maxX - s.minX);
+  const stairWidth = (s) => (s.axis === 'z' ? s.maxX - s.minX : s.maxZ - s.minZ);
+  const stairPos = (s, t) => (s.axis === 'z' ? s.minZ + t * stairLen(s) : s.minX + t * stairLen(s)); // 登る向きの座標
 
-  // ---- 階段の吹き抜け(1階Foyer⇔2階Upstairs Hallway、2階⇔屋根裏)。通路として壁で囲う ----
-  const stairsA = { minX: 8.0, maxX: 9.6, bottomZ: 1.8, topZ: 3.6 };   // 1階Foyer ⇔ 2階Upstairs Hallway(幅を広く・奥行きを急に)
-  const stairsB = { minX: 5.8, maxX: 7.2, bottomZ: 7, topZ: 8.8 };  // 2階Upstairs Hallway ⇔ 屋根裏Attic(登り始めは据え置き、奥行きをstairsAと同じ1.8mに)
-  const holeA = { minX: stairsA.minX, maxX: stairsA.maxX, minZ: stairsA.bottomZ, maxZ: stairsA.topZ };
-  const holeB = { minX: stairsB.minX, maxX: stairsB.maxX, minZ: stairsB.bottomZ, maxZ: stairsB.topZ };
-
-  // 1階の床(穴なし。すぐ下は地面なので階段の始点がここに接していて問題ない)
-  {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(13, 13), floorMat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(6.5, 0, 6.5);
+  // ---- 床・天井(見た目だけの板。家の輪郭は長方形ではないので、部屋のかたまりごとに敷く) ----
+  // 上向き・下向きの板をそれぞれ別に(法線を正しく)敷いて、上下どちらからもきちんと見えるようにする
+  function addSlab(rect, y, material, facingUp) {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(rect.maxX - rect.minX, rect.maxZ - rect.minZ), material);
+    mesh.rotation.x = facingUp ? -Math.PI / 2 : Math.PI / 2;
+    mesh.position.set((rect.minX + rect.maxX) / 2, y, (rect.minZ + rect.maxZ) / 2);
     mesh.receiveShadow = true;
     scene.add(mesh);
   }
-  // 歩く面(上向き)は、真下の階の壁の上端とちょうど同じ高さだとZファイティングで壁が透けて見えるため、
-  // ほんの少しだけ上にずらして厚みを持たせる(見上げたときの天井側=下向きの面はそのままの高さでよい)
+  const woodTex = makeWoodTexture('#5a4632');
+  const floorMatFor = (r) => new THREE.MeshLambertMaterial({ map: scaled(woodTex, (r.maxX - r.minX) * 0.54, (r.maxZ - r.minZ) * 0.54) });
+  // 1階の家の輪郭(=2階の床の下、1階の天井)
+  const foot1F = [{ minX: 0, maxX: 13, minZ: 1, maxZ: 13 }, { minX: 0, maxX: 3.87, minZ: 0, maxZ: 1 }];
+  // 2階の家の輪郭(=屋根裏の床の下、2階の天井)
+  const foot2F = [
+    { minX: 0, maxX: 3.87, minZ: 0, maxZ: 7.25 }, { minX: 3.87, maxX: 8.87, minZ: 1, maxZ: 7.25 },
+    { minX: 8.87, maxX: 13, minZ: 5.25, maxZ: 7.25 }, { minX: 8.87, maxX: 13, minZ: 1, maxZ: 5.25 },
+    { minX: 5.65, maxX: 8.35, minZ: 7.25, maxZ: 13 }, { minX: 8.35, maxX: 13, minZ: 7.25, maxZ: 13 },
+  ];
+  // 歩く面(上向き)は、真下の階の壁の上端とちょうど同じ高さだとZファイティングで壁が透けて見えるため、ほんの少しだけ上にずらす
   const floorLift = 0.03;
-  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F + floorLift, floorMat, true);     // 1階の天井(上から見た2階の床)
-  addFramedPlane({ minX: 0, maxX: 13, minZ: 0, maxZ: 13 }, holeA, y2F, floorMat, false);    // 2階の床(下から見た1階の天井)
-  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic + floorLift, floorMat, true);  // 2階の天井(上から見た屋根裏の床)
-  addFramedPlane({ minX: 1, maxX: 12, minZ: 1, maxZ: 12 }, holeB, yAttic, floorMat, false); // 屋根裏の床(下から見た2階の天井)
+  foot1F.forEach(r => {
+    addSlab(r, 0, floorMatFor(r), true); // 1階の床(すぐ下は地面なので穴なし)
+    const m = floorMatFor(r);
+    if (r.maxX === 13) { // 階段Aの吹き抜けだけ穴を開ける(1階の天井=2階の床)
+      addFramedPlane(r, holeA, y2F + floorLift, m, true);
+      addFramedPlane(r, holeA, y2F, m, false);
+    } else {
+      addSlab(r, y2F + floorLift, m, true);
+      addSlab(r, y2F, m, false);
+    }
+  });
+  foot2F.forEach(r => {
+    const m = floorMatFor(r);
+    if (r.minX === 8.87 && r.minZ === 5.25) { // 階段Bの吹き抜けだけ穴を開ける(2階の天井=屋根裏の床)
+      addFramedPlane(r, holeB, yAttic + floorLift, m, true);
+      addFramedPlane(r, holeB, yAttic, m, false);
+    } else {
+      addSlab(r, yAttic + floorLift, m, true);
+      addSlab(r, yAttic, m, false);
+    }
+  });
+
+  // 部屋ごとの床の模様(図に合わせて、Kitchen・Downstairs Bathroom・Master Bathroomは白黒のタイル張り)。少し浮かせて重ねる
+  function addTileFloor(rect, y) {
+    const tex = makeCheckerTexture('#d9d4c6', '#2b2825');
+    tex.repeat.set((rect.maxX - rect.minX) / 0.7, (rect.maxZ - rect.minZ) / 0.7);
+    addSlab(rect, y + 0.012, new THREE.MeshLambertMaterial({ map: tex }), true);
+  }
+  addTileFloor({ minX: 0.1, maxX: 4.75, minZ: 5.76, maxZ: 10.3 }, 0);                 // Kitchen
+  addTileFloor({ minX: 10.86, maxX: 12.9, minZ: 5.76, maxZ: 7.86 }, 0);               // Downstairs Bathroom
+  addTileFloor({ minX: 5.75, maxX: 8.25, minZ: 7.35, maxZ: 12.9 }, y2F + floorLift);  // Master Bathroom
+  // 丸いラグ・長方形のラグ(図にある敷物)。床から少し浮かせて置く
+  function addRug(x, z, size, y, palette, round = true, eye = false) {
+    const tex = makeRugTexture(palette[0], palette[1], eye, round);
+    const geo = round ? new THREE.CircleGeometry(size, 40) : new THREE.PlaneGeometry(size[0], size[1]);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, y + 0.02, z);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
+  const rugBrown = ['#6a5a48', '#3e3228'], rugRed = ['#6b3a30', '#2e1a16'], rugTan = ['#8a7450', '#4a3a24'], rugGrey = ['#5d5a52', '#35332e'];
+  addRug(2.0, 1.9, 1.15, 0, rugBrown);                            // Living Room
+  addRug(6.9, 9.6, [2.3, 3.5], 0, rugRed, false);                 // Dining Room(長いテーブルの下)
+  addRug(11.2, 10.4, 1.4, 0, rugBrown);                           // Library
+  addRug(10.6, 3.1, 1.25, 0, rugGrey);                            // Work Room
+  addRug(1.9, 3.3, 1.2, y2F + floorLift, rugTan, true, true);     // Master Bedroom(中央に目の模様)
+  addRug(10.4, 10.4, 1.1, y2F + floorLift, rugBrown);             // Twin Bedroom
+  addRug(10.4, 3.9, 0.95, y2F + floorLift, rugGrey);              // Child Bedroom
 
   // 階段の両脇に壁を立てて、通路をきちんと囲う。1階分の高さ(wallHeight)だけあれば階段自体は覆えるので、
-  // 上側の階でも同じ壁を作ると2階分の高さに積み上がって不自然に大きくなってしまう。見た目は下側の階でだけ作る
-  // (昇っている間、後半だけ横方向の当たり判定が緩くなるが、通路の外に出ても見た目上の壁の大きさの方を優先する)
+  // 見た目は下側の階でだけ作る(上側の階でも作ると2階分の高さに積み上がってしまう)
+  function addStairSideWalls(s) {
+    if (s.axis === 'z') {
+      addWall('z', s.minX, s.minZ, s.maxZ); // 西側の壁
+      addWall('z', s.maxX, s.minZ, s.maxZ); // 東側の壁
+    } else {
+      addWall('x', s.minZ, s.minX, s.maxX); // 南側の壁
+      addWall('x', s.maxZ, s.minX, s.maxX); // 北側の壁
+    }
+  }
   setBuildingUpperFloor(FLOOR_1F);
-  addWall('z', stairsA.minX, stairsA.bottomZ, stairsA.topZ); // 西側の壁
-  addWall('z', stairsA.maxX, stairsA.bottomZ, stairsA.topZ); // 東側の壁
+  addStairSideWalls(stairsA);
   setBuildingUpperFloor(FLOOR_2F);
-  addWall('z', stairsB.minX, stairsB.bottomZ, stairsB.topZ); // 西側の壁
-  addWall('z', stairsB.maxX, stairsB.bottomZ, stairsB.topZ); // 東側の壁
+  addStairSideWalls(stairsB);
   setBuildingUpperFloor(FLOOR_1F);
 
-  // 階段のゾーンは「正しい側から少しずつ上る」以外の入り方をすると、Z座標だけで高さが決まる都合上、
+  // 階段のゾーンは「正しい側から少しずつ上る」以外の入り方をすると、登る向きの座標だけで高さが決まる都合上、
   // 逆側からいきなり足を踏み入れた瞬間に高さが飛んでしまう(踏んだだけでワープする)。
   // これを防ぐため、上側の入口を「まだ下の階のつもりでいる間」だけ塞ぐ壁と、
   // 下側の入口を「まだ上の階のつもりでいる間」だけ塞ぐ壁を追加する。
-  // (実際に下から登り切る頃には既に「上の階」判定に切り替わっているので、この壁には引っかからない)
+  function addStairEndWall(s, atTop) {
+    if (s.axis === 'z') addWall('x', atTop ? s.maxZ : s.minZ, s.minX, s.maxX);
+    else addWall('z', atTop ? s.maxX : s.minX, s.minZ, s.maxZ);
+  }
   setBuildingUpperFloor(FLOOR_1F);
-  addWall('x', stairsA.topZ, stairsA.minX, stairsA.maxX); // Foyer側から誤って上の入口に踏み込むのを防ぐ
+  addStairEndWall(stairsA, true);    // Foyer側から誤って上の入口に踏み込むのを防ぐ
   setBuildingUpperFloor(FLOOR_2F);
-  addWall('x', stairsA.bottomZ, stairsA.minX, stairsA.maxX); // Upstairs Hallway側から誤って下の入口に踏み込むのを防ぐ
-  addWall('x', stairsB.topZ, stairsB.minX, stairsB.maxX); // Upstairs Hallway側から誤って上の入口に踏み込むのを防ぐ
+  addStairEndWall(stairsA, false);   // 廊下側から誤って下の入口に踏み込むのを防ぐ
+  addStairEndWall(stairsB, true);    // 廊下の東端から誤って上の入口に踏み込むのを防ぐ
   setBuildingUpperFloor(FLOOR_ATTIC);
-  addWall('x', stairsB.bottomZ, stairsB.minX, stairsB.maxX); // Attic側から誤って下の入口に踏み込むのを防ぐ
+  addStairEndWall(stairsB, false);   // Attic側から誤って下の入口に踏み込むのを防ぐ
   setBuildingUpperFloor(FLOOR_1F);
 
   // 壁・ドア枠をまとめて描画(全階ぶんまとめて1回でよい)。
@@ -454,54 +616,46 @@ export function build() {
   mergedFrame.castShadow = true; mergedFrame.receiveShadow = true;
   scene.add(mergedFrame);
 
-  // 見た目だけの階段(踏み板を並べるだけの簡易版)
+  // 見た目だけの階段(踏み板を並べるだけの簡易版)+階段の下の空洞を塞ぐ箱
   const stepMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#4a3a28'), 1, 1) });
-  function addSteps(stairs, baseY, topY) {
+  function addSteps(s, baseY, topY) {
     const stepCount = 14;
+    const along = stairLen(s) / stepCount + 0.02, across = stairWidth(s) - 0.1;
+    const cx = (s.minX + s.maxX) / 2, cz = (s.minZ + s.maxZ) / 2;
     for (let i = 0; i < stepCount; i++) {
       const t = i / (stepCount - 1);
-      const z = stairs.bottomZ + t * (stairs.topZ - stairs.bottomZ);
+      const p = stairPos(s, t);
       const stepY = baseY + t * (topY - baseY);
-      const step = new THREE.Mesh(new THREE.BoxGeometry(stairs.maxX - stairs.minX - 0.1, 0.05, (stairs.topZ - stairs.bottomZ) / stepCount + 0.02), stepMat);
-      step.position.set((stairs.minX + stairs.maxX) / 2, stepY, z);
+      const fillHeight = Math.max(0.05, stepY - baseY);
+      const sx = s.axis === 'z' ? across : along, sz = s.axis === 'z' ? along : across;
+      const px = s.axis === 'z' ? cx : p, pz = s.axis === 'z' ? p : cz;
+      const step = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.05, sz), stepMat);
+      step.position.set(px, stepY, pz);
       step.receiveShadow = true; step.castShadow = true;
       scene.add(step);
+      const fill = new THREE.Mesh(new THREE.BoxGeometry(sx, fillHeight, sz), stepMat);
+      fill.position.set(px, baseY + fillHeight / 2, pz);
+      fill.receiveShadow = true; fill.castShadow = true;
+      scene.add(fill);
     }
   }
   addSteps(stairsA, 0, y2F);
   addSteps(stairsB, y2F, yAttic);
 
-  // 階段の下(踏み板と床の間の空洞)を塞ぐ。各段の位置に、床からその段の高さまでの箱を積んで埋める
-  function addStairFill(stairs, baseY, topY) {
-    const stepCount = 14;
-    for (let i = 0; i < stepCount; i++) {
-      const t = i / (stepCount - 1);
-      const z = stairs.bottomZ + t * (stairs.topZ - stairs.bottomZ);
-      const stepY = baseY + t * (topY - baseY);
-      const fillHeight = Math.max(0.05, stepY - baseY);
-      const fill = new THREE.Mesh(
-        new THREE.BoxGeometry(stairs.maxX - stairs.minX - 0.1, fillHeight, (stairs.topZ - stairs.bottomZ) / stepCount + 0.02),
-        stepMat
-      );
-      fill.position.set((stairs.minX + stairs.maxX) / 2, baseY + fillHeight / 2, z);
-      fill.receiveShadow = true; fill.castShadow = true;
-      scene.add(fill);
-    }
-  }
-  addStairFill(stairsA, 0, y2F);
-  addStairFill(stairsB, y2F, yAttic);
-
   // 階段の登った先(吹き抜けの縁)に落下防止の柵を作る。細い柱+上の横木のシンプルな作り。
-  // 東西の側面と、降り始めではない側の短辺(手前側)に柵を立てる。降り始め側だけは乗り降り口として塞がずに残す
+  // 登りきった先(終点の辺)だけは乗り降り口として塞がずに残し、残りの3辺に柵を立てる
   const railMat = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#8a6642'), 1, 1) });
-  function addStairRailing(hole, y) {
+  function addStairRailing(s, y) {
     const railHeight = 0.9, postSize = 0.05, railSize = 0.06, postSpacing = 0.3;
-    const edges = [
-      { x0: hole.minX, z0: hole.minZ, x1: hole.minX, z1: hole.maxZ }, // 西辺
-      { x0: hole.maxX, z0: hole.minZ, x1: hole.maxX, z1: hole.maxZ }, // 東辺
-      { x0: hole.minX, z0: hole.minZ, x1: hole.maxX, z1: hole.minZ }, // 手前側の短辺(降り始めの反対側)
-    ];
-    edges.forEach(e => {
+    const all = {
+      west:  { x0: s.minX, z0: s.minZ, x1: s.minX, z1: s.maxZ },
+      east:  { x0: s.maxX, z0: s.minZ, x1: s.maxX, z1: s.maxZ },
+      south: { x0: s.minX, z0: s.minZ, x1: s.maxX, z1: s.minZ },
+      north: { x0: s.minX, z0: s.maxZ, x1: s.maxX, z1: s.maxZ },
+    };
+    const openSide = s.axis === 'z' ? 'north' : 'east'; // 登りきった先
+    Object.keys(all).filter(k => k !== openSide).forEach(k => {
+      const e = all[k];
       const dx = e.x1 - e.x0, dz = e.z1 - e.z0;
       const len = Math.sqrt(dx * dx + dz * dz);
       const postCount = Math.max(2, Math.round(len / postSpacing) + 1);
@@ -527,26 +681,26 @@ export function build() {
     });
   }
   setBuildingUpperFloor(FLOOR_2F);
-  addStairRailing(holeA, y2F); // 2階側、階段Aの吹き抜けの縁
+  addStairRailing(stairsA, y2F); // 2階側、階段Aの吹き抜けの縁
   setBuildingUpperFloor(FLOOR_ATTIC);
-  addStairRailing(holeB, yAttic); // 屋根裏側、階段Bの吹き抜けの縁
+  addStairRailing(stairsB, yAttic); // 屋根裏側、階段Bの吹き抜けの縁
   setBuildingUpperFloor(FLOOR_1F);
 
-  // ---- 階段の昇り降り(Zの位置に応じてYを補間する。毎フレームengineから呼ばれる)。
+  // ---- 階段の昇り降り(登る向きの位置に応じてYを補間する。毎フレームengineから呼ばれる)。
   // 今いる階が、その階段がつなぐ2つの階のどちらかであるときだけ判定する(でないと、
   // 別の階のたまたま同じX/Z座標を歩いただけで階段の判定に巻き込まれてしまう) ----
   function updateGraftonFloor() {
     const x = camera.position.x, z = camera.position.z;
     const onFloorForA = currentUpperFloor === FLOOR_1F || currentUpperFloor === FLOOR_2F;
     const onFloorForB = currentUpperFloor === FLOOR_2F || currentUpperFloor === FLOOR_ATTIC;
-    const inA = onFloorForA && x >= stairsA.minX && x <= stairsA.maxX && z >= stairsA.bottomZ && z <= stairsA.topZ;
-    const inB = onFloorForB && x >= stairsB.minX && x <= stairsB.maxX && z >= stairsB.bottomZ && z <= stairsB.topZ;
-    if (inA) {
-      const t = (z - stairsA.bottomZ) / (stairsA.topZ - stairsA.bottomZ); // 0(1階側)〜1(2階側)
+    const inside = (s) => x >= s.minX && x <= s.maxX && z >= s.minZ && z <= s.maxZ;
+    const progress = (s) => ((s.axis === 'z' ? z : x) - (s.axis === 'z' ? s.minZ : s.minX)) / stairLen(s); // 0(降り口側)〜1(登りきった先)
+    if (onFloorForA && inside(stairsA)) {
+      const t = progress(stairsA);
       camera.position.y = t * y2F + 1.6;
       setCurrentUpperFloor(t > 0.5 ? FLOOR_2F : FLOOR_1F);
-    } else if (inB) {
-      const t = (z - stairsB.bottomZ) / (stairsB.topZ - stairsB.bottomZ); // 0(2階側)〜1(屋根裏側)
+    } else if (onFloorForB && inside(stairsB)) {
+      const t = progress(stairsB);
       camera.position.y = y2F + t * (yAttic - y2F) + 1.6;
       setCurrentUpperFloor(t > 0.5 ? FLOOR_ATTIC : FLOOR_2F);
     }
@@ -559,6 +713,7 @@ export function build() {
   const HEMI_OFF = 0;    // ブレーカーが落ちている間の全体照明の強さ(0=なし。暗くしたいほど0に近づける、明るくしたいときは上げる)
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x605040, HEMI_ON);
   scene.add(hemiLight);
+  // スイッチは既定では部屋の東壁の北寄りに付く。壁がない・ドアや家具とぶつかる部屋は、位置を指定している
   const roomLights = {
     "Living Room": addRoomLight("Living Room", 16, 0xfff2cc, 18),
     "Kitchen": addRoomLight("Kitchen", 16, 0xfff2cc, 18),
@@ -569,7 +724,11 @@ export function build() {
     "Work Room": addRoomLight("Work Room", 12, 0xfff2cc, 18),
     "Foyer": addRoomLight("Foyer", 12, 0xfff2cc, 18),
   };
-  rooms.filter(r => !r.upperFloor).forEach(r => addLightSwitch(r.name, roomLights[r.name]));
+  Object.keys(roomLights).forEach(name => {
+    if (name === "Library") addLightSwitch(name, roomLights[name], 9.02, 11.5);   // 西壁(本棚は東壁側)
+    else if (name === "Foyer") addLightSwitch(name, roomLights[name], 5.0, 1.8);  // 西壁の玄関寄り(東は階段)
+    else addLightSwitch(name, roomLights[name]);
+  });
 
   setBuildingUpperFloor(FLOOR_2F);
   const roomLights2F = {
@@ -579,7 +738,11 @@ export function build() {
     "Twin Bedroom": addRoomLight("Twin Bedroom", 14, 0xfff2cc, 18),
     "Child Bedroom": addRoomLight("Child Bedroom", 14, 0xfff2cc, 18),
   };
-  rooms.filter(r => r.upperFloor === FLOOR_2F).forEach(r => addLightSwitch(r.name, roomLights2F[r.name]));
+  Object.keys(roomLights2F).forEach(name => {
+    if (name === "Master Bedroom") addLightSwitch(name, roomLights2F[name], 3.72, 4.4);   // 東壁(ドアを避けた位置)
+    else if (name === "Upstairs Hallway") addLightSwitch(name, roomLights2F[name], 4.02, 3.5); // 西壁
+    else addLightSwitch(name, roomLights2F[name]);
+  });
 
   setBuildingUpperFloor(FLOOR_ATTIC);
   const roomLightsAttic = { "Attic": addRoomLight("Attic", 14, 0xfff2cc, 20) };
@@ -587,16 +750,16 @@ export function build() {
 
   setBuildingUpperFloor(FLOOR_1F);
 
-  // ブレーカー(Utility Room内、部屋の隅に設置。Utility RoomはZ8-13に移動したのでそちらに合わせる)
-  const breakerBox = { x: 0.6, z: 12.82 }; // 北側の壁(Z=13)にきちんと接するように
+  // ブレーカー(図の通り、Utility RoomとKitchenの間の壁、西寄りに設置。Utility Room側=北向きに付ける)
+  const breakerBox = { x: 1.5, z: 10.575 };
   const breakerMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
   const breakerMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.15), breakerMat);
   breakerMesh.position.set(breakerBox.x, 1.4, breakerBox.z);
   scene.add(breakerMesh);
-  // 状態が見えるレバー(落ちている間は赤、入っている間は緑。ブレーカーの正面=南側に付ける)
+  // 状態が見えるレバー(落ちている間は赤、入っている間は緑)
   const breakerLeverMat = new THREE.MeshLambertMaterial({ color: 0x552222, emissive: 0x220000, emissiveIntensity: 0.4 });
   const breakerLever = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 0.05), breakerLeverMat);
-  breakerLever.position.set(breakerBox.x, 1.4, breakerBox.z - 0.1);
+  breakerLever.position.set(breakerBox.x, 1.4, breakerBox.z + 0.1);
   scene.add(breakerLever);
   // ブレーカーの状態を全ての照明とレバーに反映する
   function applyBreakerState() {
@@ -609,37 +772,51 @@ export function build() {
   setBreakerOn(false); // ゲーム開始時は電気が落ちている。Utility Roomのブレーカーを入れると、スイッチで各部屋の照明がつけられるようになる
   applyBreakerState();
 
-  // ---- 家具 ----
+  // ---- 家具(図の配置に合わせた。座標は特記がなければ世界座標) ----
   // 1階
-  sofaAtFacingEast(0.5, 2.0, 2.4, 0.8);                      // Living Room: 西側の壁際、部屋の中央を向く
-  furnitureIn("Living Room", 1.5, 2.0, 0.5, 1.0, 0.4);        // Living Room: ソファの前にローテーブル
-  counterAt(0.6, 5.1, 0.7, 2.2, 0.9);                        // Kitchen: 西側の壁際にカウンター
-  fridgeAt(0.65, 7.4, 0.7, 0.7, 1.7);                        // Kitchen: 南西の隅に冷蔵庫
-  furnitureIn("Utility Room", 0.5, 2.5, 0.5, 1.2, 1.0);      // Utility Room: 西側の壁際に棚(キッチンのドアからは離した・反対側の壁)
-  addFurniture(6, 4, 1.8, 1.0, 0.75);                        // Dining Room: 中央にダイニングテーブル
-  wardrobeIn("Dining Room", 3.5, 0.6, 0.9, 0.5, 1.2);        // Dining Room: 東側の壁際にサイドボード
-  wardrobeIn("Library", 3.5, 2.5, 0.9, 0.5, 1.9);            // Library: 東側の壁際に本棚
-  furnitureIn("Library", 0.6, 3.5, 1.0, 0.6, 0.75);          // Library: 読書用の机
-  furnitureIn("Foyer", 3.8, 0.4, 1.0, 0.4, 0.9);             // Foyer: 玄関そばに靴箱(階段から離した位置)
-  counterAt(12.4, 7.5, 0.6, 3.0, 0.9);                       // Work Room: 東側の壁際に作業台
-  toiletIn("Downstairs Bathroom", 3.8, 0.5);
-  washstandIn("Downstairs Bathroom", 0.7, 0.4, 0.9, 0.5, 0.85);
+  sofaAt(2.3, 5.1, 2.2, 0.9);                                  // Living Room: 北の壁を背にしたソファ
+  addFurniture(2.3, 3.8, 1.0, 0.5, 0.4);                       // Living Room: ローテーブル
+  addFurniture(0.4, 3.0, 0.5, 1.4, 0.9);                       // Living Room: 西の壁際のチェスト
+  counterAt(0.45, 7.6, 0.7, 2.6, 0.9);                         // Kitchen: 西の壁際のカウンター
+  fridgeAt(0.65, 9.9, 0.7, 0.7, 1.7);                          // Kitchen: 北西の隅の冷蔵庫
+  addFurniture(2.6, 7.9, 1.2, 1.0, 0.75);                      // Kitchen: 中央のテーブル
+  counterAt(2.0, 10.0, 1.8, 0.6, 0.9);                         // Kitchen: 北の壁際の調理台
+  addFurniture(3.5, 12.6, 1.6, 0.5, 1.6);                      // Utility Room: 北の壁際の棚(スイッチを避けた位置)
+  addFurniture(0.6, 12.2, 0.7, 0.7, 0.9);                      // Utility Room: 洗濯機
+  addFurniture(6.9, 9.6, 1.0, 2.4, 0.75);                      // Dining Room: 長いダイニングテーブル
+  [[6.15, 8.7], [7.65, 8.7], [6.15, 10.5], [7.65, 10.5]].forEach(([x, z]) => addFurniture(x, z, 0.4, 0.4, 0.45)); // 椅子
+  addFurniture(6.9, 12.6, 1.8, 0.5, 0.9);                      // Dining Room: 北の壁際のサイドボード
+  wardrobeIn("Library", 3.85, 2.0, 0.5, 1.6, 1.9);            // Library: 東の壁際の本棚(2つ)
+  wardrobeIn("Library", 3.85, 4.0, 0.5, 1.6, 1.9);
+  addFurniture(10.0, 12.3, 1.4, 0.7, 0.75);                    // Library: 北の壁際の読書机
+  addFurniture(5.1, 4.7, 0.4, 1.0, 1.0);                       // Foyer: 西の壁際の靴箱(階段とドアから離した位置)
+  addFurniture(10.6, 3.2, 1.6, 0.9, 0.75);                     // Work Room: 作業テーブル
+  counterAt(12.6, 3.4, 0.7, 2.8, 0.9);                         // Work Room: 東の壁際の作業台
+  addFurniture(11.8, 1.5, 1.8, 0.45, 1.6);                     // Work Room: 南の壁際の棚
+  toiletIn("Downstairs Bathroom", 1.6, 0.45);
+  washstandIn("Downstairs Bathroom", 0.9, 0.4, 0.9, 0.5, 0.85);
 
   // 2階
   setBuildingUpperFloor(FLOOR_2F);
-  washstandIn("Master Bathroom", 0.6, 0.4, 0.9, 0.5, 0.85);
-  toiletIn("Master Bathroom", 3.2, 0.5);
-  bedIn("Master Bedroom", 1.1, 1.2, 1.8, 2.0);
-  wardrobeIn("Master Bedroom", 3.5, 6.5, 0.9, 0.6, 1.9);
-  bedIn("Twin Bedroom", 1.85, 1.0, 1.0, 1.8);                 // 2段ベッドではなく2台並べたツインベッド(東側の壁際に変更)
-  bedIn("Twin Bedroom", 1.85, 3.1, 1.0, 1.8);
-  bedIn("Child Bedroom", 0.65, 1.0, 1.0, 1.8);
-  wardrobeIn("Child Bedroom", 1.9, 5.5, 0.9, 0.5, 1.7);
+  washstandIn("Master Bathroom", 2.25, 0.4, 0.7, 0.5, 0.85);
+  toiletIn("Master Bathroom", 1.6, 0.45);
+  addFurniture(6.45, 12.4, 1.6, 0.75, 0.55, ceramicMaterial);  // Master Bathroom: 北の壁際の浴槽
+  bedIn("Master Bedroom", 2.0, 1.3, 1.8, 2.0);
+  wardrobeIn("Master Bedroom", 3.45, 2.3, 0.5, 1.4, 1.9);
+  addFurniture(4.4, 2.0, 0.5, 1.2, 0.5);                       // Upstairs Hallway: 西の壁際のベンチ
+  addFurniture(5.0, 6.9, 1.0, 0.4, 0.5);                       // Upstairs Hallway: 北の壁際の箱
+  bedIn("Twin Bedroom", 3.95, 2.05, 1.0, 1.8);                 // Twin Bedroom: 東の壁際にツインベッド(ドア前を空ける)
+  bedIn("Twin Bedroom", 3.95, 3.95, 1.0, 1.8);
+  addFurniture(9.6, 12.6, 1.4, 0.5, 0.9);                      // Twin Bedroom: 北の壁際のドレッサー
+  bedIn("Child Bedroom", 2.13, 1.1, 1.0, 1.8);
+  wardrobeIn("Child Bedroom", 3.85, 2.9, 0.5, 1.2, 1.7);
 
-  // 屋根裏(階段(stairsB: X5.8-7.2, Z7-8.8)を避けて配置)
+  // 屋根裏(階段Bの吹き抜け: X9.6-11.4, Z5.65-6.85 を避けて配置)
   setBuildingUpperFloor(FLOOR_ATTIC);
-  furnitureIn("Attic", 0.7, 0.5, 1.2, 0.8, 0.9);              // 古びたトランク
-  furnitureIn("Attic", 7.5, 1.0, 1.0, 0.6, 1.6);              // 古い戸棚
+  furnitureIn("Attic", 1.5, 6.1, 1.2, 0.8, 0.9);               // 古びたトランク
+  furnitureIn("Attic", 5.3, 6.1, 1.0, 0.6, 1.6);               // 古い戸棚
+  addFurniture(7.3, 7.0, 0.8, 0.8, 0.7);                       // 積まれた木箱
+  addFurniture(8.4, 7.3, 0.6, 0.6, 0.5);
   setBuildingUpperFloor(FLOOR_1F);
 
   // ---- 監視カメラ(1階3台・2階2台・屋根裏1台。映像はテントの奥の壁(机の後ろ)のモニターに映る) ----
@@ -650,8 +827,8 @@ export function build() {
   addSurveillanceCamera("Child Bedroom", y2F);
   addSurveillanceCamera("Attic", yAttic);
 
-  // ---- 拠点のテント(家の南側、玄関と同じXに正面を合わせて設置) ----
-  const tentX = 2, tentZ = -15;
+  // ---- 拠点のテント(家の南側、玄関(X=5.75)と同じXに正面を合わせて設置) ----
+  const tentX = 5.75, tentZ = -15;
   {
     const tentMat = new THREE.MeshLambertMaterial({ color: 0x4a5540 });
     const halfWidth = 2.75, depth = 4.5, wallH = 1.6, rise = 1.4;
@@ -807,7 +984,7 @@ export function build() {
     }
 
     const tentDepthHalf = 2.25;
-    const doorPoint = new THREE.Vector2(2, -1.0); // 玄関を出てすぐの位置
+    const doorPoint = new THREE.Vector2(5.75, 0.0); // 玄関を出てすぐの位置(玄関ドアはZ=1)
     const tentEntrance = new THREE.Vector2(tentX, tentZ + tentDepthHalf + 1.0);
     const pathDir = tentEntrance.clone().sub(doorPoint).normalize();
     const pathPerp = new THREE.Vector2(-pathDir.y, pathDir.x);
@@ -822,7 +999,7 @@ export function build() {
   }
 
   // ---- 幽霊の出没部屋(Upstairs Hallwayは通路なので除外) ----
-  const hauntableRooms = rooms.filter(r => !r.hallway);
+  const hauntableRooms = rooms.filter((r, i) => !r.hallway && rooms.findIndex(o => o.name === r.name) === i);
   initHaunting(hauntableRooms);
   setOrbRoom(room("Dining Room"));
 
