@@ -1,6 +1,6 @@
 // このファイルは「一軒家」マップ固有のデータ・配置だけを持つ。共通の仕組み(移動・道具・証拠・ハント・UIなど)はすべて engine.js 側にある
 import {
-  THREE, mergeGeometries, scene, camera, rooms, room, onGroundFloor, wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, wallMaterial, doorFrameMaterial, addFramedPlane, addMergedMesh, addWall, addFurniture, makeWoodTexture, makeConcreteTexture, makeGrassTexture, scaled, woodBase, tileBase, ceramicMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addSurveillanceCamera, videoCams, addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, sanity, drawSanityScreen, sanityTexture, addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBasementFloorY, initHaunting, setExteriorDoor, setOrbRoom, onFrame, setOnGroundFloor, setNotebookWorldMesh,
+  THREE, mergeGeometries, scene, camera, rooms, room, onGroundFloor, wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, wallMaterial, doorFrameMaterial, addFramedPlane, addMergedMesh, addWall, addFurniture, makeWoodTexture, makeConcreteTexture, makeGrassTexture, scaled, woodBase, tileBase, ceramicMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addSurveillanceCamera, videoCams, addPickupItem, addToolPegboard, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, sanity, drawSanityScreen, sanityTexture, addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBasementFloorY, initHaunting, setExteriorDoor, setOrbRoom, onFrame, setOnGroundFloor, setNotebookWorldMesh,
 } from './engine.js';
 
 export const mapId = 'house';
@@ -466,40 +466,18 @@ const tentX = 7, tentZ = houseMaxZ + 15; // マスターベッドルーム側へ
   scene.add(table);
   wallBoxes.push({ minX: tableX - 0.5, maxX: tableX + 0.5, minZ: tentZ - 1.0, maxZ: tentZ + 1.0 });
 
-  // 道具はテーブルの上に、手前列・奥列の2列に間隔を広めにとって並べる(メッシュ生成・収集処理は上でモジュール直下に定義済み。捨てたときの再配置にも使い回す)
-  const rowFrontX = tableX - 0.26, rowBackX = tableX + 0.26;
+  // 道具は、+Z側の壁に掛けたペグボードに並べる(視線を向けてクリックで取る。メッシュ生成・収集処理はengine.js側にある)。ノートだけはテーブルの上に置く
+  addToolPegboard({
+    x: tentX - 0.3, z: tentZ + halfWidth - 0.05 - 0.03, rotY: Math.PI, // +Z側の壁の内側の面に付け、ボードの前を-Z(テントの中)へ向ける
+    tools: ['flashlight', 'emf', 'thermometer', 'spiritbox', 'uv', 'dots'],
+  });
 
-  const flashlightItem = makeFlashlightItemMesh();
-  flashlightItem.position.y = 0.75 + toolRestOffset.flashlight;
-  addPickupItem(rowFrontX, tentZ - 0.75, flashlightItem, () => collectTool('flashlight'));
-
-  const emfItem = makeEMFItemMesh();
-  emfItem.position.y = 0.75 + toolRestOffset.emf;
-  addPickupItem(rowBackX, tentZ - 0.5, emfItem, () => collectTool('emf'));
-
-  // 温度計は手前列の中央あたりに置く
-  const thermoItem = makeThermoItemMesh();
-  thermoItem.position.y = 0.75 + toolRestOffset.thermometer;
-  addPickupItem(rowFrontX, tentZ + 0.25, thermoItem, () => collectTool('thermometer'));
-
-  // ノート(ゴーストライティング用)は懐中電灯・EMFと同じ収集物として、奥列の端に置く
+  // ノート(ゴーストライティング用)は、テーブルの奥列の端に置く
+  const rowBackX = tableX + 0.26;
   const notebookItem = makeNotebookItemMesh();
   notebookItem.position.y = 0.75 + toolRestOffset.notebook;
   setNotebookWorldMesh(notebookItem); // まだ拾われていない間も、書き込み発生時にここへ反映する
   addPickupItem(rowBackX, tentZ + 0.5, notebookItem, () => collectTool('notebook'));
-
-  // 追加の道具(スピリットボックス・UVライト・D.O.T.S)も同じ2列の空いている位置に並べる
-  const spiritBoxItem = makeSpiritBoxItemMesh();
-  spiritBoxItem.position.y = 0.75 + toolRestOffset.spiritbox;
-  addPickupItem(rowFrontX, tentZ - 0.25, spiritBoxItem, () => collectTool('spiritbox'));
-
-  const uvItem = makeUVItemMesh();
-  uvItem.position.y = 0.75 + toolRestOffset.uv;
-  addPickupItem(rowFrontX, tentZ + 0.75, uvItem, () => collectTool('uv'));
-
-  const dotsItem = makeDotsItemMesh();
-  dotsItem.position.y = 0.75 + toolRestOffset.dots;
-  addPickupItem(rowBackX, tentZ, dotsItem, () => collectTool('dots'));
 
   // 監視カメラの映像を映すモニターは、テーブルの奥(+X側)の背面の壁に横一列に並べる。画面はフレームから離して点滅(Zファイティング)を防ぐ
   const monitorFrameMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
