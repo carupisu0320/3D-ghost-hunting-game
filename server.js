@@ -5,7 +5,7 @@
 //   node server.js
 //   (環境変数 PORT でポート番号を指定可能。デフォルトは 8080)
 //
-// このサーバーが持つ役割は「部屋(ルーム)の管理」と「プレイヤー同士の情報の橋渡し」だけ。
+// このサーバーが持つ役割は「部屋(ルーム)の管理(参加者・マップ選択・ゲーム開始の合図)」と「プレイヤー同士の位置情報の橋渡し」だけ。
 // 幽霊の正解データなど、ゲーム本編の同期はまだ実装していない(ロビーが固まってから着手する)。
 
 const { WebSocketServer } = require('ws');
@@ -14,8 +14,10 @@ const PORT = process.env.PORT || 8080;
 const MAX_PLAYERS = 4;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 0/O, 1/I など紛らわしい文字は除外
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33]; // 最大4人ぶんの識別色
+const MAPS = ['house', 'grafton']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
+const DEFAULT_MAP = 'grafton';
 
-const rooms = new Map(); // code -> { code, players: Map(id -> player) }
+const rooms = new Map(); // code -> { code, map, players: Map(id -> player) }
 let nextId = 1;
 
 function generateRoomCode() {
@@ -78,11 +80,12 @@ wss.on('connection', (ws) => {
         name: String(msg.name || 'プレイヤー').slice(0, 12),
         x: 0, y: 0, z: 0, rotY: 0,
       };
-      const room = { code, players: new Map([[id, player]]) };
+      const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
+      const room = { code, map, players: new Map([[id, player]]) };
       rooms.set(code, room);
       ws.playerId = id;
       ws.roomCode = code;
-      send(ws, { type: 'created', code, playerId: id, players: roomPlayerList(room) });
+      send(ws, { type: 'created', code, map, playerId: id, players: roomPlayerList(room) });
       return;
     }
 
@@ -101,7 +104,7 @@ wss.on('connection', (ws) => {
       room.players.set(id, player);
       ws.playerId = id;
       ws.roomCode = room.code;
-      send(ws, { type: 'joined', code: room.code, playerId: id, players: roomPlayerList(room) });
+      send(ws, { type: 'joined', code: room.code, map: room.map, playerId: id, players: roomPlayerList(room) });
       broadcast(room, { type: 'playerJoined', id, name: player.name, color: player.color, host: player.host }, id);
       return;
     }
@@ -116,12 +119,22 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'setMap') {
+      const room = rooms.get(ws.roomCode);
+      if (!room) return;
+      const p = room.players.get(ws.playerId);
+      if (!p || !p.host || !MAPS.includes(msg.map)) return; // ホストだけが、存在するマップにだけ変えられる
+      room.map = msg.map;
+      broadcast(room, { type: 'mapChanged', map: room.map }, ws.playerId); // 変えた本人は手元で反映済みなので、ほかの人にだけ送る
+      return;
+    }
+
     if (msg.type === 'start') {
       const room = rooms.get(ws.roomCode);
       if (!room) return;
       const p = room.players.get(ws.playerId);
       if (!p || !p.host) return; // ホストだけが開始できる
-      broadcast(room, { type: 'gameStart' });
+      broadcast(room, { type: 'gameStart', map: room.map }); // 全員(ホスト自身も)に、選ばれているマップを伝える
       return;
     }
   });
