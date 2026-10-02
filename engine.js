@@ -410,6 +410,8 @@ let hasDots = false;
 let sanity = 100;
 let huntActive = false;
 let huntTimer = 0;
+// ハントが続く長さ(秒)。始まるたびに、この範囲のランダムな長さが選ばれる
+const HUNT_MIN_SECONDS = 10, HUNT_MAX_SECONDS = 60;
 let huntCheckTimer = 8; // 最初の判定までの猶予
 const sanityCanvas = document.createElement('canvas');
 sanityCanvas.width = 128; sanityCanvas.height = 96;
@@ -649,12 +651,19 @@ function countHeldTools() {
     (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
 }
 
+// その道具をすでに持っているか(ペグボードには同じ道具が複数掛かっているので、重ねて取らないための判定)
+function isToolHeld(tool) {
+  return { flashlight: hasFlashlight, emf: hasEMF, thermometer: hasThermometer, notebook: hasNotebook,
+    spiritbox: hasSpiritBox, uv: hasUV, dots: hasDots }[tool] === true;
+}
+
 // 壁掛けの道具置き場(ペグボード)。道具を壁に掛けて並べ、視線を向けてクリックすると、その道具が取れる。
 //   x, z   : ボードの前面の中心(壁の面の位置)
 //   rotY   : ボードの前(部屋の側)を向ける回転。0なら+Z側が前、-Math.PI/2なら-X側が前(東の壁に付けるとき)
 //   length : 壁に沿った長さ(m)、baseY: ボード下端の高さ、height: ボードの高さ
 //   tools  : 掛ける道具の名前の配列(flashlight, emf, thermometer, spiritbox, uv, dots)。左から順に並ぶ
-function addToolPegboard({ x, z, rotY, length = 3.6, baseY = 0.6, height = 0.9, tools }) {
+//   copies : 1種類あたりの数(1〜4)。2列×2段のかたまりで掛ける(4個なら4人が1つずつ取れる)
+function addToolPegboard({ x, z, rotY, length = 3.6, baseY = 0.5, height = 1.0, tools, copies = 4 }) {
   const cosR = Math.cos(rotY), sinR = Math.sin(rotY);
   // ボード上の座標(lx=壁に沿って右、ly=高さ、lz=壁から部屋側へ)を、世界の座標に直す
   const toWorld = (lx, ly, lz) => new THREE.Vector3(x + lx * cosR + lz * sinR, ly, z - lx * sinR + lz * cosR);
@@ -707,24 +716,31 @@ function addToolPegboard({ x, z, rotY, length = 3.6, baseY = 0.6, height = 0.9, 
     uv: { make: makeUVItemMesh, rx: Math.PI / 2, ry: 0 },                              // レンズを上にして縦に掛ける
     dots: { make: makeDotsItemMesh, rx: 0, ry: Math.PI },                              // レンズを部屋側に向ける
   };
-  const rowY = baseY + 0.5; // 道具の中心の高さ
+  // 1種類ぶんのかたまり: 2列×2段。段の中心の高さは、下の段・上の段の順(1段だけのときは真ん中)
+  const cols = copies >= 2 ? 2 : 1, rowsCount = copies >= 3 ? 2 : 1;
+  const rowYs = rowsCount === 1 ? [baseY + height * 0.55] : [baseY + 0.34, baseY + 0.78];
+  const colGap = 0.24; // 同じ段で並ぶ2つの道具の中心の間隔
   tools.forEach((tool, i) => {
     const h = hang[tool];
     if (!h) return;
-    const lx = ((i + 0.5) / tools.length - 0.5) * length;
-    const w = new THREE.Group(); // 向きを整えるための入れ物(中の道具が持つ元の向きは変えない)
-    w.add(h.make());
-    w.rotation.order = 'YXZ';
-    w.rotation.set(h.rx, h.ry, 0);
-    w.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(w); // ボード上の向きでの大きさ(まだ壁の向きは掛けていない)
-    const cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;
-    const depth = box.max.z - box.min.z;
-    w.position.copy(toWorld(lx - cx, rowY - cy, 0.012 - box.min.z)); // 背面をボードの面に付ける
-    w.rotation.set(h.rx, h.ry + rotY, 0);
-    scene.add(w);
-    const center = toWorld(lx, rowY, 0.012 + depth / 2);
-    pickupItems.push({ x: center.x, z: center.z, mesh: w, collected: false, onCollect: () => collectTool(tool), gaze: true, center, tool });
+    const clusterX = ((i + 0.5) / tools.length - 0.5) * length;
+    for (let k = 0; k < Math.min(copies, 4); k++) {
+      const col = k % cols, row = Math.floor(k / cols);
+      const lx = clusterX + (col - (cols - 1) / 2) * colGap, rowY = rowYs[row];
+      const w = new THREE.Group(); // 向きを整えるための入れ物(中の道具が持つ元の向きは変えない)
+      w.add(h.make());
+      w.rotation.order = 'YXZ';
+      w.rotation.set(h.rx, h.ry, 0);
+      w.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(w); // ボード上の向きでの大きさ(まだ壁の向きは掛けていない)
+      const cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2;
+      const depth = box.max.z - box.min.z;
+      w.position.copy(toWorld(lx - cx, rowY - cy, 0.012 - box.min.z)); // 背面をボードの面に付ける
+      w.rotation.set(h.rx, h.ry + rotY, 0);
+      scene.add(w);
+      const center = toWorld(lx, rowY, 0.012 + depth / 2);
+      pickupItems.push({ x: center.x, z: center.z, mesh: w, collected: false, onCollect: () => collectTool(tool), gaze: true, center, tool });
+    }
 
     // 道具の名札(下に掛ける)
     const labelCanvas = document.createElement('canvas');
@@ -739,7 +755,7 @@ function addToolPegboard({ x, z, rotY, length = 3.6, baseY = 0.6, height = 0.9, 
     const labelTex = new THREE.CanvasTexture(labelCanvas);
     labelTex.colorSpace = THREE.SRGBColorSpace;
     const label = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.1), new THREE.MeshBasicMaterial({ map: labelTex, transparent: true }));
-    label.position.set(lx, baseY + 0.16, 0.004);
+    label.position.set(clusterX, baseY + 0.07, 0.004);
     board.add(label);
   });
 }
@@ -769,7 +785,7 @@ function updateGazeHint() {
   }
   const item = controls.isLocked ? findGazePickup() : null;
   if (!item) { gazeHintEl.style.display = 'none'; return; }
-  gazeHintEl.textContent = toolNames[item.tool] + (countHeldTools() >= 3 ? '(持ち物がいっぱい)' : '(クリックで取る)');
+  gazeHintEl.textContent = toolNames[item.tool] + (isToolHeld(item.tool) ? '(すでに持っている)' : countHeldTools() >= 3 ? '(持ち物がいっぱい)' : '(クリックで取る)');
   gazeHintEl.style.display = 'block';
 }
 
@@ -1332,6 +1348,35 @@ function updateRoomLightCulling() {
   });
 }
 
+// ハント中に照明を点滅させる。部屋の天井灯(器具と床の光だまり)に加えて、マップ側が登録した全体照明も一緒に点滅する
+const flickerLights = []; // { light, getBase }: getBase()は「点滅していないときの明るさ」(ブレーカーの状態などで変わるので関数にしてある)
+function registerFlickerLight(light, getBase) { flickerLights.push({ light, getBase }); }
+let huntFlickerOn = true, huntFlickerTimer = 0, huntFlickerWas = false;
+function updateHuntFlicker(delta) {
+  if (!huntActive) {
+    if (huntFlickerWas) { // ハントが終わったので、通常の明るさに戻す
+      huntFlickerWas = false;
+      huntFlickerOn = true;
+      updateRoomLightCulling();
+      flickerLights.forEach(f => { f.light.intensity = f.getBase(); });
+    }
+    return;
+  }
+  huntFlickerWas = true;
+  huntFlickerTimer -= delta;
+  if (huntFlickerTimer <= 0) {
+    huntFlickerOn = !huntFlickerOn;
+    huntFlickerTimer = huntFlickerOn ? 0.05 + Math.random() * 0.35 : 0.04 + Math.random() * 0.18; // 消えている時間は短く、点いている時間は少し長め(不規則に)
+  }
+  const k = huntFlickerOn ? 1 : 0.08; // 消えている間も、ほんのり残す
+  lightSwitches.forEach(sw => {
+    if (!(sw.on && breakerOn)) return; // もともと消えている照明はそのまま
+    sw.fixtureMat.emissiveIntensity = 1.2 * k;
+    sw.rl.glowMat.opacity = sw.rl.baseGlowOpacity * k;
+  });
+  flickerLights.forEach(f => { f.light.intensity = f.getBase() * k; });
+}
+
 // ブレーカー(地下室などマップ固有の設備)。マップ側が箱の位置と、切り替え時に呼ぶ関数を登録する
 let breakerOn = false; // ゲーム開始時は電気が落ちている想定
 let breakerBox = null;
@@ -1360,6 +1405,10 @@ function tryInteract() {
     (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
   // 壁掛けの道具(ペグボード)は、近くにあるどれでもではなく、視線を向けているものを取る
   const gazeItem = findGazePickup();
+  if (gazeItem && isToolHeld(gazeItem.tool)) { // 同じ道具が何個も掛かっているので、持っている種類は取らない
+    showPickupNotice('すでに持っている');
+    return;
+  }
   if (gazeItem && heldCount < 3) {
     gazeItem.collected = true;
     scene.remove(gazeItem.mesh);
@@ -2127,7 +2176,7 @@ function animate() {
           const chance = 0.12 + (30 - sanity) / 30 * 0.38; // 正気度が低いほど発生しやすくなる(30で12%、0で50%)
           if (Math.random() < chance) {
             huntActive = true;
-            huntTimer = 12;
+            huntTimer = HUNT_MIN_SECONDS + Math.random() * (HUNT_MAX_SECONDS - HUNT_MIN_SECONDS);
             showPickupNotice('…気配がする…');
             if (exteriorDoor) { // 家の外に逃げられないよう、玄関を閉めてロックする
               exteriorDoor.isOpen = false;
@@ -2251,6 +2300,7 @@ function animate() {
   }
 
   updateGazeHint();
+  updateHuntFlicker(delta);
 
   renderer.render(scene, camera);
 }
@@ -2355,7 +2405,7 @@ export {
   woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn,
   addSurveillanceCamera, videoCams,
-  addPickupItem, pickupItems, addToolPegboard,
+  addPickupItem, pickupItems, addToolPegboard, registerFlickerLight,
   makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool,
   notebookWorldMesh,
