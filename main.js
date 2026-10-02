@@ -45,8 +45,24 @@ function selectMap(label, buildFn) {
   };
 }
 
-addMapCard(houseLabel, true, selectMap(houseLabel, buildHouse));
-addMapCard(graftonLabel, true, selectMap(graftonLabel, buildGrafton));
+const startHouse = selectMap(houseLabel, buildHouse);
+const startGrafton = selectMap(graftonLabel, buildGrafton);
+addMapCard(houseLabel, true, startHouse);
+addMapCard(graftonLabel, true, startGrafton);
 addMapCard('近日追加予定', false, null);
 
 startEngine();
+
+// ロビーから ?map=house / ?map=grafton で来たときは、マップ選択を飛ばしてそのマップを始める。
+// ポインターロック(マウスで視点を動かす状態)は、ページを移動した直後はクリックがないと始められないので、
+// 「クリックして開始」の画面を一度はさむ。
+const lobbyMap = new URLSearchParams(location.search).get('map');
+const lobbyMaps = { house: [houseLabel, startHouse], grafton: [graftonLabel, startGrafton] };
+if (lobbyMap && lobbyMaps[lobbyMap]) {
+  const [label, start] = lobbyMaps[lobbyMap];
+  const gate = document.createElement('div');
+  gate.style.cssText = 'position:fixed;inset:0;z-index:150;background:#000;color:#ccc;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;cursor:pointer;';
+  gate.innerHTML = `<div style="font-size:14px;color:#777;">${label}</div><div style="font-size:24px;color:#9fe6a0;letter-spacing:2px;">クリックして開始</div>`;
+  gate.addEventListener('click', () => { gate.remove(); start(); }, { once: true });
+  document.body.appendChild(gate);
+}
