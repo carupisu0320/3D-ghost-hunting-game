@@ -4,7 +4,7 @@ import {
   THREE, mergeGeometries, scene, camera, rooms, room,
   wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
   addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
-  addSurveillanceCamera, videoCams, addToolPegboard,
+  addSurveillanceCamera, videoCams, addToolPegboard, registerFlickerLight,
   addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBreakerOn,
   addPickupItem, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh,
   makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, setNotebookWorldMesh,
@@ -713,6 +713,7 @@ export function build() {
   const HEMI_OFF = 0;    // ブレーカーが落ちている間の全体照明の強さ(0=なし。暗くしたいほど0に近づける、明るくしたいときは上げる)
   const hemiLight = new THREE.HemisphereLight(0xffffff, 0x605040, HEMI_ON);
   scene.add(hemiLight);
+  registerFlickerLight(hemiLight, () => (breakerOn ? HEMI_ON : HEMI_OFF)); // ハント中は全体照明も天井灯と一緒に点滅させる
   // スイッチは既定では部屋の東壁の北寄りに付く。壁がない・ドアや家具とぶつかる部屋は、位置を指定している
   const roomLights = {
     "Living Room": addRoomLight("Living Room", 16, 0xfff2cc, 18),
