@@ -4,53 +4,43 @@
     <meta charset="UTF-8" />
     <title>ロビー - 3D Ghost Hunting Game</title>
     <style>
-      body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; }
       canvas { display: block; }
 
-      #entryScreen {
-        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-        background: radial-gradient(circle at center, #1a1a2a 0%, #000 100%); z-index: 20;
+      /* 画面の中央の照準(ボードのボタンを狙うための点) */
+      #crosshair {
+        position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+        background: rgba(255,255,255,0.85); box-shadow: 0 0 0 1px rgba(0,0,0,0.5); z-index: 5; pointer-events: none; display: none;
       }
-      #entryBox {
-        background: #14141c; border: 1px solid #333; border-radius: 8px; padding: 28px 32px;
-        color: #eee; width: 320px;
+      /* 「クリックして始める」の案内(カーソルが出ている間だけ表示) */
+      #hint {
+        position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+        background: rgba(0,0,0,0.55); color: #eee; cursor: pointer; text-align: center;
       }
-      #entryBox h1 { font-size: 18px; margin: 0 0 16px; color: #9fd3ff; }
-      #entryBox input {
-        width: 100%; box-sizing: border-box; padding: 8px 10px; margin-bottom: 10px;
-        background: #24242e; border: 1px solid #444; border-radius: 4px; color: #eee; font-size: 14px;
+      #hint .title { font-size: 30px; letter-spacing: 3px; color: #9fd3ff; }
+      #hint .sub { font-size: 15px; color: #ccc; line-height: 1.8; }
+      #toast {
+        position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 30; display: none;
+        background: rgba(20,20,26,0.92); color: #ffd0d0; border: 1px solid #5a3a3a; border-radius: 6px; padding: 10px 20px; font-size: 15px;
       }
-      #entryBox button {
-        width: 100%; padding: 10px; margin-bottom: 8px; border: none; border-radius: 4px;
-        font-size: 14px; cursor: pointer;
-      }
-      #createBtn { background: #3a7ad9; color: #fff; }
-      #joinBtn { background: #2c2c38; color: #eee; }
-      #soloBtn { background: #444; color: #ddd; margin-top: 4px; }
-      #entryError { color: #ff8080; font-size: 12px; min-height: 16px; margin-top: 4px; }
-
-      #hud {
-        position: fixed; top: 8px; left: 8px; color: #9fe6a0; font-family: monospace; font-size: 13px;
-        z-index: 10; display: none; line-height: 1.6; background: rgba(0,0,0,0.35); padding: 6px 10px; border-radius: 4px;
-      }
-      #playerList { list-style: none; padding: 0; margin: 4px 0 0; }
-      #playerList li { color: #ddd; }
-
-      #clickHint {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        color: #ccc; font-family: monospace; font-size: 14px; z-index: 9; display: none;
-        background: rgba(0,0,0,0.4); padding: 6px 14px; border-radius: 4px;
+      #roomBadge {
+        position: fixed; top: 10px; left: 10px; z-index: 6; display: none; color: #cfe6ff; font-family: monospace; font-size: 14px;
+        background: rgba(0,0,0,0.45); padding: 6px 12px; border-radius: 4px; line-height: 1.6;
       }
 
-      #startBtn {
-        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-        padding: 12px 28px; font-size: 15px; background: #3a7ad9; color: #fff; border: none;
-        border-radius: 6px; cursor: pointer; z-index: 10; display: none;
+      /* 名前・部屋コードの入力ダイアログ */
+      #modal { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); }
+      #modalBox { background: #16181d; border: 1px solid #3a3f4a; border-radius: 8px; padding: 24px 28px; width: 320px; color: #eee; }
+      #modalTitle { font-size: 18px; margin: 0 0 14px; color: #9fd3ff; }
+      #modalInput {
+        width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 8px; background: #23262d; border: 1px solid #444a55;
+        border-radius: 4px; color: #fff; font-size: 18px; letter-spacing: 2px;
       }
-      #waitingMsg {
-        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-        color: #aaa; font-family: monospace; font-size: 13px; z-index: 10; display: none;
-      }
+      #modalError { color: #ff8a8a; font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+      .modalButtons { display: flex; gap: 10px; }
+      .modalButtons button { flex: 1; padding: 10px; border: none; border-radius: 4px; font-size: 15px; cursor: pointer; }
+      #modalOk { background: #3a7ad9; color: #fff; }
+      #modalCancel { background: #2c2f38; color: #ddd; }
     </style>
     <script type="importmap">
     {
@@ -62,27 +52,21 @@
     </script>
   </head>
   <body>
-    <div id="entryScreen">
-      <div id="entryBox">
-        <h1>ゴーストハンティング ロビー</h1>
-        <input id="nameInput" type="text" placeholder="名前を入力" maxlength="12" />
-        <button id="createBtn">部屋を作成</button>
-        <hr style="border-color:#333; margin: 14px 0;" />
-        <input id="codeInput" type="text" placeholder="部屋コード(例: AB3XQ)" maxlength="5" style="text-transform:uppercase" />
-        <button id="joinBtn">コードで参加</button>
-        <div id="entryError"></div>
-        <hr style="border-color:#333; margin: 14px 0;" />
-        <button id="soloBtn">1人で遊ぶ(サーバー不要)</button>
+    <div id="crosshair"></div>
+    <div id="roomBadge"></div>
+    <div id="hint">
+      <div class="title">ゴーストハンティング ロビー</div>
+      <div class="sub">クリックして歩き回る<br />WASD: 移動 / Shift: 走る / マウス: 見回す / Esc: カーソルを出す<br />奥の工房のホワイトボードで、部屋づくり・参加・マップ選択ができます</div>
+    </div>
+    <div id="toast"></div>
+    <div id="modal">
+      <div id="modalBox">
+        <h2 id="modalTitle"></h2>
+        <input id="modalInput" type="text" autocomplete="off" />
+        <div id="modalError"></div>
+        <div class="modalButtons"><button id="modalCancel">やめる</button><button id="modalOk">決定</button></div>
       </div>
     </div>
-
-    <div id="hud">
-      部屋コード: <span id="roomCodeDisplay">-</span>(最大4人)
-      <ul id="playerList"></ul>
-    </div>
-    <div id="clickHint">クリックして視点操作を開始</div>
-    <button id="startBtn">ゲーム開始</button>
-    <div id="waitingMsg">ホストの開始を待っています…</div>
 
     <script type="module" src="lobby.js"></script>
   </body>
