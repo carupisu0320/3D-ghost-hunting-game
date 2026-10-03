@@ -93,7 +93,7 @@ export function drawBoard(ctx, state) {
     line('名前', 62, 252, 24, SUB); line(fit(state.name, 290), 62, 290, 32);
     line('マップ', 62, 360, 24, SUB); line(fit(mapName, 290), 62, 398, 32);
     line('接続', 62, 468, 24, SUB); line('ソロ(オフライン)', 62, 506, 28);
-    rightLines('あそびかた', ['WASD: 移動', 'Shift: 走る', 'マウス: 見回す', 'クリック: ボードを選ぶ', 'Esc: カーソルを出す', '', '部屋は最大4人', 'コードは5文字']);
+    rightLines('あそびかた', ['WASD: 移動', 'Shift: 走る', 'マウス: 見回す', 'クリック: 選ぶ・取る', 'E: 使う  Q: 戻す', '1〜3: 持ち替え', 'Esc: カーソルを出す', '部屋は最大4人']);
   }
 
   if (state.message) { ctx.fillStyle = RED; ctx.textAlign = 'center'; ctx.font = `bold 28px ${FONT}`; ctx.fillText(state.message, BOARD_W / 2, 650); }
