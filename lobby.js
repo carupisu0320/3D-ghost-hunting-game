@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { io } from 'socket.io-client'; // 通信(Socket.IO)。読み込み先はlobby.htmlのimportmapに書いてある
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { buildLobbySpace, moveWithCollision } from './lobby-space.js';
 import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS } from './lobby-board.js';
@@ -8,10 +9,11 @@ import {
 } from './tool-models.js';
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
 
-// ▼ロビーサーバー(server.js)を動かしている場所に合わせて書き換える
-//   ローカルで試すだけなら 'ws://localhost:8080' のままでOK。
-//   本番でサーバーを立てた場合は 'wss://自分のサーバーのドメイン' に変更する。
-const WS_URL = 'ws://localhost:8080';
+// ▼ロビーサーバー(server.js)の場所。自分のパソコンで試すときは自動で localhost:8080 につながる。
+//   サーバーをインターネットに公開したら、下の 'https://...' の部分を、そのサーバーのURLに書き換える(README.md参照)。
+//   例: 'https://ghost-lobby.onrender.com'
+const PUBLIC_SERVER_URL = 'https://YOUR-SERVER-NAME.onrender.com';
+const SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'http://localhost:8080' : PUBLIC_SERVER_URL;
 
 // ---------- DOM ----------
 const crosshair = document.getElementById('crosshair');
@@ -150,7 +152,7 @@ function handleButton(id) {
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
     case 'maps': board.screen = 'maps'; boardDirty = true; break;
     case 'back': board.screen = 'main'; boardDirty = true; break;
-    case 'start': if (ws) send({ type: 'start' }); break;
+    case 'start': if (socket) send({ type: 'start' }); break;
     case 'leave': leaveRoom(); break;
   }
 }
@@ -180,25 +182,42 @@ modalOk.addEventListener('click', () => {
 modalCancel.addEventListener('click', closeModal);
 modalInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') modalOk.click(); if (e.key === 'Escape') closeModal(); });
 
-// ---------- 通信 ----------
-let ws = null;
-function send(msg) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); }
+// ---------- 通信(Socket.IO) ----------
+// socket.emit('イベント名', データ) で送り、サーバーから届くイベントは onAny でまとめて受け取って handleServerMessage に渡す
+let socket = null;
+function send(msg) { if (socket && socket.connected) socket.emit(msg.type, msg); }
 
+function closeSocket() {
+  if (!socket) return;
+  socket.removeAllListeners(); // 切断したときの「接続が切れました」の表示が出ないように、先に外す
+  socket.disconnect();
+  socket = null;
+}
+function clearMessage() { board.message = ''; toast.style.display = 'none'; boardDirty = true; clearTimeout(messageTimer); }
+
+// サーバーにつないで、つながったらmsg(create / join)を送る
 function connectAndSend(msg) {
-  if (ws) { ws.onclose = null; ws.close(); }
-  let opened = false;
-  ws = new WebSocket(WS_URL);
-  ws.addEventListener('open', () => { opened = true; ws.send(JSON.stringify(msg)); });
-  ws.addEventListener('message', (ev) => { try { handleServerMessage(JSON.parse(ev.data)); } catch (e) { console.warn(e); } });
-  ws.addEventListener('close', () => {
-    ws = null;
-    if (!opened) showMessage('サーバーに接続できませんでした(server.jsは起動していますか?)');
-    else if (board.room) { clearRoom(); showMessage('サーバーとの接続が切れました'); }
+  closeSocket();
+  // 無料のサーバーは、しばらく使われていないと眠っていて、起こすのに最大1分ほどかかる
+  showMessage('サーバーに接続中…(最初は起動に1分ほどかかることがあります)', 70000);
+  const s = io(SERVER_URL, { reconnection: false, timeout: 70000 });
+  socket = s;
+  s.on('connect', () => { clearMessage(); s.emit(msg.type, msg); });
+  s.on('connect_error', () => {
+    if (socket !== s) return;
+    closeSocket();
+    showMessage('サーバーに接続できませんでした(サーバーは動いていますか? 接続先: ' + SERVER_URL + ')', 7000);
   });
+  s.on('disconnect', () => {
+    if (socket !== s) return;
+    socket = null;
+    if (board.room) { clearRoom(); showMessage('サーバーとの接続が切れました'); }
+  });
+  s.onAny((event, payload) => handleServerMessage({ ...payload, type: event }));
 }
 function createRoom() { connectAndSend({ type: 'create', name: board.name, map: board.selectedMap }); }
 function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, code }); }
-function leaveRoom() { if (ws) { ws.onclose = null; ws.close(); ws = null; } clearRoom(); }
+function leaveRoom() { closeSocket(); clearRoom(); }
 function clearRoom() {
   board.room = null; board.screen = 'main'; boardDirty = true;
   remotePlayers.forEach((rp) => scene.remove(rp.group)); remotePlayers.clear();
