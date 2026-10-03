@@ -12,7 +12,7 @@ import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from
 // ▼ロビーサーバー(server.js)の場所。自分のパソコンで試すときは自動で localhost:8080 につながる。
 //   サーバーをインターネットに公開したら、下の 'https://...' の部分を、そのサーバーのURLに書き換える(README.md参照)。
 //   例: 'https://ghost-lobby.onrender.com'
-const PUBLIC_SERVER_URL = 'https://YOUR-SERVER-NAME.onrender.com';
+const PUBLIC_SERVER_URL = 'https://threed-ghost-hunting-game.onrender.com';
 const SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'http://localhost:8080' : PUBLIC_SERVER_URL;
 
 // ---------- DOM ----------
