@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { buildLobbySpace, moveWithCollision } from './lobby-space.js';
-import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS, mapLabel } from './lobby-board.js';
+import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS } from './lobby-board.js';
+import {
+  makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh,
+  toolNames, toolIcons, viewmodelBase, viewmodelOverrides,
+} from './tool-models.js';
+import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
 
 // ▼ロビーサーバー(server.js)を動かしている場所に合わせて書き換える
 //   ローカルで試すだけなら 'ws://localhost:8080' のままでOK。
@@ -61,6 +66,7 @@ const space = buildLobbySpace(scene);
 const boardCtx = space.whiteboard.canvas.getContext('2d');
 camera.position.set(space.spawn.x, 1.65, space.spawn.z);
 camera.rotation.set(0, space.spawn.rotY, 0, 'YXZ');
+scene.add(camera); // 手に持つ道具とライトをカメラに付けるため
 
 // ---------- 操作(移動・視点) ----------
 const controls = new PointerLockControls(camera, renderer.domElement);
@@ -71,7 +77,14 @@ controls.addEventListener('lock', showHintIfNeeded);
 controls.addEventListener('unlock', showHintIfNeeded);
 
 const keys = {};
-window.addEventListener('keydown', (e) => { if (!modalOpen) keys[e.code] = true; });
+window.addEventListener('keydown', (e) => {
+  if (modalOpen) return;
+  keys[e.code] = true;
+  if (e.repeat || !controls.isLocked) return;
+  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
+  else if (e.code === 'KeyE') toggleCurrentTool();
+  else if (e.code === 'KeyQ') returnCurrentTool();
+});
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
@@ -122,8 +135,10 @@ function redrawBoardIfNeeded() {
 
 // 照準のボタンをクリックしたときの処理
 renderer.domElement.addEventListener('click', () => {
-  if (!controls.isLocked || !board.hoverId) return;
-  handleButton(board.hoverId);
+  if (!controls.isLocked) return;
+  const item = gazedPegItem();
+  if (item) { takePegItem(item); return; }
+  if (board.hoverId) handleButton(board.hoverId);
 });
 
 function handleButton(id) {
@@ -276,6 +291,165 @@ function sendMove(force = false) {
   send({ type: 'move', x, y: 0, z, rotY: r });
 }
 
+// ---------- 道具(壁のボードから取って、テスト用ゴーストの装置で試せる) ----------
+const held = [];            // 持っている道具の名前(取った順、最大3)
+let currentTool = null;     // 今手に持っている道具
+let flashlightOn = false;
+const active = { emf: false, thermometer: false, spiritbox: false, uv: false, dots: false };
+
+// 手に持つ見た目(画面右下)。本編と同じ構え(位置・角度・大きさ)を使う
+const viewmodels = {};
+const viewmodelMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, spiritbox: makeSpiritBoxItemMesh, uv: makeUVItemMesh, dots: makeDotsItemMesh };
+Object.keys(viewmodelMakers).forEach((tool) => {
+  const inner = viewmodelMakers[tool]();
+  const wrapper = new THREE.Group();
+  wrapper.add(inner);
+  wrapper.userData = inner.userData; // LED・画面の参照を、ラッパー側からも使えるようにする
+  const t = { ...viewmodelBase, ...(viewmodelOverrides[tool] || {}) };
+  wrapper.position.set(...t.position);
+  wrapper.rotation.set(...t.rotation);
+  wrapper.scale.setScalar(t.scale);
+  wrapper.visible = false;
+  wrapper.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  camera.add(wrapper);
+  viewmodels[tool] = wrapper;
+});
+
+// 手元を照らすライト(懐中電灯・UVライト共用)。UVライトのときは紫になる
+const torch = new THREE.SpotLight(0xffeecc, 0, 14, 0.5, 0.55, 1.6);
+torch.position.set(0.1, -0.05, 0);
+torch.target.position.set(0, 0, -1);
+camera.add(torch, torch.target);
+
+// 画面左上の表示(本編と同じ書式)と、画面下のホットバー
+const hud = {};
+[['emf', '#0f0'], ['thermometer', '#0ff'], ['spiritbox', '#ff66aa'], ['dots', '#33ff55']].forEach(([key, color], i) => {
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed;top:${44 + i * 20}px;left:10px;color:${color};font-family:monospace;font-size:14px;z-index:7;text-shadow:0 0 3px #000;`;
+  document.body.appendChild(el); hud[key] = el;
+});
+const hotbarEl = document.createElement('div');
+hotbarEl.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:7;';
+const hotbarSlots = [0, 1, 2].map((i) => {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:relative;width:52px;height:52px;border:2px solid rgba(255,255,255,0.25);border-radius:6px;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:26px;opacity:0.35;';
+  const num = document.createElement('div');
+  num.textContent = String(i + 1);
+  num.style.cssText = 'position:absolute;top:1px;left:4px;font-size:11px;color:#ccc;font-family:monospace;';
+  const icon = document.createElement('div');
+  el.appendChild(num); el.appendChild(icon); hotbarEl.appendChild(el);
+  return { el, icon };
+});
+document.body.appendChild(hotbarEl);
+const toolHint = document.createElement('div');
+toolHint.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:4px;font-family:monospace;font-size:14px;z-index:7;pointer-events:none;display:none;';
+document.body.appendChild(toolHint);
+
+function refreshHotbar() {
+  hotbarSlots.forEach((slot, i) => {
+    const tool = held[i];
+    slot.icon.textContent = tool ? toolIcons[tool] : '';
+    slot.el.style.opacity = tool ? '1' : '0.35';
+    const selected = tool && tool === currentTool;
+    slot.el.style.borderColor = selected ? '#fff' : 'rgba(255,255,255,0.25)';
+    slot.el.style.boxShadow = selected ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
+  });
+  Object.keys(viewmodels).forEach((t) => { viewmodels[t].visible = (t === currentTool); });
+  Object.keys(hud).forEach((k) => { if (!active[k]) hud[k].textContent = ''; });
+}
+// 持ち替え。懐中電灯は持ち替えてもつけたまま、ほかの道具は選んだときだけオンになる(本編と同じ)
+function selectTool(tool) {
+  currentTool = tool;
+  Object.keys(active).forEach((k) => { active[k] = (k === tool); });
+  refreshHotbar();
+}
+function toggleCurrentTool() {
+  if (currentTool === 'flashlight') flashlightOn = !flashlightOn;
+  else if (currentTool in active) { active[currentTool] = !active[currentTool]; refreshHotbar(); }
+}
+// 視線の先にある、まだ取られていない壁の道具
+const gazeDir = new THREE.Vector3();
+function gazedPegItem() {
+  camera.getWorldDirection(gazeDir);
+  return pickGazeItem(space.pegItems, camera.position, gazeDir);
+}
+const isHeld = (tool) => held.includes(tool);
+function takePegItem(item) {
+  if (isHeld(item.tool)) { showMessage('すでに持っている', 2000); return; }
+  if (held.length >= MAX_HELD) { showMessage('持ち物がいっぱいです(Qで戻せます)', 2500); return; }
+  item.taken = true; item.mesh.visible = false;
+  held.push(item.tool);
+  if (item.tool === 'flashlight') flashlightOn = true;
+  selectTool(item.tool);
+}
+// 今持っている道具を、ボードの元の場所に戻す
+function returnCurrentTool() {
+  if (!currentTool) return;
+  const tool = currentTool;
+  const item = space.pegItems.find(it => it.tool === tool && it.taken);
+  if (item) { item.taken = false; item.mesh.visible = true; }
+  held.splice(held.indexOf(tool), 1);
+  if (tool === 'flashlight') flashlightOn = false;
+  active[tool] = false;
+  selectTool(held.length ? held[held.length - 1] : null);
+}
+
+// 毎フレーム: テスト用ゴースト(ハヤト)に対する、各道具の反応
+const toDummy = new THREE.Vector3();
+let spiritTimer = 0;
+function updateTools(delta, t) {
+  const st = space.testStation;
+  // 玉をゆっくり上下させる
+  st.orb.position.y = st.baseY + Math.sin(t * 1.4) * 0.05;
+  const orbWorld = st.orb.getWorldPosition(toDummy);
+  const dist = camera.position.distanceTo(orbWorld);
+  camera.getWorldDirection(gazeDir);
+  const toOrb = orbWorld.clone().sub(camera.position);
+  const lookingAtOrb = gazeDir.angleTo(toOrb.normalize()) < 0.3 && dist < 6;
+
+  // 懐中電灯・UVライト(UVは紫)
+  torch.color.set(active.uv ? 0x8a2be2 : 0xffeecc);
+  torch.intensity = (flashlightOn || active.uv) ? 60 : 0;
+
+  if (active.emf) {
+    const level = emfLevelAt(dist);
+    hud.emf.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
+    viewmodels.emf.userData.leds.forEach((led, i) => led.material.color.set(i < level ? 0x44ff44 : 0x2a1010));
+  }
+  if (active.thermometer) {
+    const temp = demoTemperature(dist, t);
+    hud.thermometer.textContent = `温度: ${temp.toFixed(1)}°C${temp <= 0 ? ' (氷点下!)' : ''}`;
+    const canvas = viewmodels.thermometer.userData.screenCanvas, ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0a2a12'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = temp <= 0 ? '#ff7a7a' : '#7fffa0';
+    ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`${temp.toFixed(1)}°C`, canvas.width / 2, canvas.height / 2);
+    viewmodels.thermometer.userData.screenTexture.needsUpdate = true;
+  }
+  if (active.spiritbox) {
+    spiritTimer -= delta;
+    if (spiritTimer <= 0) { // 数秒おきに、雑音か応答(6m以内なら必ず応える)
+      spiritTimer = 2 + Math.random() * 2;
+      hud.spiritbox.textContent = dist < 6 ? `スピリットボックス: 「${SPIRIT_WORD}」` : 'スピリットボックス: …ザザ…';
+    }
+    viewmodels.spiritbox.userData.led.material.color.set(Math.random() < 0.5 ? 0xff2266 : 0x2a1010);
+  } else spiritTimer = 0;
+  // D.O.T.S: 投光器を向けると、テスト用ゴーストの体に緑の光点が浮かぶ
+  st.dots.visible = active.dots && lookingAtOrb;
+  if (active.dots) hud.dots.textContent = `D.O.T.S: ${st.dots.visible ? '反応あり' : '反応なし'}`;
+  // UVライト: 看板の下の手形が浮かび上がる
+  const nearSign = camera.position.distanceTo(st.signPos) < 4.5;
+  st.prints.material.opacity = (active.uv && nearSign) ? 0.85 : 0;
+
+  // 壁の道具を狙っているとき、名前を出す
+  const item = controls.isLocked ? gazedPegItem() : null;
+  if (item) {
+    toolHint.textContent = toolNames[item.tool] + (isHeld(item.tool) ? '(すでに持っている)' : held.length >= MAX_HELD ? '(持ち物がいっぱい)' : '(クリックで取る)');
+    toolHint.style.display = 'block';
+  } else toolHint.style.display = 'none';
+}
+refreshHotbar();
+
 // ---------- メインループ ----------
 const clock = new THREE.Clock();
 function animate() {
@@ -284,6 +458,7 @@ function animate() {
   updateMovement(delta);
   updateBoardHover();
   redrawBoardIfNeeded();
+  updateTools(delta, clock.elapsedTime);
   // 他のプレイヤーは、受け取った位置へなめらかに寄せる(通信は間引いて届くため)
   remotePlayers.forEach((rp) => {
     rp.group.position.lerp(rp.target, Math.min(1, delta * 10));
