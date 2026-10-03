@@ -2,6 +2,7 @@
 // 画像ファイルは使わず、すべてコードで作る(テクスチャはcanvasで描く)。
 // 座標はメートル。X=東西、Z=南北、Y=高さ。ガレージ(ホール)は X -9〜9 / Z -5〜5、工房は その西側(X -15〜-9.3)。
 import * as THREE from 'three';
+import { createPegboard } from './tool-models.js';
 
 // ---------- 小道具 ----------
 function makeRng(seed) {
@@ -390,6 +391,71 @@ export function buildLobbySpace(scene) {
   const blue2 = new THREE.PointLight(0x5a98ee, 20, 8, 2); blue2.position.set(-13.2, 2.7, 2.0); scene.add(blue2);
   const coolWhite = new THREE.PointLight(0xdbe8ff, 14, 7, 2); coolWhite.position.set(-11.0, 2.4, 0); scene.add(coolWhite);
 
+  // ---- 道具のペグボード(工房の南の壁)。視線を向けてクリックで取り、その場で試せる ----
+  const pegWood = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.8 });
+  const peg = createPegboard({
+    x: -12.4, z: 3.2 - 0.03, rotY: Math.PI, // 南の壁の内側の面に付け、ボードの前を北(工房の中)へ向ける
+    tools: ['flashlight', 'emf', 'thermometer', 'spiritbox', 'uv', 'dots'], woodMaterial: pegWood,
+  });
+  scene.add(peg.group);
+  const pegItems = peg.items.map((it, slot) => { scene.add(it.mesh); return { ...it, slot, taken: false }; });
+
+  // ---- テスト用ゴースト(ハヤト)の装置(ガレージ)。EMF・温度計・スピリットボックス・D.O.T.S・UVライトを試せる ----
+  const STATION = { x: -4.4, z: -1.4 };
+  const metalDark = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.5, metalness: 0.6 });
+  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.38, 0.85, 24), metalDark);
+  pedestal.position.set(STATION.x, 0.425, STATION.z); add(pedestal);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x8fd4ff });
+  const stationRing = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.02, 10, 36), ringMat);
+  stationRing.rotation.x = Math.PI / 2; stationRing.position.set(STATION.x, 0.86, STATION.z); add(stationRing);
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 16), new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.6 }));
+  orb.position.set(STATION.x, 1.35, STATION.z); add(orb);
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 16), new THREE.MeshBasicMaterial({ color: 0x66b8ff, transparent: true, opacity: 0.16, depthWrite: false }));
+  orb.add(halo);
+  const orbLight = new THREE.PointLight(0x7fc4ff, 4, 4, 2); orb.add(orbLight);
+  block(STATION.x - 0.42, STATION.x + 0.42, STATION.z - 0.42, STATION.z + 0.42);
+
+  // D.O.T.S用の緑の光点(ふだんは非表示。D.O.T.S投光器を向けたときだけ、ゴーストの体に浮かぶ)
+  const dotPositions = [];
+  for (let i = 0; i < 280; i++) { // 人型っぽく、縦長の楕円体に点を散らす
+    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
+    dotPositions.push(Math.cos(th) * r * 0.2, u * 0.45, Math.sin(th) * r * 0.14);
+  }
+  const dotGeo = new THREE.BufferGeometry();
+  dotGeo.setAttribute('position', new THREE.Float32BufferAttribute(dotPositions, 3));
+  const dots = new THREE.Points(dotGeo, new THREE.PointsMaterial({ color: 0x44ff66, size: 0.035, sizeAttenuation: true }));
+  dots.visible = false; orb.add(dots);
+
+  // 立て看板(説明)と、UVライトで浮かぶ手形
+  const PANEL = { x: STATION.x, z: STATION.z - 1.3, y: 1.5, w: 1.9, h: 1.15 };
+  const signTex = canvasTexture(768, 464, (ctx, w, h) => {
+    ctx.fillStyle = '#e9e6dc'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#1d3a68'; ctx.lineWidth = 10; ctx.strokeRect(10, 10, w - 20, h - 20);
+    ctx.fillStyle = '#1d3a68'; ctx.textAlign = 'center';
+    ctx.font = 'bold 46px "Hiragino Maru Gothic ProN","Yu Gothic","Meiryo","Noto Sans CJK JP",sans-serif';
+    ctx.fillText('テスト用ゴースト「ハヤト」', w / 2, 84);
+    ctx.font = '30px "Hiragino Maru Gothic ProN","Yu Gothic","Meiryo","Noto Sans CJK JP",sans-serif';
+    ctx.fillStyle = '#2a2c30';
+    ['奥の工房の壁のボードで道具を取って、', 'ここで試してみよう', '', 'EMF・温度計: 近づくほど反応', 'スピリットボックス: 話しかけてくれる', 'D.O.T.S: 向けると体に光点が浮かぶ', 'UVライト: 下の手形が見える'].forEach((t, i) => ctx.fillText(t, w / 2, 140 + i * 40));
+  });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.w, PANEL.h), new THREE.MeshBasicMaterial({ map: signTex }));
+  sign.position.set(PANEL.x, PANEL.y, PANEL.z); add(sign);
+  [[-0.8], [0.8]].forEach(([dx]) => box(0.06, PANEL.y - PANEL.h / 2, 0.06, metalDark, PANEL.x + dx, (PANEL.y - PANEL.h / 2) / 2, PANEL.z - 0.04));
+  block(PANEL.x - 1.0, PANEL.x + 1.0, PANEL.z - 0.2, PANEL.z + 0.15);
+  const printTex = canvasTexture(256, 128, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(190,120,255,0.95)';
+    const hand = (cx, cy, rot) => { ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
+      ctx.beginPath(); ctx.ellipse(0, 6, 22, 26, 0, 0, Math.PI * 2); ctx.fill();         // てのひら
+      [[-20, -22, -0.3], [-8, -32, -0.1], [6, -34, 0.05], [19, -26, 0.25]].forEach(([fx, fy, fr]) => { ctx.save(); ctx.translate(fx, fy); ctx.rotate(fr); ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 14, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); });
+      ctx.save(); ctx.translate(-27, 4); ctx.rotate(-0.9); ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 13, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); // 親指
+      ctx.restore(); };
+    hand(80, 82, -0.15); hand(176, 86, 0.2);
+  });
+  printTex.wrapS = printTex.wrapT = THREE.ClampToEdgeWrapping;
+  const prints = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 0.375), new THREE.MeshBasicMaterial({ map: printTex, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  prints.position.set(PANEL.x, PANEL.y - 0.28, PANEL.z + 0.01); add(prints);
+
   // 歩ける範囲(長方形の合体。出入口の通路も含む)
   const walkable = [
     { minX: HALL.minX, maxX: HALL.maxX, minZ: HALL.minZ, maxZ: HALL.maxZ },
@@ -401,6 +467,8 @@ export function buildLobbySpace(scene) {
     spawn: { x: -6.5, z: 2.6, rotY: -Math.PI / 2 }, // ホールの西寄りから、奥(東)の車の方を向いて始まる(カメラのrotation.yが-π/2で+X向き)
     whiteboard: { mesh: boardMesh, canvas: boardCanvas, texture: boardTex },
     clock: clockGroup,
+    pegItems,
+    testStation: { orb, dots, prints, baseY: 1.35, signPos: new THREE.Vector3(PANEL.x, PANEL.y, PANEL.z) },
   };
 }
 
