@@ -1,4 +1,4 @@
-// マルチプレイ用ロビーサーバー(Node.js + ws)
+// マルチプレイ用ロビーサーバー(Node.js + Socket.IO)
 //
 // 使い方:
 //   npm install
@@ -7,8 +7,16 @@
 //
 // このサーバーが持つ役割は「部屋(ルーム)の管理(参加者・マップ選択・ゲーム開始の合図)」と「プレイヤー同士の位置情報の橋渡し」だけ。
 // 幽霊の正解データなど、ゲーム本編の同期はまだ実装していない(ロビーが固まってから着手する)。
+//
+// Socket.IOの基本(このファイルを読むときの目安):
+//   socket.on('イベント名', (データ) => {...})  : クライアントから届いたイベントを受け取る
+//   socket.emit('イベント名', データ)           : そのクライアントだけに送る
+//   io.to(部屋名).emit(...)                      : 同じ部屋にいる全員に送る
+//   socket.to(部屋名).emit(...)                  : 同じ部屋の、送ってきた本人以外に送る
+//   socket.join(部屋名)                          : そのクライアントを部屋に入れる(ここでは部屋コードをそのまま部屋名にしている)
 
-const { WebSocketServer } = require('ws');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 8080;
 const MAX_PLAYERS = 4;
@@ -17,8 +25,30 @@ const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33]; // 最大4人ぶ
 const MAPS = ['house', 'grafton']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
 const DEFAULT_MAP = 'grafton';
 
-const rooms = new Map(); // code -> { code, map, players: Map(id -> player) }
-let nextId = 1;
+// ---------- 接続を許可するサイト(CORS) ----------
+// ブラウザは、別のドメインのサーバーへの接続を、サーバーが許可したサイトからのものに限っている。
+// ここに、ロビーのページを公開しているサイトのURLを書いておく。環境変数 ALLOWED_ORIGINS(カンマ区切り)でも追加できる。
+const ALLOWED_ORIGINS = [
+  'https://carupisu0320.github.io', // GitHub Pages(ユーザー名のサイトの下にあるページ全部)
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : []),
+];
+function isAllowedOrigin(origin) {
+  if (!origin) return true;                                           // ブラウザ以外(テスト用のスクリプトなど)
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin); // 自分のパソコンで試すとき(ポートは何番でもOK)
+}
+
+// ---------- サーバー本体 ----------
+// 普通のURLにアクセスされたときは「動いています」と返す(ホスティング側の死活確認と、ブラウザでの動作確認用)
+const httpServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('ghost-hunting lobby server is running\n');
+});
+const io = new Server(httpServer, {
+  cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)) },
+});
+
+const rooms = new Map(); // code -> { code, map, players: Map(socket.id -> player) }
 
 function generateRoomCode() {
   let code;
@@ -28,25 +58,21 @@ function generateRoomCode() {
   return code;
 }
 
-function send(ws, msg) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
-}
-
-function broadcast(room, msg, exceptId) {
-  for (const p of room.players.values()) {
-    if (p.id !== exceptId) send(p.ws, msg);
-  }
-}
-
 function roomPlayerList(room) {
   return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host }));
 }
 
-function removePlayerFromRoom(ws) {
-  const room = rooms.get(ws.roomCode);
+function cleanName(value) {
+  return String(value || 'プレイヤー').trim().slice(0, 12) || 'プレイヤー';
+}
+
+function removePlayerFromRoom(socket) {
+  const room = rooms.get(socket.data.roomCode);
   if (!room) return;
-  const leaving = room.players.get(ws.playerId);
-  room.players.delete(ws.playerId);
+  const leaving = room.players.get(socket.id);
+  room.players.delete(socket.id);
+  socket.leave(room.code);
+  socket.data.roomCode = null;
 
   if (room.players.size === 0) {
     rooms.delete(room.code);
@@ -56,90 +82,70 @@ function removePlayerFromRoom(ws) {
     // ホストが抜けたら、残っている中で一番古参のプレイヤーを次のホストにする
     const next = room.players.values().next().value;
     next.host = true;
-    broadcast(room, { type: 'hostChanged', id: next.id });
+    io.to(room.code).emit('hostChanged', { id: next.id });
   }
-  broadcast(room, { type: 'playerLeft', id: ws.playerId });
+  io.to(room.code).emit('playerLeft', { id: socket.id });
 }
 
-const wss = new WebSocketServer({ port: PORT });
-console.log(`ロビーサーバー起動: ws://localhost:${PORT}`);
+io.on('connection', (socket) => {
+  socket.data.roomCode = null;
 
-wss.on('connection', (ws) => {
-  ws.playerId = null;
-  ws.roomCode = null;
-
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch (e) { return; }
-
-    if (msg.type === 'create') {
-      const code = generateRoomCode();
-      const id = nextId++;
-      const player = {
-        id, ws, host: true, color: PLAYER_COLORS[0],
-        name: String(msg.name || 'プレイヤー').slice(0, 12),
-        x: 0, y: 0, z: 0, rotY: 0,
-      };
-      const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
-      const room = { code, map, players: new Map([[id, player]]) };
-      rooms.set(code, room);
-      ws.playerId = id;
-      ws.roomCode = code;
-      send(ws, { type: 'created', code, map, playerId: id, players: roomPlayerList(room) });
-      return;
-    }
-
-    if (msg.type === 'join') {
-      const room = rooms.get(String(msg.code || '').toUpperCase());
-      if (!room) { send(ws, { type: 'error', message: 'その部屋コードは見つかりませんでした' }); return; }
-      if (room.players.size >= MAX_PLAYERS) { send(ws, { type: 'error', message: 'この部屋は満員です(最大4人)' }); return; }
-
-      const id = nextId++;
-      const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
-      const player = {
-        id, ws, host: false, color,
-        name: String(msg.name || 'プレイヤー').slice(0, 12),
-        x: 0, y: 0, z: 0, rotY: 0,
-      };
-      room.players.set(id, player);
-      ws.playerId = id;
-      ws.roomCode = room.code;
-      send(ws, { type: 'joined', code: room.code, map: room.map, playerId: id, players: roomPlayerList(room) });
-      broadcast(room, { type: 'playerJoined', id, name: player.name, color: player.color, host: player.host }, id);
-      return;
-    }
-
-    if (msg.type === 'move') {
-      const room = rooms.get(ws.roomCode);
-      if (!room) return;
-      const p = room.players.get(ws.playerId);
-      if (!p) return;
-      p.x = msg.x; p.y = msg.y; p.z = msg.z; p.rotY = msg.rotY;
-      broadcast(room, { type: 'playerMove', id: ws.playerId, x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY }, ws.playerId);
-      return;
-    }
-
-    if (msg.type === 'setMap') {
-      const room = rooms.get(ws.roomCode);
-      if (!room) return;
-      const p = room.players.get(ws.playerId);
-      if (!p || !p.host || !MAPS.includes(msg.map)) return; // ホストだけが、存在するマップにだけ変えられる
-      room.map = msg.map;
-      broadcast(room, { type: 'mapChanged', map: room.map }, ws.playerId); // 変えた本人は手元で反映済みなので、ほかの人にだけ送る
-      return;
-    }
-
-    if (msg.type === 'start') {
-      const room = rooms.get(ws.roomCode);
-      if (!room) return;
-      const p = room.players.get(ws.playerId);
-      if (!p || !p.host) return; // ホストだけが開始できる
-      broadcast(room, { type: 'gameStart', map: room.map }); // 全員(ホスト自身も)に、選ばれているマップを伝える
-      return;
-    }
+  // 部屋を作る
+  socket.on('create', (msg = {}) => {
+    if (socket.data.roomCode) return; // すでにどこかの部屋にいる
+    const code = generateRoomCode();
+    const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
+    const player = { id: socket.id, host: true, color: PLAYER_COLORS[0], name: cleanName(msg.name) };
+    const room = { code, map, players: new Map([[socket.id, player]]) };
+    rooms.set(code, room);
+    socket.data.roomCode = code;
+    socket.join(code);
+    socket.emit('created', { code, map, playerId: socket.id, players: roomPlayerList(room) });
   });
 
-  ws.on('close', () => {
-    if (ws.roomCode) removePlayerFromRoom(ws);
+  // 部屋に参加する
+  socket.on('join', (msg = {}) => {
+    if (socket.data.roomCode) return;
+    const room = rooms.get(String(msg.code || '').toUpperCase());
+    if (!room) { socket.emit('error', { message: 'その部屋コードは見つかりませんでした' }); return; }
+    if (room.players.size >= MAX_PLAYERS) { socket.emit('error', { message: 'この部屋は満員です(最大4人)' }); return; }
+
+    const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
+    const player = { id: socket.id, host: false, color, name: cleanName(msg.name) };
+    room.players.set(socket.id, player);
+    socket.data.roomCode = room.code;
+    socket.join(room.code);
+    socket.emit('joined', { code: room.code, map: room.map, playerId: socket.id, players: roomPlayerList(room) });
+    socket.to(room.code).emit('playerJoined', { id: socket.id, name: player.name, color: player.color, host: player.host });
   });
+
+  // 自分の位置を伝える(ほかの人にだけ中継する)
+  socket.on('move', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || ![msg.x, msg.y, msg.z, msg.rotY].every(Number.isFinite)) return;
+    socket.to(room.code).emit('playerMove', { id: socket.id, x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY });
+  });
+
+  // マップを変える(ホストだけ。存在するマップにだけ変えられる)
+  socket.on('setMap', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room) return;
+    const p = room.players.get(socket.id);
+    if (!p || !p.host || !MAPS.includes(msg.map)) return;
+    room.map = msg.map;
+    socket.to(room.code).emit('mapChanged', { map: room.map }); // 変えた本人は手元で反映済みなので、ほかの人にだけ送る
+  });
+
+  // ゲーム開始(ホストだけ)。全員(ホスト自身も)に、選ばれているマップを伝える
+  socket.on('start', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room) return;
+    const p = room.players.get(socket.id);
+    if (!p || !p.host) return;
+    io.to(room.code).emit('gameStart', { map: room.map });
+  });
+
+  socket.on('disconnect', () => removePlayerFromRoom(socket));
 });
+
+httpServer.listen(PORT, () => console.log(`ロビーサーバー起動: http://localhost:${PORT}`));
