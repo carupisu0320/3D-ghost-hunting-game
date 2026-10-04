@@ -59,7 +59,7 @@ export function drawBoard(ctx, state) {
   };
 
   const mapName = mapLabel(state.selectedMap);
-  const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 232 + i * 38, 25)); };
+  const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 248 + i * 38, 25)); };
 
   if (state.screen === 'maps') {
     // ---- マップ選択 ----
@@ -93,7 +93,7 @@ export function drawBoard(ctx, state) {
     line('名前', 62, 252, 24, SUB); line(fit(state.name, 290), 62, 290, 32);
     line('マップ', 62, 360, 24, SUB); line(fit(mapName, 290), 62, 398, 32);
     line('接続', 62, 468, 24, SUB); line('ソロ(オフライン)', 62, 506, 28);
-    rightLines('あそびかた', ['WASD: 移動', 'Shift: 走る', 'マウス: 見回す', 'クリック: 選ぶ・取る', 'E: 使う  Q: 戻す', '1〜3: 持ち替え', 'Esc: カーソルを出す', '部屋は最大4人']);
+    rightLines('あそびかた', ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人']);
   }
 
   if (state.message) { ctx.fillStyle = RED; ctx.textAlign = 'center'; ctx.font = `bold 28px ${FONT}`; ctx.fillText(state.message, BOARD_W / 2, 650); }
