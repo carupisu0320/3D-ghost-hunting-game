@@ -608,7 +608,7 @@ function updateGazeHint() {
   }
   const item = controls.isLocked ? findGazePickup() : null;
   if (!item) { gazeHintEl.style.display = 'none'; return; }
-  gazeHintEl.textContent = toolNames[item.tool] + (isToolHeld(item.tool) ? '(すでに持っている)' : countHeldTools() >= 3 ? '(持ち物がいっぱい)' : '(クリックで取る)');
+  gazeHintEl.textContent = toolNames[item.tool] + (isToolHeld(item.tool) ? '(すでに持っている)' : countHeldTools() >= 3 ? '(持ち物がいっぱい)' : (pollGamepad() ? '(Yボタンで取る)' : '(クリックで取る)'));
   gazeHintEl.style.display = 'block';
 }
 
@@ -1235,20 +1235,22 @@ const onFrameCallbacks = [];
 function onFrame(fn) { onFrameCallbacks.push(fn); }
 
 // スイッチ・ブレーカーに近づいてクリックするとON/OFF切り替え(天井照明ごと)
-function tryInteract() {
+// 道具を拾う(壁掛けの道具は視線の先のもの、床や机の上の道具は近くのもの)。拾った/「すでに持っている」と伝えたときはtrueを返す
+// (クリックやYボタンは tryInteract から呼ばれる。拾えるものがなければ、そのままドアなどの操作に進む)
+function tryPickup() {
   const heldCount = (hasFlashlight ? 1 : 0) + (hasEMF ? 1 : 0) + (hasThermometer ? 1 : 0) + (hasNotebook ? 1 : 0) +
     (hasSpiritBox ? 1 : 0) + (hasUV ? 1 : 0) + (hasDots ? 1 : 0);
   // 壁掛けの道具(ペグボード)は、近くにあるどれでもではなく、視線を向けているものを取る
   const gazeItem = findGazePickup();
   if (gazeItem && isToolHeld(gazeItem.tool)) { // 同じ道具が何個も掛かっているので、持っている種類は取らない
     showPickupNotice('すでに持っている');
-    return;
+    return true;
   }
   if (gazeItem && heldCount < 3) {
     gazeItem.collected = true;
     scene.remove(gazeItem.mesh);
     gazeItem.onCollect();
-    return;
+    return true;
   }
   for (const item of pickupItems) {
     if (item.collected || item.gaze) continue;
@@ -1258,9 +1260,15 @@ function tryInteract() {
       item.collected = true;
       scene.remove(item.mesh);
       item.onCollect();
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+// ブレーカー・ドア・照明のスイッチを操作する。includePickup が true(クリックのとき)なら、先に拾えるものを拾う
+function tryInteract({ includePickup = true } = {}) {
+  if (includePickup && tryPickup()) return;
 
   if (breakerBox) {
     const dbx = camera.position.x - breakerBox.x, dbz = camera.position.z - breakerBox.z;
@@ -1886,13 +1894,18 @@ function animate() {
       camera.rotation.y -= rx * 2.0 * delta;
       camera.rotation.x = Math.max(-1.3, Math.min(1.3, camera.rotation.x - ry * 1.5 * delta));
 
-      const aPressed = !!(pad.buttons[0] && pad.buttons[0].pressed);
+      // Switchのコントローラーの配置(標準マッピング): [0]=下のボタン(B)、[2]=左のボタン(Y)、[3]=上のボタン(X)
+      const aPressed = !!(pad.buttons[0] && pad.buttons[0].pressed); // 下のボタン(B): Yと同じ(クリックと同じ操作)
       if (aPressed && !gpPrevButtons[0]) tryInteract();
       gpPrevButtons[0] = aPressed;
 
-      const xPressed = !!(pad.buttons[2] && pad.buttons[2].pressed);
-      if (xPressed && !gpPrevButtons[2]) toggleCurrentTool();
-      gpPrevButtons[2] = xPressed;
+      const yPressed = !!(pad.buttons[2] && pad.buttons[2].pressed); // 左のボタン(Y): ものを拾う・ドアを開け閉めする・照明のスイッチ・ブレーカー(クリックと同じ操作)
+      if (yPressed && !gpPrevButtons[2]) tryInteract();
+      gpPrevButtons[2] = yPressed;
+
+      const xPressed = !!(pad.buttons[3] && pad.buttons[3].pressed); // 上のボタン(X): 道具を使う(右のトリガーZRと同じ)
+      if (xPressed && !gpPrevButtons[3]) toggleCurrentTool();
+      gpPrevButtons[3] = xPressed;
 
       const lPressed = !!(pad.buttons[4] && pad.buttons[4].pressed);
       if (lPressed && !gpPrevButtons[4]) switchTool();
