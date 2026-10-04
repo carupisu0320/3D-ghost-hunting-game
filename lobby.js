@@ -73,7 +73,9 @@ scene.add(camera); // 手に持つ道具とライトをカメラに付けるた�
 // ---------- 操作(移動・視点) ----------
 const controls = new PointerLockControls(camera, renderer.domElement);
 let modalOpen = false;
-function showHintIfNeeded() { hint.style.display = (controls.isLocked || modalOpen) ? 'none' : 'flex'; crosshair.style.display = controls.isLocked ? 'block' : 'none'; }
+let padActive = false; // コントローラーで操作中(マウスのクリックによる視点固定なしで、スティックだけで動かしている状態)
+const inControl = () => controls.isLocked || padActive;
+function showHintIfNeeded() { hint.style.display = (inControl() || modalOpen) ? 'none' : 'flex'; crosshair.style.display = inControl() ? 'block' : 'none'; }
 hint.addEventListener('click', () => controls.lock());
 controls.addEventListener('lock', showHintIfNeeded);
 controls.addEventListener('unlock', showHintIfNeeded);
@@ -82,7 +84,7 @@ const keys = {};
 window.addEventListener('keydown', (e) => {
   if (modalOpen) return;
   keys[e.code] = true;
-  if (e.repeat || !controls.isLocked) return;
+  if (e.repeat || !inControl()) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
   else if (e.code === 'KeyE') toggleCurrentTool();
   else if (e.code === 'KeyQ') returnCurrentTool();
@@ -92,20 +94,23 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 
 const WALK = 3.2, RUN = 5.4;
 const forward = new THREE.Vector3(), rightV = new THREE.Vector3();
-function updateMovement(delta) {
-  if (!controls.isLocked) return;
-  const speed = (keys['ShiftLeft'] || keys['ShiftRight']) ? RUN : WALK;
+function updateMovement(delta, pad) {
+  if (!inControl()) return;
+  const running = keys['ShiftLeft'] || keys['ShiftRight'] || (pad && padButton(pad, 6)); // Shift、またはコントローラーのZL
+  const speed = running ? RUN : WALK;
   let f = 0, r = 0;
   if (keys['KeyW'] || keys['ArrowUp']) f += 1;
   if (keys['KeyS'] || keys['ArrowDown']) f -= 1;
   if (keys['KeyD'] || keys['ArrowRight']) r += 1;
   if (keys['KeyA'] || keys['ArrowLeft']) r -= 1;
+  if (pad) { f -= deadzone(pad.axes[1] || 0); r += deadzone(pad.axes[0] || 0); } // 左スティック(上に倒すと前進)
   if (f === 0 && r === 0) return;
   const len = Math.hypot(f, r);
+  const scale = Math.min(1, len) / len; // キーボードは常に全速、スティックは倒した量に比例(1を超える分は全速)
   camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
   rightV.set(-forward.z, 0, forward.x);
-  const dx = (forward.x * f + rightV.x * r) / len * speed * delta;
-  const dz = (forward.z * f + rightV.z * r) / len * speed * delta;
+  const dx = (forward.x * f + rightV.x * r) * scale * speed * delta;
+  const dz = (forward.z * f + rightV.z * r) * scale * speed * delta;
   const [nx, nz] = moveWithCollision(space, camera.position.x, camera.position.z, dx, dz);
   camera.position.x = nx; camera.position.z = nz; camera.position.y = 1.65;
 }
@@ -115,7 +120,7 @@ const raycaster = new THREE.Raycaster();
 const centerPoint = new THREE.Vector2(0, 0);
 function updateBoardHover() {
   let hover = null;
-  if (controls.isLocked) {
+  if (inControl()) {
     raycaster.setFromCamera(centerPoint, camera);
     raycaster.far = 8;
     const hit = raycaster.intersectObject(space.whiteboard.mesh, false)[0];
@@ -136,12 +141,14 @@ function redrawBoardIfNeeded() {
 }
 
 // 照準のボタンをクリックしたときの処理
-renderer.domElement.addEventListener('click', () => {
-  if (!controls.isLocked) return;
+// 狙っているもの(壁の道具、なければボードのボタン)を使う。マウスのクリックとコントローラーのYボタンが、同じ操作を呼ぶ
+function activateAim() {
+  if (!inControl()) return;
   const item = gazedPegItem();
   if (item) { takePegItem(item); return; }
   if (board.hoverId) handleButton(board.hoverId);
-});
+}
+renderer.domElement.addEventListener('click', () => { if (controls.isLocked) activateAim(); });
 
 function handleButton(id) {
   if (id.startsWith('map:')) { chooseMap(id.slice(4)); return; }
@@ -168,6 +175,7 @@ function goToGame(mapId) { window.location.href = 'game.html?map=' + encodeURICo
 let modalCallback = null;
 function askText(title, placeholder, initial, maxLen, onOk) {
   modalOpen = true; modalCallback = onOk;
+  padActive = false;
   controls.unlock();
   modalTitle.textContent = title; modalInput.placeholder = placeholder; modalInput.value = initial; modalInput.maxLength = maxLen; modalError.textContent = '';
   modal.style.display = 'flex'; showHintIfNeeded();
@@ -461,20 +469,72 @@ function updateTools(delta, t) {
   st.prints.material.opacity = (active.uv && nearSign) ? 0.85 : 0;
 
   // 壁の道具を狙っているとき、名前を出す
-  const item = controls.isLocked ? gazedPegItem() : null;
+  const item = inControl() ? gazedPegItem() : null;
   if (item) {
-    toolHint.textContent = toolNames[item.tool] + (isHeld(item.tool) ? '(すでに持っている)' : held.length >= MAX_HELD ? '(持ち物がいっぱい)' : '(クリックで取る)');
+    toolHint.textContent = toolNames[item.tool] + (isHeld(item.tool) ? '(すでに持っている)' : held.length >= MAX_HELD ? '(持ち物がいっぱい)' : (padActive ? '(Yボタンで取る)' : '(クリックで取る)'));
     toolHint.style.display = 'block';
   } else toolHint.style.display = 'none';
 }
 refreshHotbar();
+
+// ---------- コントローラー(Switchのコントローラーの標準マッピング) ----------
+//   左スティック: 移動 / 右スティック: 見回す / ZL: 走る
+//   Y(左のボタン)・B(下のボタン): 狙っているものを使う(ボードのボタンを押す・壁の道具を取る。クリックと同じ)
+//   X(上のボタン)・ZR: 道具を使う(Eキーと同じ) / L・R: 道具の持ち替え / 十字キーの下: ボードに戻す(Qキーと同じ)
+//   +(9): 一時停止(案内の画面に戻る)。案内の画面で何かボタンを押すと、クリックしなくても操作を始められる
+const padPrev = {};
+function deadzone(v, dz = 0.15) { return Math.abs(v) < dz ? 0 : v; }
+function padButton(pad, i) { return !!(pad.buttons[i] && pad.buttons[i].pressed); }
+function pollPad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const pad of pads) if (pad) return pad;
+  return null;
+}
+// ボタンが「押された瞬間」だけtrueを返す
+function padPressed(pad, i) {
+  const now = padButton(pad, i), was = !!padPrev[i];
+  padPrev[i] = now;
+  return now && !was;
+}
+function cycleTool(step) {
+  if (held.length === 0) return;
+  const i = held.indexOf(currentTool);
+  selectTool(held[(i + step + held.length) % held.length]);
+}
+// 今押されているボタンの状態を「前回の状態」として控える(押しっぱなしのボタンが、あとから反応しないように)
+function syncPadPrev(pad) { pad.buttons.forEach((b, i) => { padPrev[i] = b.pressed; }); }
+let padWasPressed = false;
+function updatePad(delta, pad) {
+  if (!pad) return;
+  if (!inControl()) {
+    // ダイアログが開いている間は、キーボードで入力するので、コントローラーは見ない
+    if (modalOpen) { syncPadPrev(pad); padWasPressed = true; return; }
+    // 案内の画面が出ている間に何かボタンを押したら、クリックなしで操作を始める(その押したボタン自体の操作は行わない)
+    const anyPressed = pad.buttons.some((b, i) => i !== 9 && b.pressed);
+    if (anyPressed && !padWasPressed) { padActive = true; showHintIfNeeded(); syncPadPrev(pad); }
+    padWasPressed = anyPressed;
+    return;
+  }
+  if (padPressed(pad, 9)) { padActive = false; if (controls.isLocked) controls.unlock(); showHintIfNeeded(); return; } // +: 一時停止
+  // 右スティック: 見回す
+  const rx = deadzone(pad.axes[2] || 0), ry = deadzone(pad.axes[3] || 0);
+  camera.rotation.y -= rx * 2.2 * delta;
+  camera.rotation.x = Math.max(-1.3, Math.min(1.3, camera.rotation.x - ry * 1.6 * delta));
+  if (padPressed(pad, 2) || padPressed(pad, 0)) activateAim(); // Y・B
+  if (padPressed(pad, 3) || padPressed(pad, 7)) toggleCurrentTool(); // X・ZR
+  if (padPressed(pad, 4)) cycleTool(-1); // L
+  if (padPressed(pad, 5)) cycleTool(1);  // R
+  if (padPressed(pad, 13)) returnCurrentTool(); // 十字キーの下
+}
 
 // ---------- メインループ ----------
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.1);
-  updateMovement(delta);
+  const pad = pollPad();
+  updatePad(delta, pad);
+  updateMovement(delta, pad);
   updateBoardHover();
   redrawBoardIfNeeded();
   updateTools(delta, clock.elapsedTime);
