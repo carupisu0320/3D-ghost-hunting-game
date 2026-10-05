@@ -60,7 +60,10 @@ export function loadRobotTemplate(baseUrl = './robot/') {
         fbx.updateMatrixWorld(true);
         fbx.traverse((o) => { if (o.isMesh && !src) src = o; });
         const geometry = src.geometry.clone();
-        geometry.applyMatrix4(src.matrixWorld); // FBXはZ軸が上なので、Y軸が上になる向きに直す(足がY=0、前が-Z)
+        geometry.applyMatrix4(src.matrixWorld); // FBXの回転(X軸まわりに-90°)を適用して、Y軸が上になる向きに直す(足がY=0)
+        // このモデルは、上の変換のあとだと、目・胸のランプ・つま先がすべて+Z側を向いている。
+        // ゲームでは前が-Z(カメラが向く方向)なので、Y軸まわりに180°回して、前を-Zにそろえる
+        geometry.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI));
         geometry.computeBoundingBox();
         geometry.translate(0, -geometry.boundingBox.min.y, 0);
         computeSkinWeights(geometry);
@@ -71,6 +74,9 @@ export function loadRobotTemplate(baseUrl = './robot/') {
           map: tex('black_robot_3d_model1_basecolor.JPEG', true),
           normalMap: tex('black_robot_3d_model1_normal.JPEG', false),
           metalness: 0.2, roughness: 0.72,
+          // このモデルの頭の部分は、面の向き(表裏)が逆になっている。そのままだと、頭の手前側が描かれず、奥の内側が見えて、
+          // 顔が反対側を向いているように見える。両面を描いておけば、向きが逆の面も正しく描かれる(奥の面は手前に隠れる)
+          side: THREE.DoubleSide,
         });
         const template = buildSkinnedMesh(geometry, material);
         template.scale.setScalar(ROBOT_HEIGHT / geometry.boundingBox.getSize(new THREE.Vector3()).y);
