@@ -606,7 +606,7 @@ function updateGazeHint() {
     gazeHintEl.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:4px;font-family:monospace;font-size:14px;z-index:50;pointer-events:none;display:none;';
     document.body.appendChild(gazeHintEl);
   }
-  const item = controls.isLocked ? findGazePickup() : null;
+  const item = inControl() ? findGazePickup() : null;
   if (!item) { gazeHintEl.style.display = 'none'; return; }
   gazeHintEl.textContent = toolNames[item.tool] + (isToolHeld(item.tool) ? '(すでに持っている)' : countHeldTools() >= 3 ? '(持ち物がいっぱい)' : (pollGamepad() ? '(Yボタンで取る)' : '(クリックで取る)'));
   gazeHintEl.style.display = 'block';
@@ -1309,7 +1309,7 @@ function tryInteract({ includePickup = true } = {}) {
   }
 }
 document.addEventListener('click', () => {
-  if (!controls.isLocked) return;
+  if (!controls.isLocked) return; // クリックはポインターロック中だけ(コントローラーはYボタンで tryInteract を呼ぶ)
   tryInteract();
 });
 
@@ -1343,6 +1343,16 @@ const controls = new PointerLockControls(camera, document.body);
 const info = document.getElementById('info');
 info.addEventListener('click', () => controls.lock()); // ESCで一時的に外れたときの再開クリック用
 controls.addEventListener('unlock', () => { info.textContent = 'クリックで再開'; });
+
+// コントローラーだけで遊ぶ状態(マウスの視点固定=ポインターロックなし)。
+// ボタン押下はブラウザにとって「クリック」ではないので、ポインターロックを始められない。そのため、このフラグで「操作中」とみなす。
+// main.js が、ロビーから来たときの「クリックして開始」の画面でコントローラーのボタンが押されたときに呼ぶ
+let padPlay = false;
+function requestPadStart() {
+  padPlay = true;
+  if (gameStartTime === null) gameStartTime = performance.now(); // 'lock' イベントが来ないので、ここで開始時刻を記録する
+}
+const inControl = () => controls.isLocked || padPlay;
 
 const emfDisplay = document.createElement('div');
 emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-family:monospace;font-size:14px;z-index:10;';
@@ -1703,6 +1713,7 @@ function triggerDeath() {
   }
 
   controls.unlock();
+  padPlay = false;
   info.style.display = 'none';
   bloodOverlay.style.opacity = '1';
   setTimeout(() => {
@@ -1748,6 +1759,7 @@ function showIdentifyResult(correct, elapsedSeconds, reward) {
   gameOver = true; // 特定が終わったらこの回のプレイは終了(ハントなども止める)
   huntActive = false;
   controls.unlock();
+  padPlay = false;
   info.style.display = 'none';
 
   identifyResultTitle.textContent = correct ? '特定成功!' : '特定失敗…';
@@ -1874,7 +1886,7 @@ function animate() {
   if (deathMixer) deathMixer.update(delta);
   if (ghostMixer) ghostMixer.update(delta);
 
-  if (controls.isLocked) {
+  if (inControl()) {
     const move = speed * delta;
     const prevX = camera.position.x;
     const prevZ = camera.position.z;
@@ -2206,7 +2218,7 @@ function enterGame() {
 
   mapSelectOverlay.style.display = 'none';
   info.style.display = 'block';
-  controls.lock();
+  if (!padPlay) controls.lock(); // コントローラー開始のときは、ポインターロックを始められない(クリックではないため)
 }
 
 // マップ(main.js側)が、マップ選択への登録を全部終えた後に呼ぶ。
@@ -2253,5 +2265,5 @@ export {
   ghostTypes, initHaunting, setExteriorDoor, setOrbRoom, currentGhost, hauntedRoom, ghost,
   onFrame,
   addMapCard, startEngine, enterGame,
-  setOnGroundFloor, setNotebookWorldMesh,
+  setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
 };
