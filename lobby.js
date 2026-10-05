@@ -8,6 +8,7 @@ import {
   toolNames, toolIcons, viewmodelBase, viewmodelOverrides,
 } from './tool-models.js';
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
+import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js'; // プレイヤーの見た目(黒いロボット)
 
 // ▼ロビーサーバー(server.js)の場所。自分のパソコンで試すときは自動で localhost:8080 につながる。
 //   サーバーをインターネットに公開したら、下の 'https://...' の部分を、そのサーバーのURLに書き換える(README.md参照)。
@@ -287,17 +288,36 @@ function makeNameSprite(text) {
   return sprite;
 }
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33];
+
+// ほかのプレイヤーの体。ロボットのモデル(robot/robot.fbx)が読み込めたらロボット、まだ(または読み込めなかった)ときはカプセル
+let robotTemplate = null;
+function attachBody(rp) {
+  if (rp.body) { rp.group.remove(rp.body); rp.body = null; }
+  if (robotTemplate) {
+    rp.avatar = createRobotAvatar(robotTemplate, rp.color);
+    rp.body = rp.avatar.group;
+  } else {
+    rp.avatar = null;
+    rp.body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 4, 8), new THREE.MeshLambertMaterial({ color: rp.color }));
+    rp.body.position.y = 0.85;
+  }
+  rp.group.add(rp.body);
+}
+loadRobotTemplate().then((template) => {
+  robotTemplate = template; // 失敗したときはnull(カプセルのまま)
+  if (template) remotePlayers.forEach(attachBody); // すでに部屋にいる人も、ロボットに差し替える
+});
+
 function addRemotePlayer(info) {
   if (remotePlayers.has(info.id)) return;
   const group = new THREE.Group();
   const color = info.color != null ? info.color : PLAYER_COLORS[remotePlayers.size % PLAYER_COLORS.length];
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 4, 8), new THREE.MeshLambertMaterial({ color }));
-  body.position.y = 0.85;
-  group.add(body);
+  const rp = { group, color, body: null, avatar: null, target: new THREE.Vector3(-6.5, 0, 2.6), prev: new THREE.Vector3(-6.5, 0, 2.6), rotY: 0 };
   group.add(makeNameSprite(info.name + (info.host ? ' ★' : '')));
   group.position.set(-6.5, 0, 2.6);
   scene.add(group);
-  remotePlayers.set(info.id, { group, target: new THREE.Vector3(-6.5, 0, 2.6), rotY: 0 });
+  remotePlayers.set(info.id, rp);
+  attachBody(rp);
 }
 function removeRemotePlayer(id) {
   const rp = remotePlayers.get(id);
@@ -542,6 +562,9 @@ function animate() {
   remotePlayers.forEach((rp) => {
     rp.group.position.lerp(rp.target, Math.min(1, delta * 10));
     rp.group.rotation.y += (rp.rotY - rp.group.rotation.y) * Math.min(1, delta * 10);
+    // 実際に動いた距離から速さを出して、歩きの動きに渡す。止まっている間は速さが0なので、手足は動かず、元の姿勢で立つ
+    if (rp.avatar && delta > 0) rp.avatar.update(delta, rp.group.position.distanceTo(rp.prev) / delta);
+    rp.prev.copy(rp.group.position);
   });
   moveTimer += delta;
   if (moveTimer > 0.08) { moveTimer = 0; sendMove(); } // 秒間約12回まで
