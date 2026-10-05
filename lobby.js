@@ -9,12 +9,9 @@ import {
 } from './tool-models.js';
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js'; // プレイヤーの見た目(黒いロボット)
+import { SERVER_URL } from './server-config.js';
 
-// ▼ロビーサーバー(server.js)の場所。自分のパソコンで試すときは自動で localhost:8080 につながる。
-//   サーバーをインターネットに公開したら、下の 'https://...' の部分を、そのサーバーのURLに書き換える(README.md参照)。
-//   例: 'https://ghost-lobby.onrender.com'
-const PUBLIC_SERVER_URL = 'https://threed-ghost-hunting-game.onrender.com';
-const SERVER_URL = (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'http://localhost:8080' : PUBLIC_SERVER_URL;
+// 接続先のサーバー(server.js)のURLは、server-config.js に書いてある(ロビーとゲーム本編で共通)
 
 // ---------- DOM ----------
 const crosshair = document.getElementById('crosshair');
@@ -29,6 +26,7 @@ const modalOk = document.getElementById('modalOk');
 const modalCancel = document.getElementById('modalCancel');
 
 // ---------- 状態 ----------
+try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* 使えなくても動く */ }
 function loadSetting(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } }
 function saveSetting(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動く */ } }
 
@@ -154,7 +152,7 @@ renderer.domElement.addEventListener('click', () => { if (controls.isLocked) act
 function handleButton(id) {
   if (id.startsWith('map:')) { chooseMap(id.slice(4)); return; }
   switch (id) {
-    case 'solo': goToGame(board.selectedMap); break;
+    case 'solo': try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap); break;
     case 'create': createRoom(); break;
     case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(code.toUpperCase())); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
@@ -170,7 +168,8 @@ function chooseMap(mapId) {
   if (board.room) { board.room.map = mapId; send({ type: 'setMap', map: mapId }); }
   board.screen = 'main'; boardDirty = true;
 }
-function goToGame(mapId) { window.location.href = 'game.html?map=' + encodeURIComponent(mapId); }
+let leavingForGame = false; // ゲームのページへ移動中(このあとの接続切れは、部屋を出たのではなく、ページの移動)
+function goToGame(mapId) { leavingForGame = true; window.location.href = 'game.html?map=' + encodeURIComponent(mapId); }
 
 // ---------- 入力ダイアログ(名前・部屋コード) ----------
 let modalCallback = null;
@@ -220,6 +219,7 @@ function connectAndSend(msg) {
   s.on('disconnect', () => {
     if (socket !== s) return;
     socket = null;
+    if (leavingForGame) return;
     if (board.room) { clearRoom(); showMessage('サーバーとの接続が切れました'); }
   });
   s.onAny((event, payload) => handleServerMessage({ ...payload, type: event }));
@@ -228,6 +228,7 @@ function createRoom() { connectAndSend({ type: 'create', name: board.name, map: 
 function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, code }); }
 function leaveRoom() { closeSocket(); clearRoom(); }
 function clearRoom() {
+  try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ }
   board.room = null; board.screen = 'main'; boardDirty = true;
   remotePlayers.forEach((rp) => scene.remove(rp.group)); remotePlayers.clear();
   updateRoomBadge();
@@ -242,6 +243,7 @@ function handleServerMessage(msg) {
   const room = board.room;
   if (msg.type === 'created' || msg.type === 'joined') {
     board.room = { code: msg.code, isHost: msg.type === 'created', myId: msg.playerId, map: msg.map, players: msg.players.slice() };
+    try { sessionStorage.setItem('ghost_session', JSON.stringify({ code: msg.code, token: msg.token, playerId: msg.playerId, name: board.name })); } catch (e) { /* 覚えられなくても、ロビーは使える(ゲームでほかの人が見えなくなる) */ }
     if (msg.type === 'joined') board.selectedMap = msg.map;
     board.screen = 'main'; boardDirty = true;
     msg.players.forEach(p => { if (p.id !== msg.playerId) addRemotePlayer(p); });
