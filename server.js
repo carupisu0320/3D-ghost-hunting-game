@@ -16,6 +16,7 @@
 //   socket.join(部屋名)                          : そのクライアントを部屋に入れる(ここでは部屋コードをそのまま部屋名にしている)
 
 const http = require('http');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 8080;
@@ -24,6 +25,9 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 0/O, 1/I など紛ら�
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33]; // 最大4人ぶんの識別色
 const MAPS = ['house', 'grafton']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
 const DEFAULT_MAP = 'grafton';
+// ゲームが始まると、全員がロビーのページからゲームのページへ移動する(いったん接続が切れて、つなぎ直す)。
+// その間にプレイヤーを部屋から外してしまわないよう、ゲーム中に切れたときは、この時間(ミリ秒)だけ待つ。戻ってこなければ外す
+const REJOIN_GRACE_MS = Number(process.env.REJOIN_GRACE_MS) || 90000;
 
 // ---------- 接続を許可するサイト(CORS) ----------
 // ブラウザは、別のドメインのサーバーへの接続を、サーバーが許可したサイトからのものに限っている。
@@ -48,7 +52,8 @@ const io = new Server(httpServer, {
   cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)) },
 });
 
-const rooms = new Map(); // code -> { code, map, players: Map(socket.id -> player) }
+const rooms = new Map(); // code -> { code, map, inGame, players: Map(playerId -> player) }
+// player = { id(ページを移動しても変わらない目印), token(つなぎ直すときの合言葉。本人にしか教えない), sockId(いまの接続。切れている間はnull), name, color, host, timer }
 
 function generateRoomCode() {
   let code;
@@ -59,32 +64,41 @@ function generateRoomCode() {
 }
 
 function roomPlayerList(room) {
-  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host }));
+  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null }));
+}
+function newPlayer(socket, name, host, color) {
+  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null };
+}
+// 部屋の全員に送る。exceptIdがあれば、そのプレイヤー(の今の接続)には送らない
+function emitRoom(room, event, payload, exceptId) {
+  const target = exceptId ? room.players.get(exceptId) : null;
+  let to = io.to(room.code);
+  if (target && target.sockId) to = to.except(target.sockId);
+  to.emit(event, payload);
 }
 
 function cleanName(value) {
   return String(value || 'プレイヤー').trim().slice(0, 12) || 'プレイヤー';
 }
 
-function removePlayerFromRoom(socket) {
-  const room = rooms.get(socket.data.roomCode);
-  if (!room) return;
-  const leaving = room.players.get(socket.id);
-  room.players.delete(socket.id);
-  socket.leave(room.code);
-  socket.data.roomCode = null;
-
-  if (room.players.size === 0) {
-    rooms.delete(room.code);
-    return;
+// プレイヤーを部屋から外す(自分から抜けた・切れたまま戻ってこなかった)。部屋が空になったら部屋も消す
+function removePlayer(room, playerId) {
+  const leaving = room.players.get(playerId);
+  if (!leaving) return;
+  clearTimeout(leaving.timer);
+  room.players.delete(playerId);
+  if (leaving.sockId) {
+    const sock = io.sockets.sockets.get(leaving.sockId);
+    if (sock) { sock.leave(room.code); sock.data.roomCode = null; sock.data.playerId = null; }
   }
-  if (leaving && leaving.host) {
+  if (room.players.size === 0) { rooms.delete(room.code); return; }
+  if (leaving.host) {
     // ホストが抜けたら、残っている中で一番古参のプレイヤーを次のホストにする
     const next = room.players.values().next().value;
     next.host = true;
-    io.to(room.code).emit('hostChanged', { id: next.id });
+    emitRoom(room, 'hostChanged', { id: next.id });
   }
-  io.to(room.code).emit('playerLeft', { id: socket.id });
+  emitRoom(room, 'playerLeft', { id: playerId });
 }
 
 io.on('connection', (socket) => {
@@ -95,12 +109,13 @@ io.on('connection', (socket) => {
     if (socket.data.roomCode) return; // すでにどこかの部屋にいる
     const code = generateRoomCode();
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
-    const player = { id: socket.id, host: true, color: PLAYER_COLORS[0], name: cleanName(msg.name) };
-    const room = { code, map, players: new Map([[socket.id, player]]) };
+    const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
+    const room = { code, map, inGame: false, players: new Map([[player.id, player]]) };
     rooms.set(code, room);
     socket.data.roomCode = code;
+    socket.data.playerId = player.id;
     socket.join(code);
-    socket.emit('created', { code, map, playerId: socket.id, players: roomPlayerList(room) });
+    socket.emit('created', { code, map, playerId: player.id, token: player.token, players: roomPlayerList(room) });
   });
 
   // 部屋に参加する
@@ -108,29 +123,33 @@ io.on('connection', (socket) => {
     if (socket.data.roomCode) return;
     const room = rooms.get(String(msg.code || '').toUpperCase());
     if (!room) { socket.emit('error', { message: 'その部屋コードは見つかりませんでした' }); return; }
+    if (room.inGame) { socket.emit('error', { message: 'この部屋はもうゲームが始まっています' }); return; }
     if (room.players.size >= MAX_PLAYERS) { socket.emit('error', { message: 'この部屋は満員です(最大4人)' }); return; }
 
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
-    const player = { id: socket.id, host: false, color, name: cleanName(msg.name) };
-    room.players.set(socket.id, player);
+    const player = newPlayer(socket, cleanName(msg.name), false, color);
+    room.players.set(player.id, player);
     socket.data.roomCode = room.code;
+    socket.data.playerId = player.id;
     socket.join(room.code);
-    socket.emit('joined', { code: room.code, map: room.map, playerId: socket.id, players: roomPlayerList(room) });
-    socket.to(room.code).emit('playerJoined', { id: socket.id, name: player.name, color: player.color, host: player.host });
+    socket.emit('joined', { code: room.code, map: room.map, playerId: player.id, token: player.token, players: roomPlayerList(room) });
+    socket.to(room.code).emit('playerJoined', { id: player.id, name: player.name, color: player.color, host: player.host });
   });
 
   // 自分の位置を伝える(ほかの人にだけ中継する)
   socket.on('move', (msg = {}) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || ![msg.x, msg.y, msg.z, msg.rotY].every(Number.isFinite)) return;
-    socket.to(room.code).emit('playerMove', { id: socket.id, x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY });
+    const me = room.players.get(socket.data.playerId);
+    if (me) me.pos = { x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY }; // 最後の位置を覚えておく(あとからつないだ人に教えるため)
+    socket.to(room.code).emit('playerMove', { id: socket.data.playerId, x: msg.x, y: msg.y, z: msg.z, rotY: msg.rotY });
   });
 
   // マップを変える(ホストだけ。存在するマップにだけ変えられる)
   socket.on('setMap', (msg = {}) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room) return;
-    const p = room.players.get(socket.id);
+    const p = room.players.get(socket.data.playerId);
     if (!p || !p.host || !MAPS.includes(msg.map)) return;
     room.map = msg.map;
     socket.to(room.code).emit('mapChanged', { map: room.map }); // 変えた本人は手元で反映済みなので、ほかの人にだけ送る
@@ -140,12 +159,43 @@ io.on('connection', (socket) => {
   socket.on('start', () => {
     const room = rooms.get(socket.data.roomCode);
     if (!room) return;
-    const p = room.players.get(socket.id);
+    const p = room.players.get(socket.data.playerId);
     if (!p || !p.host) return;
+    room.inGame = true; // これ以降、途中参加はできない。切れたプレイヤーは、つなぎ直すまで少し待つ
     io.to(room.code).emit('gameStart', { map: room.map });
   });
 
-  socket.on('disconnect', () => removePlayerFromRoom(socket));
+  // ゲームのページで、ロビーのときと同じプレイヤーとしてつなぎ直す(codeと、ロビーで受け取ったtokenが合っていれば戻れる)
+  socket.on('rejoin', (msg = {}) => {
+    const room = rooms.get(String(msg.code || '').toUpperCase());
+    const player = room && Array.from(room.players.values()).find(p => p.token === msg.token);
+    if (!room || !player) { socket.emit('error', { message: '部屋に戻れませんでした', rejoin: true }); return; }
+    clearTimeout(player.timer);
+    if (player.sockId && player.sockId !== socket.id) { // 古い接続が残っていたら切る
+      const old = io.sockets.sockets.get(player.sockId);
+      if (old) { old.data.roomCode = null; old.data.playerId = null; old.disconnect(true); }
+    }
+    player.sockId = socket.id;
+    socket.data.roomCode = room.code;
+    socket.data.playerId = player.id;
+    socket.join(room.code);
+    socket.emit('rejoined', { code: room.code, map: room.map, playerId: player.id, players: roomPlayerList(room) });
+    socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, pos: player.pos || null });
+  });
+
+  socket.on('disconnect', () => {
+    const room = rooms.get(socket.data.roomCode);
+    const player = room && room.players.get(socket.data.playerId);
+    if (!room || !player || player.sockId !== socket.id) return; // すでに別の接続に引き継がれている
+    if (room.inGame) {
+      // ゲーム中の切断は、ページの移動かもしれないので、少し待つ。戻ってこなければ部屋から外す
+      player.sockId = null;
+      clearTimeout(player.timer);
+      player.timer = setTimeout(() => { if (rooms.get(room.code) === room && player.sockId === null) removePlayer(room, player.id); }, REJOIN_GRACE_MS);
+    } else {
+      removePlayer(room, player.id);
+    }
+  });
 });
 
 httpServer.listen(PORT, () => console.log(`ロビーサーバー起動: http://localhost:${PORT}`));
