@@ -82,13 +82,13 @@ export function loadRobotTemplate(baseUrl = './robot/') {
 
 // プレイヤー1人ぶんのロボットを作る。colorはそのプレイヤーの識別色(足元のリングと、ほんのりした発光に使う)
 //   update(delta, speed): 毎フレーム呼ぶ。speedは今の移動の速さ(m/秒)。歩いている間だけ手足を振る
-export function createRobotAvatar(template, color) {
+export function createRobotAvatar(template, color, { ringOpacity = 0.85 } = {}) {
   const group = new THREE.Group();
   const body = SkeletonUtils.clone(template);
   body.material = template.material.clone(); // 色の発光をプレイヤーごとに変えるため
   body.material.emissive = new THREE.Color(color).multiplyScalar(0.12);
   group.add(body);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.52, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: ringOpacity, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.02;
   group.add(ring);
 
