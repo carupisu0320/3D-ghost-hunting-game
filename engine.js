@@ -1392,6 +1392,8 @@ const evidenceTypes = ["EMF5", "スピリットボックス", "ゴーストラ�
 let journalOpen = false;
 const checkedEvidence = new Set();
 let selectedGhostName = null;
+let myVote = null;   // 自分が特定(投票)した幽霊の名前。まだならnull
+let voteState = null; // オンライン: { voted: [投票済みの人のid], total: 投票する人の数 }
 
 // ロビーへ戻る(調査書内のボタン、またはPキーから呼ばれる)。誤操作で進行状況を失わないよう一度だけ確認する
 function returnToLobby() {
@@ -1461,16 +1463,18 @@ journalRightPage.appendChild(journalGhostList);
 const journalIdentifyBtn = document.createElement('button');
 journalIdentifyBtn.textContent = '特定';
 journalIdentifyBtn.style.cssText = 'display:none;margin-top:20px;padding:10px 28px;font-size:16px;font-family:Georgia,serif;background:#6b1f1f;color:#f0e6d2;border:none;border-radius:3px;cursor:pointer;';
-journalIdentifyBtn.addEventListener('click', () => {
-  const correct = selectedGhostName === currentGhost.name;
-  const elapsedSeconds = gameStartTime ? Math.max(0, Math.floor((performance.now() - gameStartTime) / 1000)) : 0;
-  const reward = calculateReward(correct, elapsedSeconds);
-  // closeJournal()は「未ロックなら再ロックする」動作をするが、ここではリザルト画面操作のためカーソルを出したままにしたいので使わない
-  journalOpen = false;
-  journalOverlay.style.display = 'none';
-  showIdentifyResult(correct, elapsedSeconds, reward);
-});
+journalIdentifyBtn.addEventListener('click', () => submitIdentify());
 journalRightPage.appendChild(journalIdentifyBtn);
+
+// 特定したあとの表示(自分の回答と、何人が特定を終えたか)と、ホストだけが押せる「いまの票で決める」
+const journalVoteStatus = document.createElement('div');
+journalVoteStatus.style.cssText = 'display:none;margin-top:16px;font-size:14px;line-height:1.7;color:#4a3a1f;white-space:pre-line;';
+journalRightPage.appendChild(journalVoteStatus);
+const journalForceBtn = document.createElement('button');
+journalForceBtn.textContent = 'いまの票で決める';
+journalForceBtn.style.cssText = 'display:none;margin-top:10px;padding:7px 14px;font-size:13px;font-family:Georgia,serif;background:#3a3428;color:#ece3cf;border:none;border-radius:3px;cursor:pointer;';
+journalForceBtn.addEventListener('click', () => { if (net && net.forceFinalize) net.forceFinalize(); });
+journalRightPage.appendChild(journalForceBtn);
 
 function updateJournalGhostList() {
   journalGhostList.innerHTML = '';
@@ -1478,10 +1482,11 @@ function updateJournalGhostList() {
   const matching = ghostTypes.filter(g => checkedList.every(ev => g.evidence.includes(ev)));
   matching.forEach(g => {
     const row = document.createElement('div');
-    const isSelected = g.name === selectedGhostName;
+    const isSelected = g.name === (myVote || selectedGhostName);
     row.textContent = g.name;
-    row.style.cssText = `padding:10px 8px;font-size:17px;cursor:pointer;border-radius:3px;margin-bottom:4px;${isSelected ? 'background:#b8a97e;font-weight:bold;' : ''}`;
+    row.style.cssText = `padding:10px 8px;font-size:17px;cursor:${myVote ? 'default' : 'pointer'};border-radius:3px;margin-bottom:4px;${isSelected ? 'background:#b8a97e;font-weight:bold;' : ''}`;
     row.addEventListener('click', () => {
+      if (myVote) return; // 特定したあとは、変えられない
       selectedGhostName = g.name;
       journalIdentifyBtn.style.display = 'inline-block';
       updateJournalGhostList();
@@ -1754,7 +1759,7 @@ identifyResultOverlay.appendChild(identifyResultReward);
 const identifyResultLobbyBtn = document.createElement('button');
 identifyResultLobbyBtn.textContent = 'ロビーに戻る';
 identifyResultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
-identifyResultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; });
+identifyResultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; }); // オンラインのときは、ロビーで同じ部屋に戻れる
 identifyResultOverlay.appendChild(identifyResultLobbyBtn);
 document.body.appendChild(identifyResultOverlay);
 
@@ -1767,20 +1772,111 @@ function calculateReward(correct, elapsedSeconds) {
   return 1000 + speedBonus;
 }
 
-function showIdentifyResult(correct, elapsedSeconds, reward) {
-  if (gameOver) return;
-  gameOver = true; // 特定が終わったらこの回のプレイは終了(ハントなども止める)
+// ---- 特定(多数決) ----
+// 特定は一人ひとりが自分の調査書で行う(投票)。生きている人が全員特定し終えたら、多数決で幽霊の正体が決まる。同票なら、同票の中からランダムに決まる。
+// オンラインのときはサーバーが集計して結果を全員へ送る(applyIdentifyResult)。ひとりで遊ぶときは、その場で結果になる。
+// 結果が出たら、ロビーのホワイトボードに表示できるよう、ブラウザに保存しておく
+const LAST_RESULT_KEY = 'ghost_last_result';
+const voteBanner = document.createElement('div');
+voteBanner.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:12;display:none;color:#ffe9a8;background:rgba(0,0,0,0.6);border:1px solid #6a5a2a;border-radius:4px;padding:5px 14px;font-family:monospace;font-size:13px;pointer-events:none;';
+document.body.appendChild(voteBanner);
+let groupResultShown = false;
+
+function formatTime(sec) {
+  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+// 自分の特定の状態を、調査書と画面の上のほうに出す
+function refreshVoteUi() {
+  const voted = voteState ? voteState.voted.length : 1;
+  const total = voteState ? Math.max(voteState.total, voted) : '?';
+  if (myVote && net && !groupResultShown) {
+    voteBanner.textContent = `特定済み: ${myVote} / ほかの人を待っています (${voted}/${total})`;
+    voteBanner.style.display = 'block';
+    journalVoteStatus.textContent = `あなたの特定: ${myVote}\n特定を終えた人: ${voted}/${total}人\n全員が終えると、多数決で正体が決まります。\n(同票のときは、同票の中からランダムです)`;
+    journalVoteStatus.style.display = 'block';
+    journalForceBtn.style.display = net.isHost() && voted > 0 ? 'inline-block' : 'none';
+  } else {
+    voteBanner.style.display = 'none';
+    journalVoteStatus.style.display = 'none';
+    journalForceBtn.style.display = 'none';
+  }
+  journalIdentifyBtn.style.display = (!myVote && selectedGhostName) ? 'inline-block' : 'none';
+}
+
+function submitIdentify() {
+  if (!selectedGhostName || myVote || gameOver) return;
+  const elapsedSeconds = gameStartTime ? Math.max(0, Math.floor((performance.now() - gameStartTime) / 1000)) : 0;
+  myVote = selectedGhostName;
+  if (net) {
+    net.sendVote({ ghost: myVote, truth: currentGhost.name, elapsed: elapsedSeconds });
+    voteState = voteState || { voted: ['me'], total: '?' };
+    refreshVoteUi();
+    updateJournalGhostList();
+    closeJournal(); // 特定したあとも、ほかの人が終えるまで調査を続けられる(カーソルを戻して、そのまま操作できる)
+  } else {
+    // ひとりで遊ぶとき: 自分の1票がそのまま結果になる
+    // closeJournal()は「未ロックなら再ロックする」動作をするが、ここではリザルト画面操作のためカーソルを出したままにしたいので使わない
+    journalOpen = false;
+    journalOverlay.style.display = 'none';
+    const correct = myVote === currentGhost.name;
+    showGroupResult({
+      winner: myVote, tie: false, tied: [myVote], tally: [{ ghost: myVote, count: 1 }],
+      votes: [{ id: 'me', name: 'あなた', ghost: myVote }], truth: currentGhost.name, correct, wipe: false,
+      elapsed: elapsedSeconds, reward: calculateReward(correct, elapsedSeconds), mode: 'solo', at: Date.now(),
+    });
+  }
+}
+
+// オンライン: 何人が特定を終えたか(サーバーから届く)
+function applyVoteUpdate(state) {
+  voteState = state;
+  refreshVoteUi();
+}
+
+// オンライン: 多数決の結果(サーバーから全員へ届く)
+function applyIdentifyResult(result) {
+  if (!result) return;
+  showGroupResult({ ...result, mode: 'online' });
+}
+
+// 結果の画面。ひとりで遊ぶとき・オンラインのとき、どちらも同じ画面を使う
+function showGroupResult(result) {
+  if (groupResultShown) return;
+  groupResultShown = true;
+  const truth = result.truth || currentGhost.name; // 誰も特定しないまま全滅したときは、サーバーが正体を知らないので、こちらで補う
+  const correct = result.winner != null && result.winner === truth;
+  const reward = result.wipe ? 0 : (result.reward != null ? result.reward : calculateReward(correct, result.elapsed || 0));
+  const saved = { ...result, truth, correct, reward };
+  try { localStorage.setItem(LAST_RESULT_KEY, JSON.stringify(saved)); } catch (e) { /* 保存できなくても、結果は出せる */ }
+
+  gameOver = true; // 結果が出たら、この回のプレイは全員終了(ハントなども止める)
   huntActive = false;
+  if (exteriorDoor) exteriorDoor.locked = false;
+  journalOpen = false;
+  journalOverlay.style.display = 'none';
+  voteBanner.style.display = 'none';
   controls.unlock();
   padPlay = false;
   info.style.display = 'none';
 
-  identifyResultTitle.textContent = correct ? '特定成功!' : '特定失敗…';
-  identifyResultTitle.style.color = correct ? '#7CFC9A' : '#ff6666';
-  const mm = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
-  const ss = String(elapsedSeconds % 60).padStart(2, '0');
-  identifyResultDetail.textContent =
-    `幽霊の正体: ${currentGhost.name}\nあなたの回答: ${selectedGhostName}\n特定にかかった時間: ${mm}:${ss}`;
+  identifyResultTitle.textContent = result.wipe ? '全滅…' : correct ? '特定成功!' : '特定失敗…';
+  identifyResultTitle.style.color = result.wipe ? '#ff6666' : correct ? '#7CFC9A' : '#ff6666';
+  const lines = [`幽霊の正体: ${truth}`];
+  if (result.wipe) {
+    lines.push('特定できないまま、全員が死亡しました');
+  } else {
+    if (result.mode !== 'solo') {
+      lines.push(`多数決: ${result.tally.map((t) => `${t.ghost} ${t.count}票`).join(' / ')}`);
+      if (result.tie) lines.push(`同票だったので、${result.tied.map((g) => `「${g}」`).join('')}の中からランダムに「${result.winner}」に決まりました`);
+      else lines.push(`「${result.winner}」に決まりました`);
+      lines.push('みんなの回答:');
+      result.votes.forEach((v) => lines.push(`${v.name} → ${v.ghost}`));
+    }
+    lines.push(`あなたの回答: ${myVote || '(特定していません)'}`);
+    lines.push(`特定にかかった時間: ${formatTime(result.elapsed || 0)}`);
+  }
+  identifyResultDetail.textContent = lines.join('\n');
   identifyResultReward.textContent = `報酬: ¥${reward.toLocaleString()}`;
   identifyResultOverlay.style.display = 'flex';
 }
@@ -1892,7 +1988,7 @@ let mapUpdateTimer = 0;
 //  - 正気度は一人ひとり別。ハントが始まりやすさは「生きている人の中で一番低い正気度」で決まり、幽霊は一番低い人を狙う。
 //  - 死亡は個人ごと。幽霊が誰かに近づいたらその人だけが死に、その時点でハントは全員分すぐ終わる。
 // online-game.js が setNetHooks() で通信の窓口を登録したときだけ動く。登録がなければ(ひとりで遊ぶとき)、これまで通りの処理になる。
-//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id) }
+//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id), sendVote({ ghost, truth, elapsed }), forceFinalize() }
 //   (x, y, z は足元の位置。out は特定などで、この回のプレイをすでに終えている人)
 let net = null;
 const PLAYER_EYE_HEIGHT = 1.6;       // 足元から目(カメラ)までの高さ
@@ -2446,4 +2542,5 @@ export {
   addMapCard, startEngine, enterGame,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
+  applyVoteUpdate, applyIdentifyResult,
 };
