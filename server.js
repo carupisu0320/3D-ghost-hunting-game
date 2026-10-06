@@ -11,6 +11,7 @@
 //   - プレイヤーの位置・正気度 → ホストが「誰を狙うか」を決めるのに使う
 //   - 幽霊の状態(位置・ハント中か・狙っている人) → ホストから全員へ
 //   - 死亡(ホストが判定) → 全員へ。死んだ人は、以後、狙われない
+//   - 特定(一人ひとりの投票) → サーバーが多数決で集計(同票なら同票の中からランダム)して、結果を全員へ。結果が出たら、部屋はそのまま残る(ロビーに戻って続けられる)
 //
 // Socket.IOの基本(このファイルを読むときの目安):
 //   socket.on('イベント名', (データ) => {...})  : クライアントから届いたイベントを受け取る
@@ -59,9 +60,11 @@ const io = new Server(httpServer, {
   cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)) },
 });
 
-const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホストが最後に送った幽霊の状態), players: Map(playerId -> player) }
+const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホストが最後に送った幽霊の状態), truth(本当の幽霊の名前), elapsedMax(特定までの時間), result(最後の特定の結果), players: Map(playerId -> player) }
 // player = { id(ページを移動しても変わらない目印), token(つなぎ直すときの合言葉。本人にしか教えない), sockId(いまの接続。切れている間はnull), name, color, host, timer,
-//            hostTimer(ホスト交代の待ち), pos(最後の位置), sanity(正気度。ゲームに入るまでundefined), alive(死んでいないか), out(特定などで、この回のプレイを終えたか) }
+//            hostTimer(ホスト交代の待ち), pos(最後の位置), sanity(正気度。ゲームに入るまでundefined), alive(死んでいないか), out(特定の投票に数えない: 結果が出た・ロビーに戻った),
+//            vote(特定で選んだ幽霊の名前。まだならnull), gameBound(ゲームのページへ移動中・ゲーム中。切れても、すぐには部屋から外さない),
+//            inLobby(いまロビーのページにいるか。ロビーでは、ロビーにいる人だけをアバターで出す) }
 
 function generateRoomCode() {
   let code;
@@ -72,10 +75,10 @@ function generateRoomCode() {
 }
 
 function roomPlayerList(room) {
-  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out }));
+  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false }));
 }
 function newPlayer(socket, name, host, color) {
-  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false };
+  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true };
 }
 // 部屋の全員に送る。exceptIdがあれば、そのプレイヤー(の今の接続)には送らない
 function emitRoom(room, event, payload, exceptId) {
@@ -87,6 +90,48 @@ function emitRoom(room, event, payload, exceptId) {
 
 function cleanName(value) {
   return String(value || 'プレイヤー').trim().slice(0, 12) || 'プレイヤー';
+}
+
+// ---------- 特定(多数決) ----------
+// 生きていて、まだ投票していない(つながっている)人が全員投票を終えたら、結果を出す。
+// 一番票が多い幽霊に決まり、同票なら、同票の中からランダムに決める。結果が出たら、ゲームは終わり、部屋はそのまま残る(inGameがfalseに戻る)。
+// 本当の幽霊の名前はサーバーは知らないので、投票と一緒に各自のブラウザから送ってもらう(全員同じ幽霊なので、どれも同じ値)
+function calcReward(correct, elapsed) { // 本編(engine.js)の calculateReward と同じ式
+  if (!correct) return 100;
+  return 1000 + Math.max(0, Math.round((600 - Math.min(elapsed, 600)) * 2));
+}
+function voteStatus(room) {
+  const players = Array.from(room.players.values());
+  const voted = players.filter(p => p.vote);
+  const pending = players.filter(p => !p.vote && p.alive !== false && !p.out && p.sockId !== null);
+  return { voted, pending, status: { voted: voted.map(p => p.id), total: voted.length + pending.length } };
+}
+function finalizeVote(room, voted) {
+  const counts = new Map();
+  voted.forEach(p => counts.set(p.vote, (counts.get(p.vote) || 0) + 1));
+  const tally = Array.from(counts, ([ghost, count]) => ({ ghost, count })).sort((a, b) => b.count - a.count);
+  let winner = null, tied = [];
+  if (tally.length > 0) {
+    tied = tally.filter(t => t.count === tally[0].count).map(t => t.ghost);
+    winner = tied[Math.floor(Math.random() * tied.length)]; // 同票なら、同票の中からランダム
+  }
+  const correct = winner !== null && winner === room.truth;
+  const elapsed = room.elapsedMax || 0;
+  const result = {
+    winner, tie: tied.length > 1, tied, tally,
+    votes: voted.map(p => ({ id: p.id, name: p.name, ghost: p.vote })),
+    truth: room.truth, correct, wipe: winner === null, // wipe: 誰も特定できないまま全滅した
+    elapsed, reward: winner === null ? 0 : calcReward(correct, elapsed), at: Date.now(),
+  };
+  room.result = result;
+  room.inGame = false; // ここでゲームは終わり。部屋は残るので、ロビーに戻ってまた始められる
+  io.to(room.code).emit('identifyResult', { result });
+}
+function maybeFinalize(room) {
+  if (!room.inGame) return;
+  const { voted, pending, status } = voteStatus(room);
+  io.to(room.code).emit('voteUpdate', status);
+  if (pending.length === 0) finalizeVote(room, voted);
 }
 
 // プレイヤーを部屋から外す(自分から抜けた・切れたまま戻ってこなかった)。部屋が空になったら部屋も消す
@@ -108,6 +153,7 @@ function removePlayer(room, playerId) {
     emitRoom(room, 'hostChanged', { id: next.id });
   }
   emitRoom(room, 'playerLeft', { id: playerId });
+  maybeFinalize(room); // 投票を待っていた人が抜けたら、残りの票で結果を出す
 }
 
 // ホストの接続が切れたままのとき、つながっている別のプレイヤーをホストにする(戻ってきた元のホストは、ホストではなくなる)
@@ -136,7 +182,7 @@ io.on('connection', (socket) => {
     const code = generateRoomCode();
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
     const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
-    const room = { code, map, inGame: false, seed: 0, ghost: null, players: new Map([[player.id, player]]) };
+    const room = { code, map, inGame: false, seed: 0, ghost: null, truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
     rooms.set(code, room);
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
@@ -194,10 +240,12 @@ io.on('connection', (socket) => {
     if (!room) return;
     const p = room.players.get(socket.data.playerId);
     if (!p || !p.host) return;
+    if (room.inGame) { socket.emit('error', { message: 'まだゲーム中です。特定が終わるまで待ってください' }); return; }
     room.inGame = true; // これ以降、途中参加はできない。切れたプレイヤーは、つなぎ直すまで少し待つ
+    room.result = null; room.truth = null; room.elapsedMax = 0;
     room.seed = crypto.randomBytes(4).readUInt32BE(0); // 全員が同じ幽霊・同じ出没部屋になるための乱数の種
     room.ghost = null;
-    room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; }); // ロビーでの位置などは持ち越さない
+    room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; pl.vote = null; pl.gameBound = true; pl.inLobby = false; }); // ロビーでの位置などは持ち越さない
     io.to(room.code).emit('gameStart', { map: room.map, seed: room.seed });
   });
 
@@ -226,6 +274,36 @@ io.on('connection', (socket) => {
     if (!p || !p.host || !victim || !victim.alive) return;
     victim.alive = false;
     io.to(room.code).emit('playerDied', { id: victim.id });
+    maybeFinalize(room); // 死んだ人は投票を待たれない。全員死んだら、そこでゲーム終了
+  });
+
+  // 特定(投票)。一人1回だけ。生きていて、まだこの回のプレイを続けている人だけが投票できる
+  socket.on('vote', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || !room.inGame) return;
+    const p = room.players.get(socket.data.playerId);
+    const ghost = String(msg.ghost || '').slice(0, 30);
+    if (!p || p.vote || p.alive === false || p.out || !ghost) return;
+    p.vote = ghost;
+    if (!room.truth && typeof msg.truth === 'string' && msg.truth) room.truth = msg.truth.slice(0, 30);
+    if (Number.isFinite(msg.elapsed)) room.elapsedMax = Math.max(room.elapsedMax || 0, Math.min(msg.elapsed, 36000));
+    maybeFinalize(room);
+  });
+
+  // ホストが、いまある票で結果を出す(まだ投票していない人が、動かなくなったときの逃げ道)
+  socket.on('forceFinalize', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || !room.inGame) return;
+    const p = room.players.get(socket.data.playerId);
+    if (!p || !p.host) return;
+    const { voted } = voteStatus(room);
+    if (voted.length > 0) finalizeVote(room, voted);
+  });
+
+  // 「部屋を出る」。切れたときと違って、待たずにすぐ部屋から外す
+  socket.on('leave', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (room) removePlayer(room, socket.data.playerId);
   });
 
   // ゲームのページで、ロビーのときと同じプレイヤーとしてつなぎ直す(codeと、ロビーで受け取ったtokenが合っていれば戻れる)
@@ -243,16 +321,21 @@ io.on('connection', (socket) => {
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
     socket.join(room.code);
-    socket.emit('rejoined', { code: room.code, map: room.map, seed: room.seed, ghost: room.ghost, playerId: player.id, players: roomPlayerList(room) });
-    socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, pos: player.pos || null, sanity: player.sanity, alive: player.alive !== false, out: !!player.out });
+    player.inLobby = msg.lobby === true;
+    if (msg.lobby === true) { // ロビーに戻ってきた(ゲームが続いているなら、その回の投票には数えない)
+      player.out = true; player.gameBound = false;
+      maybeFinalize(room); // 最後の一人が戻ったなら、ここで結果が出る(下の rejoined に、出たばかりの結果を入れるため、先に行う)
+    }
+    socket.emit('rejoined', { code: room.code, map: room.map, seed: room.seed, ghost: room.ghost, inGame: room.inGame, result: room.result, voteStatus: voteStatus(room).status, playerId: player.id, players: roomPlayerList(room) });
+    socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, pos: player.pos || null, sanity: player.sanity, alive: player.alive !== false, out: !!player.out, inLobby: player.inLobby });
   });
 
   socket.on('disconnect', () => {
     const room = rooms.get(socket.data.roomCode);
     const player = room && room.players.get(socket.data.playerId);
     if (!room || !player || player.sockId !== socket.id) return; // すでに別の接続に引き継がれている
-    if (room.inGame) {
-      // ゲーム中の切断は、ページの移動かもしれないので、少し待つ。戻ってこなければ部屋から外す
+    if (room.inGame || player.gameBound) {
+      // ゲーム中(結果が出たあと、ロビーへ戻る途中も含む)の切断は、ページの移動かもしれないので、少し待つ。戻ってこなければ部屋から外す
       player.sockId = null;
       clearTimeout(player.timer);
       player.timer = setTimeout(() => { if (rooms.get(room.code) === room && player.sockId === null) removePlayer(room, player.id); }, REJOIN_GRACE_MS);
