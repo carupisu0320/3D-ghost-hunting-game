@@ -1,12 +1,12 @@
 // ゲーム本編で、同じ部屋のほかのプレイヤーを、ロビーと同じロボットの見た目で表示する。
 // ロビーから来たときだけ動く(ロビーが sessionStorage に入れた「部屋コードとtoken」を使って、同じプレイヤーとしてつなぎ直す)。
-// 同期するのは、プレイヤーの位置・向き・歩き・正気度と、幽霊(位置・ハント・誰を狙うか)と、死亡と、特定の投票・結果。ドアの開け閉めやブレーカーなどは、まだそれぞれのゲームの中で別々に動く。
+// 同期するのは、プレイヤーの位置・向き・歩き・正気度と、幽霊(位置・ハント・誰を狙うか・オーブ)と、死亡と、特定の投票・結果と、世界の操作(ドア・ブレーカー・照明スイッチ・床の道具・ノート)。
 // 幽霊の動きと死亡の判定はホストのブラウザが計算して(engine.js の updateOnlineGhost)、このファイルが通信の窓口になる。
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
 import { SERVER_URL } from './server-config.js';
-import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult } from './engine.js';
+import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState } from './engine.js';
 
 const EYE_HEIGHT = 1.6;     // 本編のカメラの高さ(床から)。足元の高さ = カメラの高さ - これ
 const NAME_VISIBLE_DIST = 12; // 名前を出す距離(m)
@@ -105,6 +105,8 @@ export function startOnlineSession({ scene, camera }) {
     sendDeath: (id) => socket.emit('playerDied', { id }),
     sendVote: (vote) => socket.emit('vote', vote),          // 特定(自分の投票)
     forceFinalize: () => socket.emit('forceFinalize'),      // ホストだけ: いまある票で結果を出す
+    sendWorld: (ev) => socket.emit('world', ev),             // ドア・ブレーカー・スイッチ・道具・ノートの操作
+    requestWorld: () => socket.emit('worldSync'),            // 今の世界の状態をもらう(マップに入ったとき・つなぎ直したとき)
   };
 
   // ---- 通信 ----
@@ -130,6 +132,7 @@ export function startOnlineSession({ scene, camera }) {
     if (msg.ghost && !hooks.isHost()) applyNetGhost(msg.ghost); // つなぎ直したときに、幽霊の今の状態をすぐ受け取る
     if (msg.voteStatus) applyVoteUpdate(msg.voteStatus);
     if (msg.result) applyIdentifyResult(msg.result);            // つなぎ直す間に結果が出ていたら、その結果を出す
+    if (hasEnteredGame()) hooks.requestWorld();                  // つなぎ直す間に変わったドアなどを、今の状態にそろえる
     resolveReady({ seed: msg.seed });
     refreshBadge(); sendMove(true);
   });
@@ -148,6 +151,8 @@ export function startOnlineSession({ scene, camera }) {
     setPos(rp, msg);
   });
   socket.on('ghost', (msg) => { if (!hooks.isHost()) applyNetGhost(msg); }); // ホストが計算した幽霊の状態
+  socket.on('world', (msg) => applyWorldEvent(msg));                           // ほかの人が操作した(ドア・ブレーカー・スイッチ・道具・ノート)
+  socket.on('worldState', (msg) => applyWorldState(msg));                      // 今の世界の状態(マップに入った直後などに届く)
   socket.on('voteUpdate', (msg) => applyVoteUpdate(msg));                      // 特定を終えた人の数
   socket.on('identifyResult', (msg) => applyIdentifyResult(msg.result));       // 多数決の結果(全員の結果画面が出て、ゲームが終わる)
   socket.on('playerDied', (msg) => { // 誰かが死んだ(自分のこともある)。ハントは全員分、そこで終わる
