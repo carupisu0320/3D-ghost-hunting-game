@@ -1,12 +1,12 @@
 // ゲーム本編で、同じ部屋のほかのプレイヤーを、ロビーと同じロボットの見た目で表示する。
 // ロビーから来たときだけ動く(ロビーが sessionStorage に入れた「部屋コードとtoken」を使って、同じプレイヤーとしてつなぎ直す)。
-// 同期するのは、プレイヤーの位置・向き・歩き・正気度と、幽霊(位置・ハント・誰を狙うか)と、死亡。ドアの開け閉めやブレーカーなどは、まだそれぞれのゲームの中で別々に動く。
+// 同期するのは、プレイヤーの位置・向き・歩き・正気度と、幽霊(位置・ハント・誰を狙うか)と、死亡と、特定の投票・結果。ドアの開け閉めやブレーカーなどは、まだそれぞれのゲームの中で別々に動く。
 // 幽霊の動きと死亡の判定はホストのブラウザが計算して(engine.js の updateOnlineGhost)、このファイルが通信の窓口になる。
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
 import { SERVER_URL } from './server-config.js';
-import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame } from './engine.js';
+import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult } from './engine.js';
 
 const EYE_HEIGHT = 1.6;     // 本編のカメラの高さ(床から)。足元の高さ = カメラの高さ - これ
 const NAME_VISIBLE_DIST = 12; // 名前を出す距離(m)
@@ -103,6 +103,8 @@ export function startOnlineSession({ scene, camera }) {
       .filter((p) => p.hasPos),
     sendGhost: (state) => socket.volatile.emit('ghost', state), // 切れている間にたまって、つながった瞬間にどっと届かないように(古い状態は捨てる)
     sendDeath: (id) => socket.emit('playerDied', { id }),
+    sendVote: (vote) => socket.emit('vote', vote),          // 特定(自分の投票)
+    forceFinalize: () => socket.emit('forceFinalize'),      // ホストだけ: いまある票で結果を出す
   };
 
   // ---- 通信 ----
@@ -126,6 +128,8 @@ export function startOnlineSession({ scene, camera }) {
     msg.players.forEach((p) => { if (p.online && p.id !== myId) addRemote(p); });
     setNetHooks(hooks);
     if (msg.ghost && !hooks.isHost()) applyNetGhost(msg.ghost); // つなぎ直したときに、幽霊の今の状態をすぐ受け取る
+    if (msg.voteStatus) applyVoteUpdate(msg.voteStatus);
+    if (msg.result) applyIdentifyResult(msg.result);            // つなぎ直す間に結果が出ていたら、その結果を出す
     resolveReady({ seed: msg.seed });
     refreshBadge(); sendMove(true);
   });
@@ -144,6 +148,8 @@ export function startOnlineSession({ scene, camera }) {
     setPos(rp, msg);
   });
   socket.on('ghost', (msg) => { if (!hooks.isHost()) applyNetGhost(msg); }); // ホストが計算した幽霊の状態
+  socket.on('voteUpdate', (msg) => applyVoteUpdate(msg));                      // 特定を終えた人の数
+  socket.on('identifyResult', (msg) => applyIdentifyResult(msg.result));       // 多数決の結果(全員の結果画面が出て、ゲームが終わる)
   socket.on('playerDied', (msg) => { // 誰かが死んだ(自分のこともある)。ハントは全員分、そこで終わる
     const rp = remotes.get(msg.id);
     if (rp) { rp.dead = true; rp.group.visible = false; refreshBadge(); }
