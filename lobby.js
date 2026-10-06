@@ -26,9 +26,13 @@ const modalOk = document.getElementById('modalOk');
 const modalCancel = document.getElementById('modalCancel');
 
 // ---------- 状態 ----------
-try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* 使えなくても動く */ }
+// ゲームが終わってロビーに戻ったとき、同じ部屋に戻れるよう、部屋の記録(ghost_session)は消さない。
+// ロビーを開いたとき、記録があれば、下の tryRejoinSavedRoom() で部屋につなぎ直す(部屋がもう無ければ、そこで記録を消す)
 function loadSetting(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; } }
 function saveSetting(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* 保存できなくても動く */ } }
+// 前回の特定の結果(ゲーム本編が、結果が出たときにブラウザへ保存したもの)。ホワイトボードに出す
+const LAST_RESULT_KEY = 'ghost_last_result';
+function loadLastResult() { try { return JSON.parse(localStorage.getItem(LAST_RESULT_KEY) || 'null'); } catch (e) { return null; } }
 
 const board = {
   screen: 'main',                                   // 'main' | 'maps'
@@ -37,6 +41,7 @@ const board = {
   hoverId: null,
   message: '',
   room: null,                                       // null | { code, isHost, myId, map, players: [{ id, name, host }] }
+  lastResult: loadLastResult(),                     // 前回の特定の結果(なければnull)
 };
 if (!MAPS.some(m => m.id === board.selectedMap)) board.selectedMap = MAPS[0].id;
 let boardButtons = [];
@@ -74,14 +79,50 @@ const controls = new PointerLockControls(camera, renderer.domElement);
 let modalOpen = false;
 let padActive = false; // コントローラーで操作中(マウスのクリックによる視点固定なしで、スティックだけで動かしている状態)
 const inControl = () => controls.isLocked || padActive;
-function showHintIfNeeded() { hint.style.display = (inControl() || modalOpen) ? 'none' : 'flex'; crosshair.style.display = inControl() ? 'block' : 'none'; }
-hint.addEventListener('click', () => controls.lock());
-controls.addEventListener('lock', showHintIfNeeded);
+// 最初の画面(hint)は、はじめて操作を始めるまで。始めたあとは、操作説明を最初の5秒だけ(画面は隠さずに)出して、消す。
+// Escやダイアログのあとは、長い説明ではなく、短い「再開」の案内(resume)を出す。クリックか、WASDなどのキーで操作を再開できる
+const resume = document.getElementById('resume');
+const helpPanel = document.getElementById('helpPanel');
+helpPanel.innerHTML = document.getElementById('hintText').innerHTML.split('<br>').slice(1).join('<br>'); // 最初の画面と同じ説明(1行目の「クリックして…」は除く)
+const HELP_SECONDS = 5;
+let hasStarted = false; // いちど操作を始めたか
+let helpTimer = null, helpFadeTimer = null;
+function showHelpPanel() {
+  clearTimeout(helpTimer); clearTimeout(helpFadeTimer);
+  helpPanel.style.display = 'block'; helpPanel.style.opacity = '1';
+  helpTimer = setTimeout(() => {
+    helpPanel.style.opacity = '0';
+    helpFadeTimer = setTimeout(() => { helpPanel.style.display = 'none'; }, 700);
+  }, HELP_SECONDS * 1000);
+}
+function showHintIfNeeded() {
+  const playing = inControl();
+  const idle = !playing && !modalOpen;
+  hint.style.display = idle && !hasStarted ? 'flex' : 'none';
+  resume.style.display = idle && hasStarted ? 'flex' : 'none';
+  crosshair.style.display = playing ? 'block' : 'none';
+  if (playing && !hasStarted) { hasStarted = true; showHelpPanel(); } // 操作を始めたときだけ、説明を5秒間出す
+}
+// 視点の固定(ポインターロック)を始める。Escで抜けた直後は、ブラウザが少しの間(1秒あまり)、固定し直しを断るので、
+// 断られたら、成功するまで少し待ってやり直す(クリックし直さなくても再開できる)
+let wantLock = false, lockAttempts = 0, lockRetryTimer = null;
+function attemptLock() {
+  clearTimeout(lockRetryTimer);
+  if (!wantLock || inControl() || modalOpen) { wantLock = false; return; }
+  try { const r = controls.lock(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) { /* 断られたら、下でやり直す */ }
+  lockRetryTimer = setTimeout(() => { if (wantLock && !inControl() && lockAttempts++ < 10) attemptLock(); else wantLock = false; }, 350);
+}
+function requestLock() { wantLock = true; lockAttempts = 0; attemptLock(); }
+hint.addEventListener('click', requestLock);
+resume.addEventListener('click', requestLock);
+controls.addEventListener('lock', () => { wantLock = false; clearTimeout(lockRetryTimer); showHintIfNeeded(); });
 controls.addEventListener('unlock', showHintIfNeeded);
+const RESUME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter']);
 
 const keys = {};
 window.addEventListener('keydown', (e) => {
   if (modalOpen) return;
+  if (!inControl() && hasStarted && RESUME_KEYS.has(e.code)) requestLock(); // Escのあと、移動キーを押すだけでも再開できる
   keys[e.code] = true;
   if (e.repeat || !inControl()) return;
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
@@ -147,12 +188,12 @@ function activateAim() {
   if (item) { takePegItem(item); return; }
   if (board.hoverId) handleButton(board.hoverId);
 }
-renderer.domElement.addEventListener('click', () => { if (controls.isLocked) activateAim(); });
+renderer.domElement.addEventListener('click', () => { if (controls.isLocked) activateAim(); else if (hasStarted && !modalOpen) requestLock(); });
 
 function handleButton(id) {
   if (id.startsWith('map:')) { chooseMap(id.slice(4)); return; }
   switch (id) {
-    case 'solo': try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap); break;
+    case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap); break; // 部屋にいたなら、すぐ抜ける
     case 'create': createRoom(); break;
     case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(code.toUpperCase())); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
@@ -226,7 +267,25 @@ function connectAndSend(msg) {
 }
 function createRoom() { connectAndSend({ type: 'create', name: board.name, map: board.selectedMap }); }
 function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, code }); }
-function leaveRoom() { closeSocket(); clearRoom(); }
+function leaveRoom() {
+  send({ type: 'leave' }); // 切れたときと違って、待たずにすぐ部屋から外してもらう
+  closeSocket(); clearRoom();
+}
+// ロビーを開いたとき、前の部屋の記録があれば、その部屋につなぎ直す(ゲームが終わって戻ってきたときに、部屋がそのまま続く)
+function tryRejoinSavedRoom() {
+  let session = null;
+  try { session = JSON.parse(sessionStorage.getItem('ghost_session') || 'null'); } catch (e) { /* ignore */ }
+  if (!session || !session.code || !session.token) return;
+  connectAndSend({ type: 'rejoin', code: session.code, token: session.token, lobby: true });
+}
+// 特定の結果を、ホワイトボードに出す。ゲーム本編が保存した(正体まで入った)結果があれば、そちらを優先する
+function setLastResult(result) {
+  if (!result) return;
+  let current = loadLastResult();
+  const merged = current && current.at === result.at ? { ...result, ...current } : { mode: 'online', ...result };
+  board.lastResult = merged; boardDirty = true;
+  try { localStorage.setItem(LAST_RESULT_KEY, JSON.stringify(merged)); } catch (e) { /* ignore */ }
+}
 function clearRoom() {
   try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ }
   board.room = null; board.screen = 'main'; boardDirty = true;
@@ -249,10 +308,31 @@ function handleServerMessage(msg) {
     msg.players.forEach(p => { if (p.id !== msg.playerId) addRemotePlayer(p); });
     updateRoomBadge();
     sendMove(true);
+  } else if (msg.type === 'rejoined') {
+    // ゲームから戻った(またはロビーを開き直した)ので、同じ部屋に戻る
+    const me = msg.players.find(p => p.id === msg.playerId);
+    board.room = { code: msg.code, isHost: !!(me && me.host), myId: msg.playerId, map: msg.map, players: msg.players.map(p => ({ id: p.id, name: p.name, host: p.host })) };
+    board.selectedMap = msg.map; board.screen = 'main'; boardDirty = true;
+    msg.players.forEach(p => { if (p.id !== msg.playerId && p.online && p.inLobby) addRemotePlayer(p); }); // まだゲーム中の人は、ロビーのアバターとしては出さない
+    updateRoomBadge();
+    sendMove(true);
+    if (msg.result) setLastResult(msg.result);
+    if (msg.inGame) showMessage('まだゲーム中です。特定が終わると、また始められます', 5000);
+    else if (msg.result) showMessage('特定の結果が出ました(ホワイトボードで見られます)', 5000);
   } else if (msg.type === 'error') {
-    showMessage(msg.message);
+    if (msg.rejoin) { // 部屋がもう無い(サーバーが再起動した・全員が抜けたなど)
+      closeSocket(); clearRoom();
+      showMessage('前の部屋には戻れませんでした', 4000);
+    } else showMessage(msg.message);
   } else if (!room) {
     return;
+  } else if (msg.type === 'playerRejoined') {
+    if (!room.players.some(p => p.id === msg.id)) room.players.push({ id: msg.id, name: msg.name, host: msg.host });
+    if (msg.inLobby) addRemotePlayer(msg); // ゲームから戻ってきた人だけ、アバターを出す
+    boardDirty = true; updateRoomBadge();
+  } else if (msg.type === 'identifyResult') {
+    setLastResult(msg.result); // ロビーにいる間に、ゲームの結果が出た
+    showMessage('特定の結果が出ました(ホワイトボードで見られます)', 5000);
   } else if (msg.type === 'playerJoined') {
     room.players.push({ id: msg.id, name: msg.name, host: msg.host });
     addRemotePlayer(msg); boardDirty = true; updateRoomBadge();
@@ -574,4 +654,5 @@ function animate() {
   renderer.render(scene, camera);
 }
 showHintIfNeeded();
+tryRejoinSavedRoom();
 animate();
