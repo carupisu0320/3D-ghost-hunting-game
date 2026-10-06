@@ -1406,6 +1406,9 @@ let journalOpen = false;
 const checkedEvidence = new Set();
 let selectedGhostName = null;
 let myVote = null;   // 自分が特定(投票)した幽霊の名前。まだならnull
+// コントローラーで調査書を操作するときのカーソル(zone: 'evidence'=左ページの証拠 / 'ghost'=右ページのゴースト一覧)
+const padCursor = { zone: 'ghost', ev: 0, ghost: 0 };
+let padCursorOn = false; // コントローラーで操作しているときだけ、カーソルの枠を出す
 let voteState = null; // オンライン: { voted: [投票済みの人のid], total: 投票する人の数 }
 
 // ロビーへ戻る(調査書内のボタン、またはPキーから呼ばれる)。誤操作で進行状況を失わないよう一度だけ確認する
@@ -1439,6 +1442,7 @@ journalLeftTitle.textContent = '証拠';
 journalLeftTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:1px solid #b8a97e;padding-bottom:8px;';
 journalLeftPage.appendChild(journalLeftTitle);
 
+const evidenceRows = []; // { ev, row, cb }(コントローラーで、カーソルを合わせたりチェックしたりするため)
 evidenceTypes.forEach(ev => {
   const row = document.createElement('label');
   row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:16px;cursor:pointer;';
@@ -1454,6 +1458,7 @@ evidenceTypes.forEach(ev => {
   row.appendChild(cb);
   row.appendChild(span);
   journalLeftPage.appendChild(row);
+  evidenceRows.push({ ev, row, cb });
 });
 
 // 証拠リストの下に「ロビーに戻る」ボタンを置く(Pキーでも同じ動作)
@@ -1489,8 +1494,10 @@ journalForceBtn.style.cssText = 'display:none;margin-top:10px;padding:7px 14px;f
 journalForceBtn.addEventListener('click', () => { if (net && net.forceFinalize) net.forceFinalize(); });
 journalRightPage.appendChild(journalForceBtn);
 
+let journalGhostRows = []; // いま一覧に出ている { name, row }(コントローラーのカーソル用)
 function updateJournalGhostList() {
   journalGhostList.innerHTML = '';
+  journalGhostRows = [];
   const checkedList = [...checkedEvidence];
   const matching = ghostTypes.filter(g => checkedList.every(ev => g.evidence.includes(ev)));
   matching.forEach(g => {
@@ -1505,6 +1512,7 @@ function updateJournalGhostList() {
       updateJournalGhostList();
     });
     journalGhostList.appendChild(row);
+    journalGhostRows.push({ name: g.name, row });
   });
   if (matching.length === 0) {
     const none = document.createElement('div');
@@ -1512,22 +1520,117 @@ function updateJournalGhostList() {
     none.style.cssText = 'color:#8a7a5a;font-style:italic;padding:10px 8px;';
     journalGhostList.appendChild(none);
   }
+  refreshPadCursor(); // 一覧が作り直されても、コントローラーのカーソルは残す
 }
 updateJournalGhostList();
 
 // Tabキーで開閉。開くとポインターロックを解除してカーソルで操作できるようにし、閉じるときは自動で再ロックしてクリックし直さずに操作を続けられるようにする
-function openJournal() {
+// keepLock: コントローラーで開くとき。マウスの視点固定は外さない(閉じるときにボタンでは固定をやり直せない=クリックにならないため)
+let journalKeptLock = false;
+function openJournal(keepLock = false) {
   journalOpen = true;
+  journalKeptLock = keepLock;
+  padCursorOn = keepLock; // コントローラーで開いたときだけ、カーソルの枠を出す(十字キーなどを押せば、キーボードで開いたときも出る)
   journalOverlay.style.display = 'flex';
-  if (controls.isLocked) controls.unlock();
+  if (!keepLock && controls.isLocked) controls.unlock();
+  refreshPadCursor();
 }
 function closeJournal() {
   journalOpen = false;
   journalOverlay.style.display = 'none';
-  if (!controls.isLocked) controls.lock();
+  if (!journalKeptLock && !controls.isLocked && !padPlay) controls.lock();
+  journalKeptLock = false;
 }
 function toggleJournal() {
   if (journalOpen) closeJournal(); else openJournal();
+}
+
+// ---- コントローラーで調査書を操作する(＋で開閉・特定まで) ----
+//  ＋: 調査書を開く/閉じる(ゲーム中ならいつでも)
+//  十字キー/左スティック: カーソル移動(左ページの証拠 ↔ 右ページのゴースト一覧)
+//  B(下)・Y(左): 証拠のチェックを付け外し/ゴーストを選ぶ    X(上): 選んでいるゴーストで特定    A(右): 閉じる
+// 調査書を開いている間は、動く・見回す・道具を使うなどのボタン操作は止める(閉じるときの押しっぱなしで誤作動しないよう、状態は読み続ける)
+const journalPadHint = document.createElement('div');
+journalPadHint.textContent = '🎮 十字キー/スティック: 移動   B・Y: 選ぶ・チェック   X: 特定   A・＋: 閉じる';
+journalPadHint.style.cssText = 'position:absolute;left:50%;bottom:16px;transform:translateX(-50%);color:#d8cfb8;font-family:Georgia,serif;font-size:13px;white-space:nowrap;text-shadow:0 1px 3px #000;pointer-events:none;';
+journalOverlay.appendChild(journalPadHint);
+
+// カーソルのある行に枠を付ける(一覧が作り直されたときも呼ばれる)
+function refreshPadCursor() {
+  evidenceRows.forEach((e) => { e.row.style.outline = ''; });
+  journalGhostRows.forEach((g) => { g.row.style.outline = ''; });
+  if (!journalOpen || !padCursorOn) return;
+  if (journalGhostRows.length === 0) padCursor.zone = 'evidence';
+  padCursor.ev = Math.max(0, Math.min(evidenceRows.length - 1, padCursor.ev));
+  padCursor.ghost = Math.max(0, Math.min(journalGhostRows.length - 1, padCursor.ghost));
+  const target = padCursor.zone === 'evidence' ? evidenceRows[padCursor.ev].row : journalGhostRows[padCursor.ghost].row;
+  target.style.outline = '3px solid #2f6fbf';
+  target.style.outlineOffset = '-1px';
+  if (target.scrollIntoView) target.scrollIntoView({ block: 'nearest' });
+}
+
+function movePadCursor(dir) {
+  padCursorOn = true;
+  const n = journalGhostRows.length;
+  if (padCursor.zone === 'evidence') {
+    if (dir === 'up') padCursor.ev = Math.max(0, padCursor.ev - 1);
+    else if (dir === 'down') padCursor.ev = Math.min(evidenceRows.length - 1, padCursor.ev + 1);
+    else if (dir === 'right' && n > 0) { padCursor.zone = 'ghost'; padCursor.ghost = Math.min(padCursor.ghost - (padCursor.ghost % 2), n - 1); } // 一覧の左の列へ
+  } else {
+    const i = padCursor.ghost, col = i % 2; // 一覧は2列(左から右、上から下の順)
+    if (dir === 'up') { if (i - 2 >= 0) padCursor.ghost = i - 2; }
+    else if (dir === 'down') { if (i + 2 < n) padCursor.ghost = i + 2; }
+    else if (dir === 'left') { if (col === 1) padCursor.ghost = i - 1; else padCursor.zone = 'evidence'; }
+    else if (dir === 'right') { if (col === 0 && i + 1 < n) padCursor.ghost = i + 1; }
+  }
+  refreshPadCursor();
+}
+
+const gpJournalPrev = {};
+const padNavHold = { dir: null, timer: 0 };
+const GAME_PAD_BUTTONS = [0, 2, 3, 4, 5, 7, 13]; // 普段のゲーム操作が使うボタン(調査書の間も、押している状態を覚えておく)
+function updateJournalPad(pad, delta) {
+  const down = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+  const edge = (i) => { const p = down(i); const e = p && !gpJournalPrev[i]; gpJournalPrev[i] = p; return e; };
+  const wasOpen = journalOpen;
+  const plus = edge(9), btnA = edge(1), btnB = edge(0), btnY = edge(2), btnX = edge(3);
+
+  // ＋で開閉(マップに入ったあと、結果が出るまで)
+  if (plus && gameEntered && !gameOver && !groupResultShown) {
+    if (journalOpen) closeJournal(); else { padCursorOn = true; openJournal(true); }
+  }
+
+  if (wasOpen && journalOpen) {
+    if (btnA) { closeJournal(); }
+    else {
+      // 十字キー・左スティックの移動(押しっぱなしで、少し待ってから連続で動く)
+      const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+      let dir = null;
+      if (down(12) || ay < -0.6) dir = 'up';
+      else if (down(13) || ay > 0.6) dir = 'down';
+      else if (down(14) || ax < -0.6) dir = 'left';
+      else if (down(15) || ax > 0.6) dir = 'right';
+      let fire = false;
+      if (!dir) padNavHold.dir = null;
+      else if (dir !== padNavHold.dir) { padNavHold.dir = dir; padNavHold.timer = 0.4; fire = true; }
+      else { padNavHold.timer -= delta; if (padNavHold.timer <= 0) { padNavHold.timer = 0.14; fire = true; } }
+      if (fire) movePadCursor(dir);
+
+      if (btnB || btnY) {
+        padCursorOn = true;
+        if (padCursor.zone === 'evidence') {
+          const e = evidenceRows[padCursor.ev];
+          e.cb.checked = !e.cb.checked;
+          e.cb.dispatchEvent(new Event('change')); // マウスでチェックしたときと同じ処理(一覧が絞り込まれる)
+        } else if (journalGhostRows[padCursor.ghost]) {
+          journalGhostRows[padCursor.ghost].row.click(); // マウスでクリックしたときと同じ処理(選ぶ)
+        }
+      }
+      if (btnX && selectedGhostName && !myVote) submitIdentify(); // 選んでいるゴーストで特定する
+    }
+  } else padNavHold.dir = null;
+
+  if (wasOpen || journalOpen) GAME_PAD_BUTTONS.forEach((i) => { gpPrevButtons[i] = down(i); });
 }
 
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
@@ -2258,17 +2361,22 @@ function animate() {
   if (ghostMixer) ghostMixer.update(delta);
   if (net) updateOnlineGhost(delta); // オンライン: 一時停止中でも、幽霊とハントは止めない(ホストが止まるとみんなの幽霊も止まってしまうため)
 
+  const journalPad = pollGamepad();
+  if (journalPad) updateJournalPad(journalPad, delta); // ＋で調査書を開閉。開いている間は、十字キー・ボタンで操作する(視点の固定中でなくても動く)
+
   if (inControl()) {
     const move = speed * delta;
     const prevX = camera.position.x;
     const prevZ = camera.position.z;
-    if (keys['KeyW']) controls.moveForward(move);
-    if (keys['KeyS']) controls.moveForward(-move);
-    if (keys['KeyA']) controls.moveRight(-move);
-    if (keys['KeyD']) controls.moveRight(move);
+    if (!journalOpen) { // 調査書を開いている間は、歩かない
+      if (keys['KeyW']) controls.moveForward(move);
+      if (keys['KeyS']) controls.moveForward(-move);
+      if (keys['KeyA']) controls.moveRight(-move);
+      if (keys['KeyD']) controls.moveRight(move);
+    }
 
     const pad = pollGamepad();
-    if (pad) {
+    if (pad && !journalOpen) {
       const lx = deadzone(pad.axes[0] || 0);
       const ly = deadzone(pad.axes[1] || 0);
       const rx = deadzone(pad.axes[2] || 0);
