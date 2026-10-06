@@ -19,6 +19,20 @@
       }
       #hint .title { font-size: 30px; letter-spacing: 3px; color: #9fd3ff; }
       #hint .sub { font-size: 15px; color: #ccc; line-height: 1.8; }
+      /* 操作を始めたあと、最初の5秒だけ出る操作説明(画面は隠さない) */
+      #helpPanel {
+        position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 8; display: none; box-sizing: border-box;
+        max-width: min(820px, 94vw); padding: 12px 22px; background: rgba(0,0,0,0.62); color: #eee; border-radius: 8px;
+        font-size: 13px; line-height: 1.8; text-align: center; pointer-events: none; opacity: 1; transition: opacity 0.7s ease;
+      }
+      /* Escやダイアログのあと、操作を再開するための案内(クリックか、WASDなどのキーで再開できる) */
+      #resume {
+        position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+        background: rgba(0,0,0,0.2); cursor: pointer;
+      }
+      #resume .box { background: rgba(18,20,26,0.88); color: #eee; border: 1px solid #3a3f4a; border-radius: 8px; padding: 16px 32px; text-align: center; line-height: 1.9; }
+      #resume .big { font-size: 22px; letter-spacing: 2px; color: #9fd3ff; }
+      #resume .small { font-size: 13px; color: #aaa; }
       #toast {
         position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 30; display: none;
         background: rgba(20,20,26,0.92); color: #ffd0d0; border: 1px solid #5a3a3a; border-radius: 6px; padding: 10px 20px; font-size: 15px;
@@ -57,8 +71,10 @@
     <div id="roomBadge"></div>
     <div id="hint">
       <div class="title">ゴーストハンティング ロビー</div>
-      <div class="sub">クリックして歩き回る<br />WASD: 移動 / Shift: 走る / マウス: 見回す / Esc: カーソルを出す<br />奥の工房のホワイトボードで、部屋づくり・参加・マップ選択ができます<br />工房の壁のボードから道具を取って(クリック)、ガレージのテスト用ゴーストで試せます<br />1〜3: 持ち替え / E: 使う / Q: ボードに戻す<br />コントローラー: 左スティック=移動 / 右スティック=見回す / Y=選ぶ・取る / X・ZR=使う / L・R=持ち替え / 十字キー下=戻す / ZL=走る / +=一時停止<br />(コントローラーのボタンを押すと、クリックしなくても始まります)</div>
+      <div class="sub" id="hintText">クリックして歩き回る<br />WASD: 移動 / Shift: 走る / マウス: 見回す / Esc: 一時停止(クリックかWASDで再開)<br />奥の工房のホワイトボードで、部屋づくり・参加・マップ選択ができます<br />工房の壁のボードから道具を取って(クリック)、ガレージのテスト用ゴーストで試せます<br />1〜3: 持ち替え / E: 使う / Q: ボードに戻す<br />コントローラー: 左スティック=移動 / 右スティック=見回す / Y=選ぶ・取る / X・ZR=使う / L・R=持ち替え / 十字キー下=戻す / ZL=走る / +=一時停止<br />(コントローラーのボタンを押すと、クリックしなくても始まります)</div>
     </div>
+    <div id="helpPanel"></div>
+    <div id="resume"><div class="box"><div class="big">クリックで操作を再開</div><div class="small">(WASDなどのキーでも再開できます / Esc: 一時停止)</div></div></div>
     <div id="toast"></div>
     <div id="modal">
       <div id="modalBox">
