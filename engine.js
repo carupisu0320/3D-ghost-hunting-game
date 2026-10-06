@@ -635,6 +635,9 @@ function dropCurrentTool() {
     }
   }
   addPickupItem(camera.position.x, camera.position.z, mesh, () => collectTool(tool));
+  const dropped = pickupItems[pickupItems.length - 1];
+  dropped.netId = `d${net ? net.myId() : 'me'}-${++dropCounter}`; // 置いた道具の目印(ほかの人の画面でも、同じ道具として拾えるように)
+  netWorld({ kind: 'drop', id: dropped.netId, tool, x: dropped.x, z: dropped.z, y: mesh.position.y });
 
   if (heldOrder.length > 0) {
     selectTool(heldOrder[0]);
@@ -1069,6 +1072,7 @@ function initHaunting(hauntableRoomEntries) {
   currentGhost = ghostTypes[Math.floor(hauntRand() * ghostTypes.length)];
   const hauntedRoomEntry = hauntableRoomEntries[Math.floor(hauntRand() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
+  notebookTimer = 15 + hauntRand() * 30; // ゴーストライティングが起こるまでの時間も、全員で同じ値にする
   ghostUsesModel = currentGhost.alwaysModel === true || hauntRand() < GHOST_MODEL_CHANCE;
   console.log("[デバッグ] 幽霊の見た目:", ghostUsesModel ? "人型モデル" : "カプセル");
   applyGhostModel();
@@ -1263,6 +1267,7 @@ function tryPickup() {
     gazeItem.collected = true;
     scene.remove(gazeItem.mesh);
     gazeItem.onCollect();
+    netWorld({ kind: 'take', id: gazeItem.netId }); // オンライン: 取った道具は、ほかの人の画面からも消える
     return true;
   }
   for (const item of pickupItems) {
@@ -1273,6 +1278,7 @@ function tryPickup() {
       item.collected = true;
       scene.remove(item.mesh);
       item.onCollect();
+      netWorld({ kind: 'take', id: item.netId });
       return true;
     }
   }
@@ -1289,6 +1295,7 @@ function tryInteract({ includePickup = true } = {}) {
       breakerOn = !breakerOn;
       if (onBreakerToggle) onBreakerToggle();
       showPickupNotice(breakerOn ? 'ブレーカーを入れた' : 'ブレーカーを落とした');
+      netWorld({ kind: 'breaker', on: breakerOn }); // オンライン: ほかの人にも知らせる
       return;
     }
   }
@@ -1304,6 +1311,7 @@ function tryInteract({ includePickup = true } = {}) {
     if (nearestDoor.locked) { showPickupNotice('ドアが開かない…!'); return; }
     nearestDoor.isOpen = !nearestDoor.isOpen;
     nearestDoor.targetRotation = nearestDoor.isOpen ? Math.PI / 2 : 0;
+    netWorld({ kind: 'door', id: doors.indexOf(nearestDoor), open: nearestDoor.isOpen }); // オンライン: ほかの人にも知らせる
     return;
   }
 
@@ -1315,11 +1323,16 @@ function tryInteract({ includePickup = true } = {}) {
     if (d < nearestDist) { nearest = sw; nearestDist = d; }
   }
   if (nearest) {
-    nearest.on = !nearest.on;
-    updateRoomLightCulling();
-    nearest.switchMat.color.set(nearest.on ? 0xffffcc : 0x555555);
-    nearest.switchMat.emissiveIntensity = nearest.on ? 0.5 : 0;
+    setSwitchState(nearest, !nearest.on);
+    netWorld({ kind: 'switch', id: lightSwitches.indexOf(nearest), on: nearest.on }); // オンライン: ほかの人にも知らせる
   }
+}
+// 照明スイッチを入れる/切る(自分で押したときも、ほかの人が押したのが届いたときも、同じ処理)
+function setSwitchState(sw, on) {
+  sw.on = on;
+  updateRoomLightCulling();
+  sw.switchMat.color.set(on ? 0xffffcc : 0x555555);
+  sw.switchMat.emissiveIntensity = on ? 0.5 : 0;
 }
 document.addEventListener('click', () => {
   if (!controls.isLocked) return; // クリックはポインターロック中だけ(コントローラーはYボタンで tryInteract を呼ぶ)
@@ -1982,13 +1995,94 @@ function drawMap() {
   mapCtx.fill();
 }
 let mapUpdateTimer = 0;
+// ==== オンライン: 世界(ドア・ブレーカー・照明スイッチ・床の道具・ノート)の同期 ====
+// 自分が操作したら、サーバー経由でほかの全員へ知らせる(netWorld)。ほかの人の操作が届いたら、そのまま反映する(applyWorldEvent)。
+// 途中から入った人・つなぎ直した人には、サーバーが覚えている「今の状態」(applyWorldState)をまとめて渡す。
+// ドアとスイッチの目印は、マップの組み立て順の番号(全員同じ)。道具は pickupItems の番号('s' + 番号)、置いた道具は置いた人が付けた目印('d…')
+let dropCounter = 0;
+const extraNotebookMeshes = []; // ほかの人が置いたノート(書き込みが現れたら、これも書き換える)
+
+function netWorld(ev) { if (net && net.sendWorld) net.sendWorld(ev); }
+
+// ノートに書き込みが現れる(自分の条件を満たしたときも、ほかの人の分が届いたときも、同じ処理)
+function writeNotebook() {
+  if (notebookWritten) return;
+  notebookWritten = true;
+  [viewmodels.notebook, notebookWorldMesh, ...extraNotebookMeshes].forEach((m) => {
+    if (m && m.userData && m.userData.pageCanvas) {
+      drawNotebookPage(m.userData.pageCanvas, true);
+      m.userData.pageTexture.needsUpdate = true;
+    }
+  });
+}
+
+function addRemoteDrop(ev) {
+  const make = toolMeshMakers[ev.tool];
+  if (!make || !Number.isFinite(ev.x) || !Number.isFinite(ev.z) || pickupItems.some((i) => i.netId === ev.id)) return;
+  const mesh = make();
+  mesh.position.y = Number.isFinite(ev.y) ? ev.y : 0.03 + (toolRestOffset[ev.tool] || 0);
+  if (ev.tool === 'notebook') {
+    extraNotebookMeshes.push(mesh);
+    if (notebookWritten && mesh.userData.pageCanvas) { drawNotebookPage(mesh.userData.pageCanvas, true); mesh.userData.pageTexture.needsUpdate = true; }
+  }
+  addPickupItem(ev.x, ev.z, mesh, () => collectTool(ev.tool));
+  pickupItems[pickupItems.length - 1].netId = ev.id;
+}
+
+// ほかの人の操作を反映する。instant が true のときは、ドアの開閉の動きを省いて、すぐその状態にする(途中から入ったとき)
+function applyWorldEvent(ev, { instant = false } = {}) {
+  if (!gameEntered || !ev) return; // マップに入る前に届いたものは捨てる(入った直後に、今の状態をまとめてもらう)
+  switch (ev.kind) {
+    case 'door': {
+      const d = doors[ev.id];
+      if (!d || (d === exteriorDoor && huntActive)) return; // ハント中の玄関は、全員で閉まってロックされている
+      d.isOpen = !!ev.open;
+      d.targetRotation = d.isOpen ? Math.PI / 2 : 0;
+      if (instant) d.hinge.rotation.y = d.targetRotation;
+      break;
+    }
+    case 'breaker': {
+      const on = !!ev.on;
+      if (breakerOn === on) return;
+      breakerOn = on;
+      if (onBreakerToggle) onBreakerToggle();
+      if (!instant) showPickupNotice(`${ev.name || 'だれか'}がブレーカーを${on ? '入れた' : '落とした'}`);
+      break;
+    }
+    case 'switch': {
+      const sw = lightSwitches[ev.id];
+      if (sw && sw.on !== !!ev.on) setSwitchState(sw, !!ev.on);
+      break;
+    }
+    case 'take': {
+      const it = pickupItems.find((i) => i.netId === ev.id);
+      if (it && !it.collected) { it.collected = true; scene.remove(it.mesh); } // 持ち物にはせず、場所から消すだけ
+      break;
+    }
+    case 'drop': addRemoteDrop(ev); break;
+    case 'notebook': writeNotebook(); break;
+  }
+}
+
+// サーバーが覚えている今の状態を、まとめて反映する(ブレーカー → スイッチの順: スイッチの見た目はブレーカーに左右されるため)
+function applyWorldState(state) {
+  if (!gameEntered || !state) return;
+  const opt = { instant: true };
+  if (state.breaker === true || state.breaker === false) applyWorldEvent({ kind: 'breaker', on: state.breaker }, opt);
+  Object.entries(state.doors || {}).forEach(([id, open]) => applyWorldEvent({ kind: 'door', id: Number(id), open }, opt));
+  Object.entries(state.switches || {}).forEach(([id, on]) => applyWorldEvent({ kind: 'switch', id: Number(id), on }, opt));
+  Object.keys(state.taken || {}).forEach((id) => applyWorldEvent({ kind: 'take', id }, opt));
+  Object.entries(state.drops || {}).forEach(([id, d]) => applyWorldEvent({ kind: 'drop', id, ...d }, opt));
+  if (state.notebook) applyWorldEvent({ kind: 'notebook' }, opt);
+}
+
 // ==== オンライン(協力)プレイ: 幽霊・ハント・死亡の同期 ====
 // ホストのブラウザだけが、幽霊の動き・ハントの開始と終了・死亡の判定を計算し、その状態を全員へ送る。ほかの人は届いた状態を表示するだけ。
 //  - 襲撃(ハント)の開始・終了は全員で同じタイミング。
 //  - 正気度は一人ひとり別。ハントが始まりやすさは「生きている人の中で一番低い正気度」で決まり、幽霊は一番低い人を狙う。
 //  - 死亡は個人ごと。幽霊が誰かに近づいたらその人だけが死に、その時点でハントは全員分すぐ終わる。
 // online-game.js が setNetHooks() で通信の窓口を登録したときだけ動く。登録がなければ(ひとりで遊ぶとき)、これまで通りの処理になる。
-//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id), sendVote({ ghost, truth, elapsed }), forceFinalize() }
+//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id), sendVote({ ghost, truth, elapsed }), forceFinalize(), sendWorld(event), requestWorld() }
 //   (x, y, z は足元の位置。out は特定などで、この回のプレイをすでに終えている人)
 let net = null;
 const PLAYER_EYE_HEIGHT = 1.6;       // 足元から目(カメラ)までの高さ
@@ -2000,6 +2094,7 @@ let huntTargetId = null;
 let huntRetargetTimer = 0;
 let ghostSendTimer = 0;
 const ghostNetTarget = new THREE.Vector3(); // ホスト以外が見る、幽霊の位置(ここへ滑らかに寄せる)
+const orbNetTarget = new THREE.Vector3();   // 同じく、オーブの位置
 let ghostNetHasState = false;
 const deadPlayerIds = new Set();
 
@@ -2027,6 +2122,10 @@ function applyNetGhost(state) {
   if (!hauntedRoom || !state) return;
   ghostNetTarget.set(state.x, state.y, state.z);
   if (!ghostNetHasState) { ghostNetHasState = true; ghost.position.copy(ghostNetTarget); }
+  if (state.orb) { // オーブ: 現れている間だけ、ホストの位置へ寄せる
+    orbNetTarget.set(state.orb.x, state.orb.y, state.orb.z);
+    if (!orb.visible) { orb.position.copy(orbNetTarget); orb.visible = true; }
+  } else orb.visible = false;
   huntTimer = state.left || 0;           // ホストが交代したときに、残り時間を引き継げるように持っておく
   huntTargetId = state.target || null;
   if (gameOver) return;                  // 死んだ(特定を終えた)人の画面は、ハントの演出を出し直さない
@@ -2062,6 +2161,7 @@ function updateOnlineGhost(delta) {
   if (!net.isHost()) {
     if (ghostNetHasState) ghost.position.lerp(ghostNetTarget, Math.min(1, delta * 10));
     ghost.rotation.y += delta * 0.5;
+    if (orb.visible) orb.position.lerp(orbNetTarget, Math.min(1, delta * 10));
     return;
   }
 
@@ -2131,6 +2231,7 @@ function updateOnlineGhost(delta) {
 
   ghost.position.y = ghostFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
   ghost.rotation.y += delta * 0.5;
+  if (orbRoom) updateOrb(delta); // オーブ(オーブが証拠の幽霊のときだけ出る)もホストが動かして、位置を全員へ送る
 
   ghostSendTimer -= delta;
   if (changed || ghostSendTimer <= 0) {
@@ -2138,6 +2239,7 @@ function updateOnlineGhost(delta) {
     net.sendGhost({
       x: ghost.position.x, y: ghost.position.y, z: ghost.position.z,
       hunt: huntActive, left: Math.max(0, huntTimer), target: huntActive ? huntTargetId : null,
+      orb: orb.visible ? { x: orb.position.x, y: orb.position.y, z: orb.position.z } : null,
     });
   }
 }
@@ -2355,13 +2457,8 @@ function animate() {
       if (inHauntedRoomForNotebook) {
         notebookTimer -= delta;
         if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
-          notebookWritten = true;
-          [viewmodels.notebook, notebookWorldMesh].forEach(m => {
-            if (m && m.userData.pageCanvas) {
-              drawNotebookPage(m.userData.pageCanvas, true);
-              m.userData.pageTexture.needsUpdate = true;
-            }
-          });
+          writeNotebook();
+          netWorld({ kind: 'notebook' }); // オンライン: 書かれたのは、全員のノートに(一人が書かれたら、みんなに書かれる)
         }
       }
     }
@@ -2407,7 +2504,7 @@ function animate() {
     }
 
     updateHotbar();
-    updateOrb(delta);
+    if (!net) updateOrb(delta); // オンラインのオーブは、ホストが動かして全員へ送る(updateOnlineGhost)
   }
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)。カメラが無いマップなら何もしない
@@ -2493,6 +2590,8 @@ function enterGame() {
   mapSelectOverlay.style.display = 'none';
   info.style.display = 'block';
   gameEntered = true; // オンライン: ここから、位置と正気度を送り、幽霊に狙われる対象になる
+  pickupItems.forEach((it, i) => { if (!it.netId) it.netId = 's' + i; }); // 床や壁の道具に、全員で同じ目印を振る(マップの組み立て順は全員同じ)
+  if (net && net.requestWorld) net.requestWorld(); // 先に入っていた人が開けたドアなどを、今の状態にそろえてもらう
   if (!padPlay) controls.lock(); // コントローラー開始のときは、ポインターロックを始められない(クリックではないため)
 }
 
@@ -2542,5 +2641,5 @@ export {
   addMapCard, startEngine, enterGame,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
-  applyVoteUpdate, applyIdentifyResult,
+  applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState,
 };
