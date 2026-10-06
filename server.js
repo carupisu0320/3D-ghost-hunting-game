@@ -9,7 +9,8 @@
 // ゲーム本編では、次のものを橋渡しする(幽霊の動きや死亡の判定そのものは、ホストのブラウザが計算する。サーバーは中継するだけ):
 //   - ゲーム開始のときに乱数の種(seed)を配る → 全員が同じ幽霊・同じ出没部屋になる
 //   - プレイヤーの位置・正気度 → ホストが「誰を狙うか」を決めるのに使う
-//   - 幽霊の状態(位置・ハント中か・狙っている人) → ホストから全員へ
+//   - 幽霊の状態(位置・ハント中か・狙っている人・オーブ) → ホストから全員へ
+//   - 世界の操作(ドア・ブレーカー・照明スイッチ・床の道具を拾う/置く・ノートへの書き込み) → 全員へ。サーバーが「今の状態」も覚えていて、あとから入った人にまとめて渡す
 //   - 死亡(ホストが判定) → 全員へ。死んだ人は、以後、狙われない
 //   - 特定(一人ひとりの投票) → サーバーが多数決で集計(同票なら同票の中からランダム)して、結果を全員へ。結果が出たら、部屋はそのまま残る(ロビーに戻って続けられる)
 //
@@ -59,6 +60,10 @@ const httpServer = http.createServer((req, res) => {
 const io = new Server(httpServer, {
   cors: { origin: (origin, callback) => callback(null, isAllowedOrigin(origin)) },
 });
+
+// 世界の状態(ドア・スイッチは、マップの組み立て順の番号。道具は 's'+番号(最初からある道具)か 'd…'(誰かが置いた道具))
+const WORLD_TOOLS = new Set(['flashlight', 'emf', 'thermometer', 'notebook', 'spiritbox', 'uv', 'dots']);
+function newWorld() { return { doors: {}, switches: {}, breaker: null, taken: {}, drops: {}, notebook: false }; }
 
 const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホストが最後に送った幽霊の状態), truth(本当の幽霊の名前), elapsedMax(特定までの時間), result(最後の特定の結果), players: Map(playerId -> player) }
 // player = { id(ページを移動しても変わらない目印), token(つなぎ直すときの合言葉。本人にしか教えない), sockId(いまの接続。切れている間はnull), name, color, host, timer,
@@ -182,7 +187,7 @@ io.on('connection', (socket) => {
     const code = generateRoomCode();
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
     const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
-    const room = { code, map, inGame: false, seed: 0, ghost: null, truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
+    const room = { code, map, inGame: false, seed: 0, ghost: null, world: newWorld(), truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
     rooms.set(code, room);
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
@@ -245,6 +250,7 @@ io.on('connection', (socket) => {
     room.result = null; room.truth = null; room.elapsedMax = 0;
     room.seed = crypto.randomBytes(4).readUInt32BE(0); // 全員が同じ幽霊・同じ出没部屋になるための乱数の種
     room.ghost = null;
+    room.world = newWorld(); // ドアやスイッチは、新しいゲームではまっさらから
     room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; pl.vote = null; pl.gameBound = true; pl.inLobby = false; }); // ロビーでの位置などは持ち越さない
     io.to(room.code).emit('gameStart', { map: room.map, seed: room.seed });
   });
@@ -260,6 +266,7 @@ io.on('connection', (socket) => {
       hunt: !!msg.hunt,
       left: Number.isFinite(msg.left) ? Math.max(0, msg.left) : 0,
       target: typeof msg.target === 'string' ? msg.target : null,
+      orb: msg.orb && [msg.orb.x, msg.orb.y, msg.orb.z].every(Number.isFinite) ? { x: msg.orb.x, y: msg.orb.y, z: msg.orb.z } : null, // 出ているときだけ
     };
     room.ghost = state; // ホストが交代したり、つなぎ直した人がいたときのために、最後の状態を覚えておく
     socket.to(room.code).emit('ghost', state);
@@ -275,6 +282,44 @@ io.on('connection', (socket) => {
     victim.alive = false;
     io.to(room.code).emit('playerDied', { id: victim.id });
     maybeFinalize(room); // 死んだ人は投票を待たれない。全員死んだら、そこでゲーム終了
+  });
+
+  // 世界の操作(ドアを開ける・ブレーカー・スイッチ・道具を拾う/置く・ノートへの書き込み)。覚えておいて、ほかの全員へ中継する
+  socket.on('world', (ev = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || !room.inGame) return;
+    const me = room.players.get(socket.data.playerId);
+    if (!me || !room.world) return;
+    const w = room.world;
+    const idOk = (v) => Number.isInteger(v) && v >= 0 && v < 1000;
+    const out = { kind: ev.kind, name: me.name };
+    switch (ev.kind) {
+      case 'door': if (!idOk(ev.id)) return; w.doors[ev.id] = !!ev.open; out.id = ev.id; out.open = !!ev.open; break;
+      case 'switch': if (!idOk(ev.id)) return; w.switches[ev.id] = !!ev.on; out.id = ev.id; out.on = !!ev.on; break;
+      case 'breaker': w.breaker = !!ev.on; out.on = !!ev.on; break;
+      case 'take': {
+        const id = String(ev.id || '').slice(0, 40);
+        if (!id) return;
+        if (id[0] === 'd') delete w.drops[id]; else w.taken[id] = true; // 置かれた道具を拾ったら、置かれた道具の一覧から消す
+        out.id = id; break;
+      }
+      case 'drop': {
+        const id = String(ev.id || '').slice(0, 40);
+        if (!id || id[0] !== 'd' || !WORLD_TOOLS.has(ev.tool) || ![ev.x, ev.z].every(Number.isFinite)) return;
+        const drop = { tool: ev.tool, x: ev.x, z: ev.z };
+        if (Number.isFinite(ev.y)) drop.y = ev.y;
+        w.drops[id] = drop; Object.assign(out, { id }, drop); break;
+      }
+      case 'notebook': w.notebook = true; break;
+      default: return;
+    }
+    socket.to(room.code).emit('world', out);
+  });
+
+  // マップに入ったとき・つなぎ直したときに、今の世界の状態をまとめてもらう
+  socket.on('worldSync', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (room && room.world) socket.emit('worldState', room.world);
   });
 
   // 特定(投票)。一人1回だけ。生きていて、まだこの回のプレイを続けている人だけが投票できる
