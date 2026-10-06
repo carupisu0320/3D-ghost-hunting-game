@@ -874,11 +874,11 @@ const ghostTypes = [
 let notebookWritten = false;
 let notebookTimer = 15 + Math.random() * 30;
 
-function randomPointInRoom(r, margin = 0.6) {
+function randomPointInRoom(r, margin = 0.6, rand = Math.random) {
   return new THREE.Vector3(
-    r.minX + margin + Math.random() * Math.max(0.1, r.maxX - r.minX - margin * 2),
+    r.minX + margin + rand() * Math.max(0.1, r.maxX - r.minX - margin * 2),
     1.0,
-    r.minZ + margin + Math.random() * Math.max(0.1, r.maxZ - r.minZ - margin * 2)
+    r.minZ + margin + rand() * Math.max(0.1, r.maxZ - r.minZ - margin * 2)
   );
 }
 
@@ -919,7 +919,7 @@ new FBXLoader().load('./ghost-model.fbx', (fbx) => {
 // (見た目は人型モデル、証拠はスピリットボックスのみ、襲ってこない。進行中のハントもその場で終わる)
 let secretBuffer = '';
 window.addEventListener('keydown', (e) => {
-  if (!hauntedRoom || (currentGhost && currentGhost.name === 'ハヤト')) return; // マップ選択前(幽霊がまだいない)や、すでにハヤトのときは何もしない
+  if (net || !hauntedRoom || (currentGhost && currentGhost.name === 'ハヤト')) return; // オンライン中は、ひとりだけ幽霊が変わってしまうので無効。マップ選択前(幽霊がまだいない)や、すでにハヤトのときは何もしない
   if (typeof e.key !== 'string' || e.key.length !== 1) return;
   secretBuffer = (secretBuffer + e.key.toLowerCase()).slice(-6);
   if (secretBuffer === 'hayato') {
@@ -1051,12 +1051,25 @@ function playerInHauntedRoom(x, z) {
   return sameFloor && x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
 }
 
+// 全員で同じ幽霊・同じ出没部屋・同じ手形のドアにするための、種(シード)つきの乱数。
+// ロビーの部屋から来たときだけ、main.js がサーバーから受け取った種を setHauntSeed() で渡す。ひとりで遊ぶときは、普通の乱数のまま
+let hauntRand = Math.random;
+function setHauntSeed(seed) {
+  let a = (Number(seed) >>> 0) || 1; // mulberry32
+  hauntRand = () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // 幽霊を1体ランダムに選び、渡された候補部屋(マップ側が「出没してよい部屋」として絞り込んだもの)の中に配置する
 function initHaunting(hauntableRoomEntries) {
-  currentGhost = ghostTypes[Math.floor(Math.random() * ghostTypes.length)];
-  const hauntedRoomEntry = hauntableRoomEntries[Math.floor(Math.random() * hauntableRoomEntries.length)];
+  currentGhost = ghostTypes[Math.floor(hauntRand() * ghostTypes.length)];
+  const hauntedRoomEntry = hauntableRoomEntries[Math.floor(hauntRand() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
-  ghostUsesModel = currentGhost.alwaysModel === true || Math.random() < GHOST_MODEL_CHANCE;
+  ghostUsesModel = currentGhost.alwaysModel === true || hauntRand() < GHOST_MODEL_CHANCE;
   console.log("[デバッグ] 幽霊の見た目:", ghostUsesModel ? "人型モデル" : "カプセル");
   applyGhostModel();
   hauntedFloor = hauntedRoomEntry.upperFloor || 0;
@@ -1069,7 +1082,7 @@ function initHaunting(hauntableRoomEntries) {
 
   const hauntedRoomDoors = doors.filter(d => (d.upperFloor || 0) === hauntedFloor && doorBordersRoom(d, hauntedRoom));
   if (hauntedRoomDoors.length > 0) {
-    const doorObj = hauntedRoomDoors[Math.floor(Math.random() * hauntedRoomDoors.length)];
+    const doorObj = hauntedRoomDoors[Math.floor(hauntRand() * hauntedRoomDoors.length)];
     // 扉のヒンジGroupの子として付けることで、開閉に合わせて一緒に動くようにする。取っ手のすぐ下あたりに手のひらが来るよう配置
     const isXAxisDoor = Math.abs(doorObj.box.maxX - doorObj.box.minX) >= Math.abs(doorObj.box.maxZ - doorObj.box.minZ);
     if (isXAxisDoor) {
@@ -1081,7 +1094,7 @@ function initHaunting(hauntableRoomEntries) {
     doorObj.hinge.add(fingerprintSpot);
   } else {
     // 該当する部屋にドアが見つからなかった場合のフォールバック(部屋の中に浮かべる)
-    const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9);
+    const fingerprintSpotPos = randomPointInRoom(hauntedRoom, 0.9, hauntRand);
     fingerprintSpot.position.set(fingerprintSpotPos.x, hauntedFloorY() + 1.1, fingerprintSpotPos.z);
     scene.add(fingerprintSpot);
   }
@@ -1778,7 +1791,7 @@ document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.key && e.key.length === 1) {
     debugKeyBuffer = (debugKeyBuffer + e.key.toLowerCase()).slice(-4);
-    if (debugKeyBuffer === 'sinu') triggerDeath();
+    if (debugKeyBuffer === 'sinu' && !net) triggerDeath(); // オンライン中は、ひとりだけ死んだことになってしまうので無効
   }
   if (gameOver) return; // 死亡後はリザルト画面の「ロビーに戻る」以外の操作を受け付けない
   if (e.code === 'KeyE') toggleCurrentTool();
@@ -1873,6 +1886,166 @@ function drawMap() {
   mapCtx.fill();
 }
 let mapUpdateTimer = 0;
+// ==== オンライン(協力)プレイ: 幽霊・ハント・死亡の同期 ====
+// ホストのブラウザだけが、幽霊の動き・ハントの開始と終了・死亡の判定を計算し、その状態を全員へ送る。ほかの人は届いた状態を表示するだけ。
+//  - 襲撃(ハント)の開始・終了は全員で同じタイミング。
+//  - 正気度は一人ひとり別。ハントが始まりやすさは「生きている人の中で一番低い正気度」で決まり、幽霊は一番低い人を狙う。
+//  - 死亡は個人ごと。幽霊が誰かに近づいたらその人だけが死に、その時点でハントは全員分すぐ終わる。
+// online-game.js が setNetHooks() で通信の窓口を登録したときだけ動く。登録がなければ(ひとりで遊ぶとき)、これまで通りの処理になる。
+//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id) }
+//   (x, y, z は足元の位置。out は特定などで、この回のプレイをすでに終えている人)
+let net = null;
+const PLAYER_EYE_HEIGHT = 1.6;       // 足元から目(カメラ)までの高さ
+const HUNT_SANITY = 30;              // 一番低い人の正気度がこれ以下だと、ハントが起こりうる
+const HUNT_RETARGET_MARGIN = 5;      // 狙う相手は、ほかの人の正気度がこれ以上低くなったときだけ変える(ころころ変わらないように)
+const GHOST_SEND_INTERVAL = 0.1;     // ホストが幽霊の状態を送る間隔(秒)
+let gameEntered = false;             // マップの中に入ったか(まだなら、位置も正気度も送らない)
+let huntTargetId = null;
+let huntRetargetTimer = 0;
+let ghostSendTimer = 0;
+const ghostNetTarget = new THREE.Vector3(); // ホスト以外が見る、幽霊の位置(ここへ滑らかに寄せる)
+let ghostNetHasState = false;
+const deadPlayerIds = new Set();
+
+function setNetHooks(hooks) { net = hooks || null; }
+function getSanity() { return sanity; }
+function isGameOver() { return gameOver; }
+function hasEnteredGame() { return gameEntered; }
+
+function startHuntEffects() {
+  huntActive = true;
+  if (!gameOver) showPickupNotice('…気配がする…');
+  if (exteriorDoor) { // 家の外に逃げられないよう、玄関を閉めてロックする
+    exteriorDoor.isOpen = false;
+    exteriorDoor.targetRotation = 0;
+    exteriorDoor.locked = true;
+  }
+}
+function stopHuntEffects() {
+  huntActive = false;
+  if (exteriorDoor) exteriorDoor.locked = false;
+}
+
+// ホスト以外: ホストから届いた幽霊の状態を反映する
+function applyNetGhost(state) {
+  if (!hauntedRoom || !state) return;
+  ghostNetTarget.set(state.x, state.y, state.z);
+  if (!ghostNetHasState) { ghostNetHasState = true; ghost.position.copy(ghostNetTarget); }
+  huntTimer = state.left || 0;           // ホストが交代したときに、残り時間を引き継げるように持っておく
+  huntTargetId = state.target || null;
+  if (gameOver) return;                  // 死んだ(特定を終えた)人の画面は、ハントの演出を出し直さない
+  if (state.hunt && !huntActive) startHuntEffects();
+  else if (!state.hunt && huntActive) stopHuntEffects();
+}
+
+// 全員: 誰かが死んだ(ホストが判定して全員へ知らせる)。本人だけが死亡演出になり、ハントは全員分終わる
+function applyPlayerDied(id, name) {
+  if (!net || deadPlayerIds.has(id)) return;
+  deadPlayerIds.add(id);
+  if (huntActive) {
+    stopHuntEffects();
+    if (hauntedRoom) ghostTarget = randomPointInRoom(hauntedRoom);
+  }
+  if (id === net.myId()) triggerDeath();
+  else showPickupNotice(`${name || 'だれか'} が死んだ…`);
+}
+
+// ホスト用: 幽霊に狙われうる(生きていて、マップの中にいる)プレイヤーの一覧
+function hostPlayers() {
+  const list = [];
+  if (gameEntered && !gameOver) {
+    list.push({ id: net.myId(), x: camera.position.x, y: camera.position.y - PLAYER_EYE_HEIGHT, z: camera.position.z, sanity });
+  }
+  net.others().forEach((p) => { if (p.alive && !p.out && Number.isFinite(p.sanity)) list.push(p); });
+  return list;
+}
+
+// 毎フレーム(操作中かどうかに関わらず)呼ばれる。ホストなら幽霊を動かして状態を送り、ホスト以外なら届いた状態へ寄せるだけ
+function updateOnlineGhost(delta) {
+  if (!hauntedRoom || !ghost) return;
+  if (!net.isHost()) {
+    if (ghostNetHasState) ghost.position.lerp(ghostNetTarget, Math.min(1, delta * 10));
+    ghost.rotation.y += delta * 0.5;
+    return;
+  }
+
+  const players = hostPlayers();
+  const lowest = players.reduce((best, p) => (!best || p.sanity < best.sanity ? p : best), null);
+  let changed = false; // ハントの開始・終了があったら、すぐに全員へ送る
+
+  if (currentGhost.noHunt || !lowest) {
+    if (huntActive) { stopHuntEffects(); changed = true; } // 襲ってこない幽霊や、狙える人がいないときは、ハントしない
+  } else if (huntActive) {
+    huntTimer -= delta;
+    huntRetargetTimer -= delta;
+    let target = players.find((p) => p.id === huntTargetId) || null;
+    if (!target || (huntRetargetTimer <= 0 && lowest.sanity < target.sanity - HUNT_RETARGET_MARGIN)) {
+      huntRetargetTimer = 1;
+      target = lowest; huntTargetId = lowest.id; // 一番正気度が低い人を狙う
+    }
+    const dx = target.x - ghost.position.x, dz = target.z - ghost.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 0.1) { ghost.position.x += (dx / dist) * 2.2 * delta; ghost.position.z += (dz / dist) * 2.2 * delta; }
+    ghostFloorY += (target.y - ghostFloorY) * Math.min(1, delta * 4); // 狙っている人のいる階(上の階にも地下にも)へ
+
+    // 死亡の判定: 幽霊に近づかれた人のうち、一番近い一人だけが死ぬ
+    let caught = null, nearest = DEATH_TRIGGER_DIST;
+    players.forEach((p) => {
+      const d = Math.hypot(p.x - ghost.position.x, p.y + PLAYER_EYE_HEIGHT - ghost.position.y, p.z - ghost.position.z);
+      if (d < nearest) { nearest = d; caught = p; }
+    });
+    if (caught) {
+      stopHuntEffects(); // 誰かが死んだら、ハントは全員分すぐ終わる
+      ghostTarget = randomPointInRoom(hauntedRoom);
+      changed = true;
+      net.sendDeath(caught.id);
+      applyPlayerDied(caught.id, caught.name);
+    } else if (huntTimer <= 0 || lowest.sanity > HUNT_SANITY) {
+      stopHuntEffects(); // 時間切れ、または全員の正気度が戻った
+      ghostTarget = randomPointInRoom(hauntedRoom);
+      changed = true;
+    }
+  } else {
+    // ハントしていないときは、自分の部屋の中だけ徘徊する
+    const toTarget = new THREE.Vector3().subVectors(ghostTarget, ghost.position);
+    toTarget.y = 0;
+    if (toTarget.length() < 0.2) {
+      ghostTarget = randomPointInRoom(hauntedRoom);
+    } else {
+      toTarget.normalize();
+      ghost.position.x += toTarget.x * 1.0 * delta;
+      ghost.position.z += toTarget.z * 1.0 * delta;
+    }
+    ghostFloorY += (hauntedFloorY() - ghostFloorY) * Math.min(1, delta * 4);
+    if (lowest.sanity <= HUNT_SANITY) {
+      huntCheckTimer -= delta;
+      if (huntCheckTimer <= 0) {
+        huntCheckTimer = 1.5 + Math.random() * 2; // 1.5〜3.5秒ごとに判定するので、いつでも起こりうる
+        const chance = 0.12 + (HUNT_SANITY - lowest.sanity) / HUNT_SANITY * 0.38; // 一番低い人の正気度が低いほど起こりやすい(30で12%、0で50%)
+        if (Math.random() < chance) {
+          startHuntEffects();
+          huntTimer = HUNT_MIN_SECONDS + Math.random() * (HUNT_MAX_SECONDS - HUNT_MIN_SECONDS);
+          huntTargetId = lowest.id;
+          huntRetargetTimer = 1;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  ghost.position.y = ghostFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
+  ghost.rotation.y += delta * 0.5;
+
+  ghostSendTimer -= delta;
+  if (changed || ghostSendTimer <= 0) {
+    ghostSendTimer = GHOST_SEND_INTERVAL;
+    net.sendGhost({
+      x: ghost.position.x, y: ghost.position.y, z: ghost.position.z,
+      hunt: huntActive, left: Math.max(0, huntTimer), target: huntActive ? huntTargetId : null,
+    });
+  }
+}
+
 let sanityScreenTimer = 0;
 let monitorTimer = 0;
 let monitorCycleIndex = 0; // 監視カメラは毎回1台ずつ順番に描画する(全台同時だと負荷が増えるため)
@@ -1885,6 +2058,7 @@ function animate() {
   const delta = clock.getDelta();
   if (deathMixer) deathMixer.update(delta);
   if (ghostMixer) ghostMixer.update(delta);
+  if (net) updateOnlineGhost(delta); // オンライン: 一時停止中でも、幽霊とハントは止めない(ホストが止まるとみんなの幽霊も止まってしまうため)
 
   if (inControl()) {
     const move = speed * delta;
@@ -1970,7 +2144,8 @@ function animate() {
       door.hinge.rotation.y += (door.targetRotation - door.hinge.rotation.y) * Math.min(1, delta * 6);
     });
 
-    // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)
+    // 幽霊の移動(自分の部屋の中だけ徘徊。家具や壁はすり抜ける)。オンラインのときは updateOnlineGhost() が担当するので、ここはひとりで遊ぶときだけ
+    if (!net) {
     // 通常は自分の部屋の中だけ徘徊。正気度が低くハント中はプレイヤーへ直進する
     if (huntActive) {
       const toPlayer = new THREE.Vector3().subVectors(camera.position, ghost.position);
@@ -1998,6 +2173,7 @@ function animate() {
     ghostFloorY += (targetFloorY - ghostFloorY) * Math.min(1, delta * 4);
     ghost.position.y = ghostFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
     ghost.rotation.y += delta * 0.5;
+    }
 
     // 懐中電灯を向けると少しはっきり見える
     const camDir = new THREE.Vector3();
@@ -2007,7 +2183,8 @@ function animate() {
     toGhost.normalize();
     const lookingAtGhost = camDir.angleTo(toGhost) < 0.3 && ghostDist < 6;
 
-    // 正気度が30以下の間、幽霊がいつプレイヤーを襲ってきてもおかしくない状態にする
+    // 正気度が30以下の間、幽霊がいつプレイヤーを襲ってきてもおかしくない状態にする(ひとりで遊ぶときだけ。オンラインは updateOnlineGhost() が担当)
+    if (!net) {
     if (sanity <= 30 && !currentGhost.noHunt) { // 襲ってこない幽霊(ハヤト)は、正気度が下がってもハントを起こさない
       if (huntActive) {
         huntTimer -= delta;
@@ -2038,6 +2215,7 @@ function animate() {
     } else if (huntActive) {
       huntActive = false; // 正気度が30を超えていれば、進行中のハントも打ち切る
       if (exteriorDoor) exteriorDoor.locked = false;
+    }
     }
 
     ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
@@ -2218,6 +2396,7 @@ function enterGame() {
 
   mapSelectOverlay.style.display = 'none';
   info.style.display = 'block';
+  gameEntered = true; // オンライン: ここから、位置と正気度を送り、幽霊に狙われる対象になる
   if (!padPlay) controls.lock(); // コントローラー開始のときは、ポインターロックを始められない(クリックではないため)
 }
 
@@ -2266,4 +2445,5 @@ export {
   onFrame,
   addMapCard, startEngine, enterGame,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
+  setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
 };
