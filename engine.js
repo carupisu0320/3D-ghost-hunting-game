@@ -69,6 +69,10 @@ scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+// 回転の順番は「左右の向き → 上下の向き」(YXZ)にする(ロビーのカメラと同じ)。
+// 初期設定(XYZ)のままだと、上や下を向いたままコントローラーのスティックで左右に振り向くと、画面が傾いてしまう。
+// また、オンラインで他のプレイヤーへ送る「向き」(camera.rotation.y)が、上下を向いているときにずれてしまうのも、これで直る
+camera.rotation.order = 'YXZ';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(1);
