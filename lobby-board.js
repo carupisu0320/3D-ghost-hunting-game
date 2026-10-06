@@ -12,7 +12,8 @@ export const MAPS = [
 export function mapLabel(id) { const m = MAPS.find(x => x.id === id); return m ? m.label : id; }
 
 // state: { screen: 'main'|'maps', name, selectedMap, hoverId, message,
-//          room: null | { code, isHost, myId, map, players: [{ id, name, host }] } }
+//          room: null | { code, isHost, myId, map, players: [{ id, name, host }] },
+//          lastResult: null | 前回の特定の結果(ゲーム本編が保存したもの。下の drawResultBlock を見る) }
 export function drawBoard(ctx, state) {
   const { room } = state;
   const buttons = [];
@@ -58,6 +59,25 @@ export function drawBoard(ctx, state) {
     buttons.push({ id, label, x, y, w: BW, h: BH, enabled });
   };
 
+  // 前回の特定の結果(右パネルの下)。結果は { winner, tie, truth, correct, wipe, reward, tally, votes, mode } の形
+  const drawResultBlock = (x, y) => {
+    const r = state.lastResult;
+    ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - 26); ctx.lineTo(x + 296, y - 26); ctx.stroke();
+    const small = (text, yy, color = SUB, size = 22) => { ctx.font = `${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(fit(text, 296), x, yy); };
+    small('前回の特定', y, SUB, 22);
+    if (!r) { small('まだありません', y + 36, SUB, 25); return; }
+    const status = r.wipe ? '全滅' : r.correct ? '成功' : '失敗';
+    ctx.font = `bold 32px ${FONT}`; ctx.fillStyle = r.wipe || !r.correct ? RED : '#2e8b57'; ctx.textAlign = 'left';
+    ctx.fillText(fit(`${status}  ¥${Number(r.reward || 0).toLocaleString()}`, 296), x, y + 38);
+    small(`正体: ${r.truth || '?'}`, y + 70, INK, 24);
+    if (r.wipe) small('特定できず全員死亡', y + 98, SUB, 21);
+    else {
+      const votes = r.tally && r.mode !== 'solo' ? (r.tally.find(t => t.ghost === r.winner) || { count: 1 }).count : 0;
+      small(`決定: ${r.winner}${votes ? ` (${votes}票${r.tie ? '・同票から抽選' : ''})` : ''}`, y + 98, SUB, 21);
+    }
+  };
+
   const mapName = mapLabel(state.selectedMap);
   const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 248 + i * 38, 25)); };
 
@@ -80,8 +100,9 @@ export function drawBoard(ctx, state) {
     button('leave', '部屋を出る', 2);
     panel(900, 150, 340, 470, '部屋コード');
     ctx.fillStyle = BLUE; ctx.textAlign = 'center'; ctx.font = `bold 72px ${FONT}`; ctx.fillText(room.code, 1070, 270);
-    line('友達にこのコードを', 930, 350, 25); line('教えて参加してもらおう', 930, 388, 25);
-    line('マップ:', 930, 470, 25, SUB); line(fit(mapLabel(room.map), 280), 930, 508, 29);
+    line('友達にこのコードを', 930, 322, 25); line('教えて参加してもらおう', 930, 358, 25);
+    line('マップ:', 930, 408, 22, SUB); line(fit(mapLabel(room.map), 280), 930, 442, 27);
+    drawResultBlock(930, 506);
   } else {
     // ---- メイン ----
     button('solo', 'プレイ(1人で)', 0, true, mapName);
@@ -93,7 +114,9 @@ export function drawBoard(ctx, state) {
     line('名前', 62, 252, 24, SUB); line(fit(state.name, 290), 62, 290, 32);
     line('マップ', 62, 360, 24, SUB); line(fit(mapName, 290), 62, 398, 32);
     line('接続', 62, 468, 24, SUB); line('ソロ(オフライン)', 62, 506, 28);
-    rightLines('あそびかた', ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人']);
+    panel(900, 150, 340, 470, 'あそびかた');
+    ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人'].forEach((t, i) => line(t, 922, 244 + i * 30, 23));
+    drawResultBlock(922, 506);
   }
 
   if (state.message) { ctx.fillStyle = RED; ctx.textAlign = 'center'; ctx.font = `bold 28px ${FONT}`; ctx.fillText(state.message, BOARD_W / 2, 650); }
