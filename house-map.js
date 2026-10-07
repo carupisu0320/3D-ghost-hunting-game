@@ -1,6 +1,6 @@
 // このファイルは「一軒家」マップ固有のデータ・配置だけを持つ。共通の仕組み(移動・道具・証拠・ハント・UIなど)はすべて engine.js 側にある
 import {
-  THREE, mergeGeometries, scene, camera, rooms, room, onGroundFloor, wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, wallMaterial, doorFrameMaterial, addFramedPlane, addMergedMesh, addWall, addFurniture, makeWoodTexture, makeConcreteTexture, makeGrassTexture, scaled, woodBase, tileBase, ceramicMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addSurveillanceCamera, videoCams, addPickupItem, addToolPegboard, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, sanity, drawSanityScreen, sanityTexture, addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBasementFloorY, initHaunting, setExteriorDoor, setOrbRoom, onFrame, setOnGroundFloor, setNotebookWorldMesh,
+  THREE, mergeGeometries, scene, camera, rooms, room, onGroundFloor, wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, wallMaterial, doorFrameMaterial, addFramedPlane, addMergedMesh, addWall, addFurniture, makeWoodTexture, makeConcreteTexture, makeGrassTexture, scaled, woodBase, tileBase, ceramicMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addSurveillanceCamera, videoCams, addPickupItem, addToolPegboard, registerFlickerLight, makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeNotebookItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh, toolRestOffset, collectTool, sanity, drawSanityScreen, sanityTexture, addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBasementFloorY, initHaunting, setExteriorDoor, setOrbRoom, onFrame, setOnGroundFloor, setNotebookWorldMesh,
 } from './engine.js';
 
 export const mapId = 'house';
@@ -209,13 +209,23 @@ const stepRun = (stairs.topZ - stairs.bottomZ) / stairs.steps;
   scene.add(postsMesh);
 }
 
+// ---- 照明(Grafton Farmhouse と同じ作り: 部屋ごとに天井灯+スイッチ+全体照明。ブレーカーは地下室) ----
+// 補助的な全体照明(部屋の隅など、天井灯の光だまりが届きにくい場所を底上げする)。ブレーカーが落ちている間は消える
+const HEMI_ON = 0.9;   // ブレーカーが入っている間の全体照明の強さ(Graftonと同じ)
+const HEMI_OFF = 0;    // ブレーカーが落ちている間の全体照明の強さ(0=なし。暗くしたいほど0に近づける、明るくしたいときは上げる)
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x605040, HEMI_ON);
+scene.add(hemiLight);
+registerFlickerLight(hemiLight, () => (breakerOn ? HEMI_ON : HEMI_OFF)); // ハント中は全体照明も天井灯と一緒に点滅させる
+
 // 地下の照明(壁付けのブラケットライト。ブレーカーが入っているときだけ点灯)。西側の壁、ブレーカーのそば
+const BASEMENT_LIGHT_POWER = 9;
 let basementLight, basementFixtureMat;
 {
-  basementLight = new THREE.PointLight(0xffdca8, 9, 10);
+  basementLight = new THREE.PointLight(0xffdca8, BASEMENT_LIGHT_POWER, 10);
   basementLight.position.set(basement.minX + 0.3, basementFloorY + 2.0, (basement.minZ + basement.maxZ) / 2);
   basementLight.visible = false;
   scene.add(basementLight);
+  registerFlickerLight(basementLight, () => BASEMENT_LIGHT_POWER); // ハント中は、地下の照明も点滅させる(消えているときは visible=false のまま)
   basementFixtureMat = new THREE.MeshLambertMaterial({ color: 0xfff6d8, emissive: 0xfff6d8, emissiveIntensity: 0 });
   const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 16), basementFixtureMat);
   fixture.rotation.z = Math.PI / 2;
@@ -241,6 +251,7 @@ const breakerBox = { x: basement.minX + 0.1, z: (basement.minZ + basement.maxZ) 
 // ブレーカーの状態を全ての照明に反映する
 function applyBreakerState() {
   updateRoomLightCulling();
+  hemiLight.intensity = breakerOn ? HEMI_ON : HEMI_OFF; // 停電中は補助の全体照明も落として、暗くする
   basementLight.visible = breakerOn;
   basementFixtureMat.emissiveIntensity = breakerOn ? 1.2 : 0;
   breakerLeverMat.color.set(breakerOn ? 0x2f6b2f : 0x552222);
@@ -601,17 +612,18 @@ if (entranceDoor) setExteriorDoor(entranceDoor);
 
 setOrbRoom(room("Living Dining Kitchen"));
 
+// 部屋ごとの天井灯。強さ・色・距離は Grafton Farmhouse と同じ値(どの部屋も、床の光だまりが同じ明るさになる。浴室・トイレは青白い光)
 const roomLights = {
-  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 8),
-  "Master Bed Room": addRoomLight("Master Bed Room", 6),
-  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 5),
-  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 5),
-  "玄関": addRoomLight("玄関", 4),
-  "浴室・洗面": addRoomLight("浴室・洗面", 5, 0xdcecff),
-  "トイレ": addRoomLight("トイレ", 3.5, 0xdcecff),
-  "納戸": addRoomLight("納戸", 3.5),
-  "W.I.C": addRoomLight("W.I.C", 3),
-  "廊下": addRoomLight("廊下", 3.5),
+  "Living Dining Kitchen": addRoomLight("Living Dining Kitchen", 16, 0xfff2cc, 18),
+  "Master Bed Room": addRoomLight("Master Bed Room", 16, 0xfff2cc, 18),
+  "Bed Room(4.5畳)": addRoomLight("Bed Room(4.5畳)", 14, 0xfff2cc, 18),
+  "Bed Room(5.0畳)": addRoomLight("Bed Room(5.0畳)", 14, 0xfff2cc, 18),
+  "玄関": addRoomLight("玄関", 12, 0xfff2cc, 18),
+  "浴室・洗面": addRoomLight("浴室・洗面", 11, 0xdcecff, 18),
+  "トイレ": addRoomLight("トイレ", 10, 0xdcecff, 18),
+  "納戸": addRoomLight("納戸", 12, 0xfff2cc, 18),
+  "W.I.C": addRoomLight("W.I.C", 12, 0xfff2cc, 18),
+  "廊下": addRoomLight("廊下", 16, 0xfff2cc, 22),
   // Pantryは壁で仕切られておらずLDKと同じ空間なので、専用の照明は持たない
 };
 
