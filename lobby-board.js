@@ -11,8 +11,18 @@ export const MAPS = [
 ];
 export function mapLabel(id) { const m = MAPS.find(x => x.id === id); return m ? m.label : id; }
 
+// 選べる難易度(idは server.js・engine.js の DIFFICULTIES と同じ。普通が、これまでのゲーム)。lines は右のパネルに出す説明(自動で折り返す)
+export const DIFFICULTIES = [
+  { id: 'easy', label: '易しい', lines: ['ブレーカーは、一度上げれば落ちません。', 'そのほかは「普通」と同じです。'] },
+  { id: 'normal', label: '普通', lines: ['これまでのゲームです。', 'ブレーカーを上げても、幽霊がポルターガイストのように落とすことがあります(2分半〜5分ごと)。'] },
+  { id: 'hard', label: '難しい', lines: ['ブレーカーが落とされやすくなります(1分〜2分半ごと)。'] },
+  { id: 'nightmare', label: 'ナイトメア', lines: ['ブレーカーが上がりません(ずっと停電)。', 'ハヤトは出ません。'] },
+];
+export function difficultyLabel(id) { const d = DIFFICULTIES.find(x => x.id === id); return d ? d.label : '普通'; }
+
 // state: { screen: 'main'|'maps', name, selectedMap, hoverId, message,
 //          room: null | { code, isHost, myId, map, players: [{ id, name, host }] },
+//          difficulty: 'easy'|'normal'|'hard'|'nightmare',
 //          lastResult: null | 前回の特定の結果(ゲーム本編が保存したもの。下の drawResultBlock を見る),
 //          account: { configured(Googleログインが設定済みか), signedIn, name, balance(所持金。分からないときnull), enabled(サーバー側の保存が有効か), busy } }
 export function drawBoard(ctx, state) {
@@ -66,7 +76,7 @@ export function drawBoard(ctx, state) {
     ctx.strokeStyle = INK; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(x, y - 26); ctx.lineTo(x + 296, y - 26); ctx.stroke();
     const small = (text, yy, color = SUB, size = 22) => { ctx.font = `${size}px ${FONT}`; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(fit(text, 296), x, yy); };
-    small('前回の特定', y, SUB, 22);
+    small(`前回の特定${r && r.difficulty ? `(${difficultyLabel(r.difficulty)})` : ''}`, y, SUB, 22); // まだ結果がないときは、難易度なしで「前回の特定」だけ
     if (!r) { small('まだありません', y + 36, SUB, 25); return; }
     const status = r.wipe ? '全滅' : r.correct ? '成功' : '失敗';
     ctx.font = `bold 32px ${FONT}`; ctx.fillStyle = r.wipe || !r.correct ? RED : '#2e8b57'; ctx.textAlign = 'left';
@@ -79,7 +89,17 @@ export function drawBoard(ctx, state) {
     }
   };
 
-  // 小さめのボタン(左パネルの中のアカウント用)
+  // 文字を、幅(px)に収まるように、何行かに折り返す(日本語は1文字ずつ)
+  const wrapText = (text, maxWidth) => {
+    ctx.font = `25px ${FONT}`;
+    const rows = []; let cur = '';
+    for (const ch of text) {
+      if (ctx.measureText(cur + ch).width > maxWidth && cur) { rows.push(cur); cur = ch; } else cur += ch;
+    }
+    if (cur) rows.push(cur);
+    return rows;
+  };
+  // 小さめのボタン(左パネルの中のアカウント・難易度用)
   const smallButton = (id, label, x, y, w, h, enabled = true) => {
     const hover = enabled && state.hoverId === id;
     if (hover) { ctx.fillStyle = 'rgba(60,120,200,0.20)'; ctx.fillRect(x, y, w, h); }
@@ -109,6 +129,8 @@ export function drawBoard(ctx, state) {
   };
 
   const mapName = mapLabel(state.selectedMap);
+  const diffName = difficultyLabel(state.difficulty);
+  const mapAndDiff = `${mapName} / ${diffName}`;
   const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 248 + i * 38, 25)); };
 
   if (state.screen === 'maps') {
@@ -116,35 +138,48 @@ export function drawBoard(ctx, state) {
     const canChoose = !room || room.isHost;
     MAPS.forEach((m, i) => button('map:' + m.id, (state.selectedMap === m.id ? '✓ ' : '') + m.label, i, canChoose));
     button('back', '戻る', MAPS.length);
-    panel(40, 150, 340, 470, '選んだマップ');
-    ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.font = `bold 34px ${FONT}`; ctx.fillText(fit(mapName, 300), 210, 260);
-    line(canChoose ? 'クリックで選択' : 'ホストだけが選べます', 62, 330, 24, SUB);
-    const hovered = MAPS.find(m => state.hoverId === 'map:' + m.id) || MAPS.find(m => m.id === state.selectedMap);
-    rightLines(hovered ? hovered.label : 'マップ', hovered ? hovered.lines : []);
+    // 左: 難易度(クリックで選ぶ)。下に、いま選んでいるマップ
+    panel(40, 150, 340, 470, '難易度');
+    DIFFICULTIES.forEach((d, i) => smallButton('diff:' + d.id, (state.difficulty === d.id ? '✓ ' : '') + d.label, 62, 214 + i * 68, 296, 58, canChoose));
+    line('マップ', 62, 520, 22, SUB); line(fit(mapName, 290), 62, 552, 28);
+    if (!canChoose) line('ホストだけが選べます', 62, 596, 21, SUB);
+    // 右: 指している(または選んでいる)ものの説明。難易度を指していれば難易度、そうでなければマップ
+    const hoveredDiff = DIFFICULTIES.find(d => state.hoverId === 'diff:' + d.id);
+    const hoveredMap = MAPS.find(m => state.hoverId === 'map:' + m.id);
+    if (hoveredDiff || !hoveredMap) {
+      const d = hoveredDiff || DIFFICULTIES.find(x => x.id === state.difficulty) || DIFFICULTIES[1];
+      panel(900, 150, 340, 470, d.label);
+      ctx.font = `25px ${FONT}`;
+      let yy = 248;
+      d.lines.forEach((para) => { wrapText(para, 296).forEach((t) => { line(t, 922, yy, 25); yy += 36; }); yy += 12; });
+    } else {
+      rightLines(hoveredMap.label, hoveredMap.lines);
+    }
   } else if (room) {
     // ---- 部屋の中(参加者の一覧・開始・マップ・退出) ----
     panel(40, 150, 340, 470, `プレイヤー ${room.players.length}/4`);
     room.players.forEach((p, i) => line(`${p.host ? '★' : '・'} ${fit(p.name, 220)}${p.id === room.myId ? ' (自分)' : ''}`, 62, 252 + i * 42, 28));
     accountBlock(444, 556);
     if (room.isHost) button('start', 'ゲーム開始', 0); else button('wait', 'ホストの開始待ち', 0, false);
-    button('maps', 'マップ選択', 1, room.isHost, mapName);
+    button('maps', 'マップ・難易度', 1, room.isHost, mapAndDiff);
     button('leave', '部屋を出る', 2);
     panel(900, 150, 340, 470, '部屋コード');
     ctx.fillStyle = BLUE; ctx.textAlign = 'center'; ctx.font = `bold 72px ${FONT}`; ctx.fillText(room.code, 1070, 270);
     line('友達にこのコードを', 930, 322, 25); line('教えて参加してもらおう', 930, 358, 25);
-    line('マップ:', 930, 408, 22, SUB); line(fit(mapLabel(room.map), 280), 930, 442, 27);
+    line('マップ・難易度', 930, 392, 22, SUB); line(fit(mapLabel(room.map), 280), 930, 426, 26); line(fit(diffName, 280), 930, 460, 26);
     drawResultBlock(930, 506);
   } else {
     // ---- メイン ----
     button('solo', 'プレイ(1人で)', 0, true, mapName);
     button('create', '部屋を作る', 1);
     button('join', '部屋に参加', 2);
-    button('maps', 'マップ選択', 3, true, mapName);
+    button('maps', 'マップ・難易度', 3, true, mapAndDiff);
     button('rename', '名前を変える', 4, true, state.name);
     panel(40, 150, 340, 470, 'ステータス');
-    line('名前', 62, 238, 22, SUB); line(fit(state.name, 290), 62, 272, 30);
-    line('マップ', 62, 310, 22, SUB); line(fit(mapName, 290), 62, 344, 30);
-    accountBlock(384, 540);
+    line('名前', 62, 226, 22, SUB); line(fit(state.name, 290), 62, 258, 28);
+    line('マップ', 62, 296, 22, SUB); line(fit(mapName, 290), 62, 328, 28);
+    line('難易度', 62, 366, 22, SUB); line(fit(diffName, 290), 62, 398, 28);
+    accountBlock(444, 556);
     panel(900, 150, 340, 470, 'あそびかた');
     ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人'].forEach((t, i) => line(t, 922, 244 + i * 30, 23));
     drawResultBlock(922, 506);
