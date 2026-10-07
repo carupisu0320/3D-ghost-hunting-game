@@ -33,6 +33,10 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 0/O, 1/I など紛ら�
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33]; // 最大4人ぶんの識別色
 const MAPS = ['house', 'grafton']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
 const DEFAULT_MAP = 'grafton';
+// 選べる難易度のid(lobby-board.js の DIFFICULTIES・engine.js の DIFFICULTIES と同じ)。普通がこれまでのゲーム
+//   easy=易しい(ブレーカーは一度上げれば落ちない) / normal=普通 / hard=難しい(ブレーカーが落とされやすい) / nightmare=ナイトメア(ブレーカーが上がらない・ハヤトは出ない)
+const DIFFICULTIES = ['easy', 'normal', 'hard', 'nightmare'];
+const DEFAULT_DIFFICULTY = 'normal';
 // ゲームが始まると、全員がロビーのページからゲームのページへ移動する(いったん接続が切れて、つなぎ直す)。
 // その間にプレイヤーを部屋から外してしまわないよう、ゲーム中に切れたときは、この時間(ミリ秒)だけ待つ。戻ってこなければ外す
 const REJOIN_GRACE_MS = Number(process.env.REJOIN_GRACE_MS) || 90000;
@@ -291,12 +295,13 @@ io.on('connection', (socket) => {
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
     const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
     player.uid = socket.data.uid || null; // 先にログインの確認が済んでいれば、ここで結びつく
-    const room = { code, map, inGame: false, seed: 0, ghost: null, world: newWorld(), truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
+    const difficulty = DIFFICULTIES.includes(msg.difficulty) ? msg.difficulty : DEFAULT_DIFFICULTY;
+    const room = { code, map, difficulty, inGame: false, seed: 0, ghost: null, world: newWorld(), truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
     rooms.set(code, room);
     socket.data.roomCode = code;
     socket.data.playerId = player.id;
     socket.join(code);
-    socket.emit('created', { code, map, playerId: player.id, token: player.token, players: roomPlayerList(room) });
+    socket.emit('created', { code, map, difficulty, playerId: player.id, token: player.token, players: roomPlayerList(room) });
   });
 
   // 部屋に参加する
@@ -314,7 +319,7 @@ io.on('connection', (socket) => {
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
     socket.join(room.code);
-    socket.emit('joined', { code: room.code, map: room.map, playerId: player.id, token: player.token, players: roomPlayerList(room) });
+    socket.emit('joined', { code: room.code, map: room.map, difficulty: room.difficulty, playerId: player.id, token: player.token, players: roomPlayerList(room) });
     socket.to(room.code).emit('playerJoined', { id: player.id, name: player.name, color: player.color, host: player.host });
   });
 
@@ -344,6 +349,16 @@ io.on('connection', (socket) => {
     socket.to(room.code).emit('mapChanged', { map: room.map }); // 変えた本人は手元で反映済みなので、ほかの人にだけ送る
   });
 
+  // 難易度を変える(ホストだけ。決まっている難易度にだけ変えられる)
+  socket.on('setDifficulty', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.inGame) return; // ゲーム中は変えられない
+    const p = room.players.get(socket.data.playerId);
+    if (!p || !p.host || !DIFFICULTIES.includes(msg.difficulty)) return;
+    room.difficulty = msg.difficulty;
+    socket.to(room.code).emit('difficultyChanged', { difficulty: room.difficulty });
+  });
+
   // ゲーム開始(ホストだけ)。全員(ホスト自身も)に、選ばれているマップを伝える
   socket.on('start', () => {
     const room = rooms.get(socket.data.roomCode);
@@ -357,7 +372,7 @@ io.on('connection', (socket) => {
     room.ghost = null;
     room.world = newWorld(); // ドアやスイッチは、新しいゲームではまっさらから
     room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; pl.vote = null; pl.gameBound = true; pl.inLobby = false; }); // ロビーでの位置などは持ち越さない
-    io.to(room.code).emit('gameStart', { map: room.map, seed: room.seed });
+    io.to(room.code).emit('gameStart', { map: room.map, difficulty: room.difficulty, seed: room.seed });
   });
 
   // 幽霊の状態(ホストだけが送れる)。ホスト以外の全員へ中継する
@@ -401,7 +416,7 @@ io.on('connection', (socket) => {
     switch (ev.kind) {
       case 'door': if (!idOk(ev.id)) return; w.doors[ev.id] = !!ev.open; out.id = ev.id; out.open = !!ev.open; break;
       case 'switch': if (!idOk(ev.id)) return; w.switches[ev.id] = !!ev.on; out.id = ev.id; out.on = !!ev.on; break;
-      case 'breaker': w.breaker = !!ev.on; out.on = !!ev.on; break;
+      case 'breaker': w.breaker = !!ev.on; out.on = !!ev.on; if (ev.ghost && me.host) out.ghost = true; break; // ghost: 幽霊(ポルターガイスト)が落とした。ホストだけが送れる
       case 'take': {
         const id = String(ev.id || '').slice(0, 40);
         if (!id) return;
@@ -477,7 +492,7 @@ io.on('connection', (socket) => {
       player.out = true; player.gameBound = false;
       maybeFinalize(room); // 最後の一人が戻ったなら、ここで結果が出る(下の rejoined に、出たばかりの結果を入れるため、先に行う)
     }
-    socket.emit('rejoined', { code: room.code, map: room.map, seed: room.seed, ghost: room.ghost, inGame: room.inGame, result: room.result, voteStatus: voteStatus(room).status, playerId: player.id, players: roomPlayerList(room) });
+    socket.emit('rejoined', { code: room.code, map: room.map, difficulty: room.difficulty, seed: room.seed, ghost: room.ghost, inGame: room.inGame, result: room.result, voteStatus: voteStatus(room).status, playerId: player.id, players: roomPlayerList(room) });
     socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, pos: player.pos || null, sanity: player.sanity, alive: player.alive !== false, out: !!player.out, inLobby: player.inLobby });
   });
 
