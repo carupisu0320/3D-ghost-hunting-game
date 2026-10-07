@@ -10,6 +10,7 @@ import {
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js'; // プレイヤーの見た目(黒いロボット)
 import { SERVER_URL } from './server-config.js';
+import { initAccount, onAccountChange, signIn, signOutAccount, getIdToken, fetchMe } from './account.js'; // Googleアカウントでのログインと、所持金
 
 // 接続先のサーバー(server.js)のURLは、server-config.js に書いてある(ロビーとゲーム本編で共通)
 
@@ -42,6 +43,7 @@ const board = {
   message: '',
   room: null,                                       // null | { code, isHost, myId, map, players: [{ id, name, host }] }
   lastResult: loadLastResult(),                     // 前回の特定の結果(なければnull)
+  account: { configured: false, signedIn: false, name: '', balance: null, enabled: true, busy: false }, // Googleアカウント(ログイン中か・所持金)
 };
 if (!MAPS.some(m => m.id === board.selectedMap)) board.selectedMap = MAPS[0].id;
 let boardButtons = [];
@@ -197,12 +199,50 @@ function handleButton(id) {
     case 'create': createRoom(); break;
     case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(code.toUpperCase())); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
+    case 'account': toggleAccount(); break;
     case 'maps': board.screen = 'maps'; boardDirty = true; break;
     case 'back': board.screen = 'main'; boardDirty = true; break;
     case 'start': if (socket) send({ type: 'start' }); break;
     case 'leave': leaveRoom(); break;
   }
 }
+// ---------- Googleアカウント(ログインと所持金) ----------
+// ログインすると、ゲームの報酬(お金)が、Googleアカウントごとにサーバーへ保存される。ログインしていない(ゲスト)と、保存されない
+function sendAuth() {
+  if (!socket) return;
+  const s = socket;
+  getIdToken().then((token) => { if (token && socket === s) s.emit('auth', { token }); }).catch(() => {});
+}
+async function refreshBalance() {
+  try {
+    const me = await fetchMe();
+    board.account.enabled = me.enabled !== false;
+    board.account.balance = me.enabled === false ? null : me.balance;
+  } catch (e) { board.account.balance = null; }
+  boardDirty = true;
+}
+function handleAccountChange(st) {
+  const wasSignedIn = board.account.signedIn;
+  board.account = { ...board.account, configured: st.configured, signedIn: st.signedIn, name: st.name, busy: false, balance: st.signedIn ? board.account.balance : null };
+  boardDirty = true;
+  if (!st.signedIn) return;
+  refreshBalance();
+  sendAuth();
+  if (!wasSignedIn && board.name === 'プレイヤー' && st.name) { // 初めてログインしたとき、名前がまだ初期のままなら、Googleの名前にする(あとで変えられる)
+    board.name = st.name.trim().slice(0, 12) || board.name; saveSetting('ghost_name', board.name);
+  }
+}
+function toggleAccount() {
+  if (board.account.busy) return;
+  board.account.busy = true; boardDirty = true;
+  if (board.account.signedIn) {
+    signOutAccount().catch(() => {}).finally(() => { board.account.busy = false; boardDirty = true; });
+    return;
+  }
+  controls.unlock(); // ポップアップでGoogleのログイン画面が開く間は、視点の固定を外す(マウスのクリックで押したときだけ、ポップアップが開く)
+  signIn().catch((e) => showMessage(e.message, 7000)).finally(() => { board.account.busy = false; boardDirty = true; });
+}
+
 function chooseMap(mapId) {
   if (board.room && !board.room.isHost) return;
   board.selectedMap = mapId; saveSetting('ghost_map', mapId);
@@ -251,7 +291,7 @@ function connectAndSend(msg) {
   showMessage('サーバーに接続中…(最初は起動に1分ほどかかることがあります)', 70000);
   const s = io(SERVER_URL, { reconnection: false, timeout: 70000 });
   socket = s;
-  s.on('connect', () => { clearMessage(); s.emit(msg.type, msg); });
+  s.on('connect', () => { clearMessage(); s.emit(msg.type, msg); sendAuth(); }); // ログイン中なら、サーバーにも本人確認を送る(報酬を保存するため)
   s.on('connect_error', () => {
     if (socket !== s) return;
     closeSocket();
@@ -308,6 +348,8 @@ function handleServerMessage(msg) {
     msg.players.forEach(p => { if (p.id !== msg.playerId) addRemotePlayer(p); });
     updateRoomBadge();
     sendMove(true);
+  } else if (msg.type === 'moneyUpdate' || msg.type === 'authed') {
+    if (msg.balance !== undefined && msg.balance !== null) { board.account.balance = msg.balance; boardDirty = true; } // 結果が出たとき(報酬が保存された)・ログインが確認できたとき
   } else if (msg.type === 'rejoined') {
     // ゲームから戻った(またはロビーを開き直した)ので、同じ部屋に戻る
     const me = msg.players.find(p => p.id === msg.playerId);
@@ -654,5 +696,7 @@ function animate() {
   renderer.render(scene, camera);
 }
 showHintIfNeeded();
+initAccount();                    // Googleログインの準備(設定されていなければ、何もしない)
+onAccountChange(handleAccountChange);
 tryRejoinSavedRoom();
 animate();
