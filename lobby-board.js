@@ -13,7 +13,8 @@ export function mapLabel(id) { const m = MAPS.find(x => x.id === id); return m ?
 
 // state: { screen: 'main'|'maps', name, selectedMap, hoverId, message,
 //          room: null | { code, isHost, myId, map, players: [{ id, name, host }] },
-//          lastResult: null | 前回の特定の結果(ゲーム本編が保存したもの。下の drawResultBlock を見る) }
+//          lastResult: null | 前回の特定の結果(ゲーム本編が保存したもの。下の drawResultBlock を見る),
+//          account: { configured(Googleログインが設定済みか), signedIn, name, balance(所持金。分からないときnull), enabled(サーバー側の保存が有効か), busy } }
 export function drawBoard(ctx, state) {
   const { room } = state;
   const buttons = [];
@@ -78,6 +79,35 @@ export function drawBoard(ctx, state) {
     }
   };
 
+  // 小さめのボタン(左パネルの中のアカウント用)
+  const smallButton = (id, label, x, y, w, h, enabled = true) => {
+    const hover = enabled && state.hoverId === id;
+    if (hover) { ctx.fillStyle = 'rgba(60,120,200,0.20)'; ctx.fillRect(x, y, w, h); }
+    ctx.strokeStyle = enabled ? (hover ? BLUE : INK) : '#a9acb2'; ctx.lineWidth = hover ? 5 : 3;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = enabled ? (hover ? BLUE : INK) : '#a9acb2'; ctx.textAlign = 'center'; ctx.font = `bold 28px ${FONT}`;
+    ctx.fillText(label, x + w / 2, y + h / 2 + 10);
+    buttons.push({ id, label, x, y, w, h, enabled });
+  };
+  // 所持金と、Googleアカウントの欄(左パネルの中)。moneyY: 「所持金」の行の高さ、buttonY: ボタンの上端
+  const accountBlock = (moneyY, buttonY) => {
+    const a = state.account || { configured: false };
+    line('所持金', 62, moneyY, 22, SUB);
+    let moneyText, moneyColor = INK;
+    if (!a.configured) { moneyText = '(ログイン機能は未設定)'; moneyColor = SUB; }
+    else if (!a.signedIn) { moneyText = 'ゲスト(保存されません)'; moneyColor = SUB; }
+    else if (a.enabled === false) { moneyText = '(サーバー側が未設定)'; moneyColor = SUB; }
+    else if (a.balance === null || a.balance === undefined) { moneyText = '読み込み中…'; moneyColor = SUB; }
+    else moneyText = `¥${Number(a.balance).toLocaleString()}`;
+    ctx.font = `${a.signedIn && a.balance != null ? 'bold ' : ''}${a.signedIn && a.balance != null ? 32 : 24}px ${FONT}`;
+    ctx.fillStyle = moneyColor; ctx.textAlign = 'left'; ctx.fillText(fit(moneyText, 290), 62, moneyY + 36);
+    if (a.configured) {
+      if (a.signedIn) smallButton('account', a.busy ? '…' : 'ログアウト', 62, buttonY, 296, 52, !a.busy);
+      else smallButton('account', a.busy ? 'ログイン中…' : 'Googleでログイン', 62, buttonY, 296, 52, !a.busy);
+      if (a.signedIn) line(fit(`${a.name} でログイン中`, 296), 62, buttonY - 12, 21, SUB);
+    }
+  };
+
   const mapName = mapLabel(state.selectedMap);
   const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 248 + i * 38, 25)); };
 
@@ -94,7 +124,8 @@ export function drawBoard(ctx, state) {
   } else if (room) {
     // ---- 部屋の中(参加者の一覧・開始・マップ・退出) ----
     panel(40, 150, 340, 470, `プレイヤー ${room.players.length}/4`);
-    room.players.forEach((p, i) => line(`${p.host ? '★' : '・'} ${fit(p.name, 220)}${p.id === room.myId ? ' (自分)' : ''}`, 62, 252 + i * 46, 29));
+    room.players.forEach((p, i) => line(`${p.host ? '★' : '・'} ${fit(p.name, 220)}${p.id === room.myId ? ' (自分)' : ''}`, 62, 252 + i * 42, 28));
+    accountBlock(444, 556);
     if (room.isHost) button('start', 'ゲーム開始', 0); else button('wait', 'ホストの開始待ち', 0, false);
     button('maps', 'マップ選択', 1, room.isHost, mapName);
     button('leave', '部屋を出る', 2);
@@ -111,9 +142,9 @@ export function drawBoard(ctx, state) {
     button('maps', 'マップ選択', 3, true, mapName);
     button('rename', '名前を変える', 4, true, state.name);
     panel(40, 150, 340, 470, 'ステータス');
-    line('名前', 62, 252, 24, SUB); line(fit(state.name, 290), 62, 290, 32);
-    line('マップ', 62, 360, 24, SUB); line(fit(mapName, 290), 62, 398, 32);
-    line('接続', 62, 468, 24, SUB); line('ソロ(オフライン)', 62, 506, 28);
+    line('名前', 62, 238, 22, SUB); line(fit(state.name, 290), 62, 272, 30);
+    line('マップ', 62, 310, 22, SUB); line(fit(mapName, 290), 62, 344, 30);
+    accountBlock(384, 540);
     panel(900, 150, 340, 470, 'あそびかた');
     ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人'].forEach((t, i) => line(t, 922, 244 + i * 30, 23));
     drawResultBlock(922, 506);
