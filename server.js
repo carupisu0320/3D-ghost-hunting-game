@@ -12,6 +12,7 @@
 //   - 幽霊の状態(位置・ハント中か・狙っている人・オーブ) → ホストから全員へ
 //   - 世界の操作(ドア・ブレーカー・照明スイッチ・床の道具を拾う/置く・ノートへの書き込み) → 全員へ。サーバーが「今の状態」も覚えていて、あとから入った人にまとめて渡す
 //   - 死亡(ホストが判定) → 全員へ。死んだ人は、以後、狙われない
+//   - お金: Googleにログインしている人には、特定の結果の報酬を、Googleアカウントごとに保存する(money.js / FIREBASE_SETUP.md)
 //   - 特定(一人ひとりの投票) → サーバーが多数決で集計(同票なら同票の中からランダム)して、結果を全員へ。結果が出たら、部屋はそのまま残る(ロビーに戻って続けられる)
 //
 // Socket.IOの基本(このファイルを読むときの目安):
@@ -24,6 +25,7 @@
 const http = require('http');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
+const { createMoneyStore } = require('./money'); // 稼いだお金のGoogleアカウントごとの保存(設定がなければオフ)
 
 const PORT = process.env.PORT || 8080;
 const MAX_PLAYERS = 4;
@@ -53,7 +55,74 @@ function isAllowedOrigin(origin) {
 
 // ---------- サーバー本体 ----------
 // 普通のURLにアクセスされたときは「動いています」と返す(ホスティング側の死活確認と、ブラウザでの動作確認用)
-const httpServer = http.createServer((req, res) => {
+const money = createMoneyStore();
+console.log(money.enabled ? `お金の保存: オン(${money.mode})` : `お金の保存: オフ(${money.reason})`);
+
+// ---- お金の窓口(HTTP) ----
+//   GET  /me     ログイン中の本人の所持金を返す             ヘッダー: Authorization: Bearer <GoogleログインのIDトークン>
+//   POST /claim  ひとりで遊んだ結果の報酬を受け取る       本文(JSON): { correct, elapsed, claimId }
+// 報酬の額は、ブラウザから受け取らず、サーバーが correct と elapsed から計算する。同じ claimId は二重に受け取れない。
+// ひとりで遊ぶ結果は、ブラウザの申告をそのまま信じるしかないので、受け取りは1分に1回までにしてある(オンラインの報酬は、サーバーが計算する)
+const CLAIM_INTERVAL_MS = Number(process.env.CLAIM_INTERVAL_MS) || 60000;
+const lastClaimAt = new Map(); // uid -> 最後に受け取った時刻
+function sendJson(req, res, status, body) {
+  const origin = req.headers.origin;
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (origin && isAllowedOrigin(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(body));
+}
+function bearerToken(req) {
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization || '');
+  return m ? m[1] : null;
+}
+function readJsonBody(req, limit = 2000) {
+  return new Promise((resolve, reject) => {
+    let size = 0, data = '';
+    req.on('data', (chunk) => { size += chunk.length; if (size > limit) { reject(new Error('too large')); req.destroy(); } else data += chunk; });
+    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+    req.on('error', reject);
+  });
+}
+const httpServer = http.createServer(async (req, res) => {
+  const path = (req.url || '/').split('?')[0];
+  if (req.method === 'OPTIONS' && (path === '/me' || path === '/claim')) { // ブラウザが先に送ってくる確認(CORS)
+    const origin = req.headers.origin;
+    const headers = { 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Max-Age': '600', 'Vary': 'Origin' };
+    if (origin && isAllowedOrigin(origin)) headers['Access-Control-Allow-Origin'] = origin;
+    res.writeHead(204, headers); res.end(); return;
+  }
+  if ((path === '/me' && req.method === 'GET') || (path === '/claim' && req.method === 'POST')) {
+    if (req.headers.origin && !isAllowedOrigin(req.headers.origin)) { sendJson(req, res, 403, { error: 'forbidden' }); return; }
+    if (!money.enabled) { sendJson(req, res, 200, { enabled: false }); return; } // サーバー側の保存設定がまだ
+    let user;
+    try { user = await money.verify(bearerToken(req)); } catch (e) { sendJson(req, res, 401, { error: 'ログインを確認できませんでした' }); return; }
+    try {
+      if (path === '/me') {
+        sendJson(req, res, 200, { enabled: true, uid: user.uid, name: user.name, balance: await money.get(user.uid) });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const claimId = String(body.claimId || '').slice(0, 64);
+      if (!claimId || typeof body.correct !== 'boolean') { sendJson(req, res, 400, { error: 'bad request' }); return; }
+      const now = Date.now();
+      if (now - (lastClaimAt.get(user.uid) || 0) < CLAIM_INTERVAL_MS) {
+        sendJson(req, res, 429, { error: 'too fast', balance: await money.get(user.uid) }); return;
+      }
+      const elapsed = Math.min(36000, Math.max(0, Number(body.elapsed) || 0));
+      const reward = body.correct ? calcReward(true, elapsed) : calcReward(false, elapsed);
+      const r = await money.add(user.uid, reward, { name: user.name, claimId: 'solo:' + claimId });
+      if (!r.duplicate) lastClaimAt.set(user.uid, now);
+      sendJson(req, res, 200, { enabled: true, reward: r.duplicate ? 0 : reward, balance: r.balance, duplicate: r.duplicate });
+    } catch (e) {
+      console.error('お金の処理に失敗:', e.message);
+      sendJson(req, res, 500, { error: 'server error' });
+    }
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('ghost-hunting lobby server is running\n');
 });
@@ -69,7 +138,8 @@ const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホスト�
 // player = { id(ページを移動しても変わらない目印), token(つなぎ直すときの合言葉。本人にしか教えない), sockId(いまの接続。切れている間はnull), name, color, host, timer,
 //            hostTimer(ホスト交代の待ち), pos(最後の位置), sanity(正気度。ゲームに入るまでundefined), alive(死んでいないか), out(特定の投票に数えない: 結果が出た・ロビーに戻った),
 //            vote(特定で選んだ幽霊の名前。まだならnull), gameBound(ゲームのページへ移動中・ゲーム中。切れても、すぐには部屋から外さない),
-//            inLobby(いまロビーのページにいるか。ロビーでは、ロビーにいる人だけをアバターで出す) }
+//            inLobby(いまロビーのページにいるか。ロビーでは、ロビーにいる人だけをアバターで出す),
+//            uid(Googleにログインしていて、サーバーがトークンを確認できた人だけ。報酬の保存先) }
 
 function generateRoomCode() {
   let code;
@@ -83,7 +153,7 @@ function roomPlayerList(room) {
   return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false }));
 }
 function newPlayer(socket, name, host, color) {
-  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true };
+  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true, uid: null };
 }
 // 部屋の全員に送る。exceptIdがあれば、そのプレイヤー(の今の接続)には送らない
 function emitRoom(room, event, payload, exceptId) {
@@ -131,6 +201,23 @@ function finalizeVote(room, voted) {
   room.result = result;
   room.inGame = false; // ここでゲームは終わり。部屋は残るので、ロビーに戻ってまた始められる
   io.to(room.code).emit('identifyResult', { result });
+  payout(room, result).catch((e) => console.error('報酬の保存に失敗:', e.message)); // 保存を待たずに、結果は先に全員へ届いている
+}
+// 結果が出たら、Googleにログインしている全員に、報酬を保存する(同じアカウントで2人入っていても、二重には受け取れない)
+async function payout(room, result) {
+  if (!money.enabled || !result.reward) return;
+  const claimId = `room:${room.code}:${result.at}`;
+  for (const p of Array.from(room.players.values())) {
+    if (!p.uid) continue;
+    const sock = p.sockId && io.sockets.sockets.get(p.sockId);
+    try {
+      const r = await money.add(p.uid, result.reward, { name: p.name, claimId });
+      if (sock) sock.emit('moneyUpdate', { reward: r.duplicate ? 0 : result.reward, balance: r.balance, duplicate: r.duplicate });
+    } catch (e) {
+      console.error('報酬の保存に失敗:', e.message);
+      if (sock) sock.emit('moneyUpdate', { error: true });
+    }
+  }
 }
 function maybeFinalize(room) {
   if (!room.inGame) return;
@@ -181,12 +268,29 @@ function transferHost(room, hostId) {
 io.on('connection', (socket) => {
   socket.data.roomCode = null;
 
+  // Googleログインの確認。ブラウザがIDトークンを送ってきて、サーバーが本物か確かめる(確かめられた uid だけを使う)
+  // 部屋に入る前でも後でもよい(どちらの順でも、部屋のプレイヤーに結びつく)
+  socket.on('auth', async (msg = {}) => {
+    if (!money.enabled) return;
+    try {
+      const user = await money.verify(String(msg.token || ''));
+      socket.data.uid = user.uid;
+      const room = rooms.get(socket.data.roomCode);
+      const me = room && room.players.get(socket.data.playerId);
+      if (me) me.uid = user.uid;
+      socket.emit('authed', { name: user.name, balance: await money.get(user.uid) });
+    } catch (e) {
+      socket.emit('authed', { error: true });
+    }
+  });
+
   // 部屋を作る
   socket.on('create', (msg = {}) => {
     if (socket.data.roomCode) return; // すでにどこかの部屋にいる
     const code = generateRoomCode();
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
     const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
+    player.uid = socket.data.uid || null; // 先にログインの確認が済んでいれば、ここで結びつく
     const room = { code, map, inGame: false, seed: 0, ghost: null, world: newWorld(), truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
     rooms.set(code, room);
     socket.data.roomCode = code;
@@ -205,6 +309,7 @@ io.on('connection', (socket) => {
 
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
     const player = newPlayer(socket, cleanName(msg.name), false, color);
+    player.uid = socket.data.uid || null;
     room.players.set(player.id, player);
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
@@ -366,6 +471,7 @@ io.on('connection', (socket) => {
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
     socket.join(room.code);
+    if (socket.data.uid) player.uid = socket.data.uid;
     player.inLobby = msg.lobby === true;
     if (msg.lobby === true) { // ロビーに戻ってきた(ゲームが続いているなら、その回の投票には数えない)
       player.out = true; player.gameBound = false;
