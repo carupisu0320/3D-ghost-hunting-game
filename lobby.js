@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { io } from 'socket.io-client'; // 通信(Socket.IO)。読み込み先はlobby.htmlのimportmapに書いてある
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { buildLobbySpace, moveWithCollision } from './lobby-space.js';
-import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS } from './lobby-board.js';
+import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS, DIFFICULTIES } from './lobby-board.js';
 import {
   makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh,
   toolNames, toolIcons, viewmodelBase, viewmodelOverrides,
@@ -39,6 +39,7 @@ const board = {
   screen: 'main',                                   // 'main' | 'maps'
   name: loadSetting('ghost_name', 'プレイヤー'),
   selectedMap: loadSetting('ghost_map', 'grafton'),
+  difficulty: loadSetting('ghost_difficulty', 'normal'), // 難易度(easy / normal / hard / nightmare)。普通が、これまでのゲーム
   hoverId: null,
   message: '',
   room: null,                                       // null | { code, isHost, myId, map, players: [{ id, name, host }] }
@@ -46,6 +47,7 @@ const board = {
   account: { configured: false, signedIn: false, name: '', balance: null, enabled: true, busy: false }, // Googleアカウント(ログイン中か・所持金)
 };
 if (!MAPS.some(m => m.id === board.selectedMap)) board.selectedMap = MAPS[0].id;
+if (!DIFFICULTIES.some(d => d.id === board.difficulty)) board.difficulty = 'normal';
 let boardButtons = [];
 let boardDirty = true;
 let messageTimer = null;
@@ -194,8 +196,9 @@ renderer.domElement.addEventListener('click', () => { if (controls.isLocked) act
 
 function handleButton(id) {
   if (id.startsWith('map:')) { chooseMap(id.slice(4)); return; }
+  if (id.startsWith('diff:')) { chooseDifficulty(id.slice(5)); return; }
   switch (id) {
-    case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap); break; // 部屋にいたなら、すぐ抜ける
+    case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap, board.difficulty); break; // 部屋にいたなら、すぐ抜ける
     case 'create': createRoom(); break;
     case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(code.toUpperCase())); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
@@ -249,8 +252,20 @@ function chooseMap(mapId) {
   if (board.room) { board.room.map = mapId; send({ type: 'setMap', map: mapId }); }
   board.screen = 'main'; boardDirty = true;
 }
+// 難易度を選ぶ(部屋にいるときは、ホストだけ。選んだものは部屋の全員に適用される)。マップ選択の画面にとどまって、続けて選べる
+function chooseDifficulty(id) {
+  if (!DIFFICULTIES.some(d => d.id === id)) return;
+  if (board.room && !board.room.isHost) return;
+  board.difficulty = id; saveSetting('ghost_difficulty', id);
+  if (board.room) { board.room.difficulty = id; send({ type: 'setDifficulty', difficulty: id }); }
+  boardDirty = true;
+}
 let leavingForGame = false; // ゲームのページへ移動中(このあとの接続切れは、部屋を出たのではなく、ページの移動)
-function goToGame(mapId) { leavingForGame = true; window.location.href = 'game.html?map=' + encodeURIComponent(mapId); }
+// ゲームのページへ。難易度は ?difficulty= で渡す(オンラインのときは、ゲームのページがサーバーから受け取るので、そちらが優先される)
+function goToGame(mapId, difficulty = 'normal') {
+  leavingForGame = true;
+  window.location.href = 'game.html?map=' + encodeURIComponent(mapId) + '&difficulty=' + encodeURIComponent(difficulty);
+}
 
 // ---------- 入力ダイアログ(名前・部屋コード) ----------
 let modalCallback = null;
@@ -305,7 +320,7 @@ function connectAndSend(msg) {
   });
   s.onAny((event, payload) => handleServerMessage({ ...payload, type: event }));
 }
-function createRoom() { connectAndSend({ type: 'create', name: board.name, map: board.selectedMap }); }
+function createRoom() { connectAndSend({ type: 'create', name: board.name, map: board.selectedMap, difficulty: board.difficulty }); }
 function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, code }); }
 function leaveRoom() {
   send({ type: 'leave' }); // 切れたときと違って、待たずにすぐ部屋から外してもらう
@@ -341,7 +356,8 @@ function updateRoomBadge() {
 function handleServerMessage(msg) {
   const room = board.room;
   if (msg.type === 'created' || msg.type === 'joined') {
-    board.room = { code: msg.code, isHost: msg.type === 'created', myId: msg.playerId, map: msg.map, players: msg.players.slice() };
+    board.room = { code: msg.code, isHost: msg.type === 'created', myId: msg.playerId, map: msg.map, difficulty: msg.difficulty, players: msg.players.slice() };
+    if (msg.difficulty) board.difficulty = msg.difficulty; // 部屋の難易度に合わせる(参加した人は、ホストが決めたもの)
     try { sessionStorage.setItem('ghost_session', JSON.stringify({ code: msg.code, token: msg.token, playerId: msg.playerId, name: board.name })); } catch (e) { /* 覚えられなくても、ロビーは使える(ゲームでほかの人が見えなくなる) */ }
     if (msg.type === 'joined') board.selectedMap = msg.map;
     board.screen = 'main'; boardDirty = true;
@@ -353,8 +369,9 @@ function handleServerMessage(msg) {
   } else if (msg.type === 'rejoined') {
     // ゲームから戻った(またはロビーを開き直した)ので、同じ部屋に戻る
     const me = msg.players.find(p => p.id === msg.playerId);
-    board.room = { code: msg.code, isHost: !!(me && me.host), myId: msg.playerId, map: msg.map, players: msg.players.map(p => ({ id: p.id, name: p.name, host: p.host })) };
+    board.room = { code: msg.code, isHost: !!(me && me.host), myId: msg.playerId, map: msg.map, difficulty: msg.difficulty, players: msg.players.map(p => ({ id: p.id, name: p.name, host: p.host })) };
     board.selectedMap = msg.map; board.screen = 'main'; boardDirty = true;
+    if (msg.difficulty) board.difficulty = msg.difficulty;
     msg.players.forEach(p => { if (p.id !== msg.playerId && p.online && p.inLobby) addRemotePlayer(p); }); // まだゲーム中の人は、ロビーのアバターとしては出さない
     updateRoomBadge();
     sendMove(true);
@@ -387,11 +404,13 @@ function handleServerMessage(msg) {
     boardDirty = true;
   } else if (msg.type === 'mapChanged') {
     room.map = msg.map; board.selectedMap = msg.map; boardDirty = true;
+  } else if (msg.type === 'difficultyChanged') {
+    room.difficulty = msg.difficulty; board.difficulty = msg.difficulty; boardDirty = true; // ホストが難易度を変えた
   } else if (msg.type === 'playerMove') {
     moveRemotePlayer(msg);
   } else if (msg.type === 'gameStart') {
     // 本編は、今のところ全員が同じマップを「それぞれ」遊ぶ形(プレイヤー同士の同期は今後実装する)
-    goToGame(msg.map || room.map);
+    goToGame(msg.map || room.map, msg.difficulty || room.difficulty || board.difficulty);
   }
 }
 
