@@ -1,7 +1,7 @@
 {
   "name": "ghost-hunting-lobby-server",
-  "version": "2.0.0",
-  "description": "3Dゴーストハンティングゲームのマルチプレイ用ロビーサーバー(Socket.IO)",
+  "version": "2.1.0",
+  "description": "3Dゴーストハンティングゲームのマルチプレイ用ロビーサーバー(Socket.IO)+ 報酬をGoogleアカウントごとに保存(Firebase)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,6 +10,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "firebase-admin": "^13.0.0"
   }
 }
