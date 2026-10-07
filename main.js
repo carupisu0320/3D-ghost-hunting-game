@@ -1,7 +1,7 @@
 // このファイルはマップを増やしても書き換えなくて済むよう、薄いブートストラップだけにしてある。
 // 実際のゲームの仕組みは engine.js、各マップの中身はそれぞれの map ファイルに分かれている。
 // マップの実体(build())は、選ばれるまでは呼ばない(2つ以上のマップを同時に組み立ててしまわないようにするため)
-import { addMapCard, startEngine, enterGame, requestPadStart, setHauntSeed, scene, camera } from './engine.js';
+import { addMapCard, startEngine, enterGame, requestPadStart, setHauntSeed, setDifficulty, scene, camera } from './engine.js';
 import { build as buildHouse, mapLabel as houseLabel } from './house-map.js';
 import { build as buildGrafton, mapLabel as graftonLabel } from './grafton-map.js';
 
@@ -27,8 +27,10 @@ function showLoadingScreen(mapName) {
   return overlay;
 }
 
-// ロビーの部屋から来たときに、サーバーから受け取った { seed } が入る(ひとりで遊ぶときや、つながらなかったときは null のまま)
+// ロビーの部屋から来たときに、サーバーから受け取った { seed, difficulty } が入る(ひとりで遊ぶときや、つながらなかったときは null のまま)
 let onlineInfo = null;
+// 難易度: オンラインのときは、サーバー(ホストが選んだもの)が優先。ひとりで遊ぶときは、ロビーが ?difficulty= で渡したもの。どちらもなければ「普通」
+const urlDifficulty = new URLSearchParams(location.search).get('difficulty');
 
 // マップが選ばれたら、先にロード画面を出し、それが実際に画面に描かれてから重い処理(build + enterGame)を始める。
 // (先に始めてしまうと、ロード画面が描かれる前にブラウザが固まって、意味がなくなる)
@@ -38,6 +40,7 @@ function selectMap(label, buildFn) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       try {
         if (onlineInfo && onlineInfo.seed != null) setHauntSeed(onlineInfo.seed); // 全員で同じ幽霊・同じ出没部屋にする(マップを組み立てる前に渡す)
+        setDifficulty((onlineInfo && onlineInfo.difficulty) || urlDifficulty || 'normal'); // 難易度も、マップを組み立てる前に渡す(ハヤトを抽選から外すかどうかが、組み立て中に決まるため)
         buildFn();
         enterGame();
       } catch (err) {
