@@ -926,7 +926,7 @@ new FBXLoader().load('./ghost-model.fbx', (fbx) => {
 // (見た目は人型モデル、証拠はスピリットボックスのみ、襲ってこない。進行中のハントもその場で終わる)
 let secretBuffer = '';
 window.addEventListener('keydown', (e) => {
-  if (net || !hauntedRoom || (currentGhost && currentGhost.name === 'ハヤト')) return; // オンライン中は、ひとりだけ幽霊が変わってしまうので無効。マップ選択前(幽霊がまだいない)や、すでにハヤトのときは何もしない
+  if (net || !difficulty.hayato || !hauntedRoom || (currentGhost && currentGhost.name === 'ハヤト')) return; // ナイトメアでは、ハヤトは出ない。 // オンライン中は、ひとりだけ幽霊が変わってしまうので無効。マップ選択前(幽霊がまだいない)や、すでにハヤトのときは何もしない
   if (typeof e.key !== 'string' || e.key.length !== 1) return;
   secretBuffer = (secretBuffer + e.key.toLowerCase()).slice(-6);
   if (secretBuffer === 'hayato') {
@@ -1058,6 +1058,45 @@ function playerInHauntedRoom(x, z) {
   return sameFloor && x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
 }
 
+// ==== 難易度 ====
+// ロビーのボードで選ぶ(オンラインのときは、ホストが選んだものが全員に適用される)。main.js が、マップを組み立てる前に setDifficulty() で渡す。
+//   普通 = これまでのゲーム(+ ブレーカーが、ポルターガイストのように落とされることがある)
+//   canRaiseBreaker : false だと、ブレーカーを上げられない(ずっと停電)
+//   breakerTrips    : 幽霊が、上がっているブレーカーを落とすことがあるか。tripMin〜tripMax 秒ごとに(ブレーカーを上げるたびに、時間は数え直す)
+//   hayato          : false だと、ハヤト(襲ってこないテスト用の幽霊)が出ない(抽選・調査書の一覧・隠しコマンドのすべてから外れる)
+const DIFFICULTIES = {
+  easy:      { label: '易しい',     canRaiseBreaker: true,  breakerTrips: false, tripMin: 0,  tripMax: 0,   hayato: true },
+  normal:    { label: '普通',       canRaiseBreaker: true,  breakerTrips: true,  tripMin: 150, tripMax: 300, hayato: true },
+  hard:      { label: '難しい',     canRaiseBreaker: true,  breakerTrips: true,  tripMin: 60,  tripMax: 150, hayato: true },
+  nightmare: { label: 'ナイトメア', canRaiseBreaker: false, breakerTrips: false, tripMin: 0,  tripMax: 0,   hayato: false },
+};
+let difficultyId = 'normal';
+let difficulty = DIFFICULTIES.normal;
+let breakerTripTimer = -1; // 上がっているブレーカーが落とされるまでの残り秒数(-1 は「まだ決めていない/いまは数えない」)
+function setDifficulty(id) {
+  difficultyId = DIFFICULTIES[id] ? id : 'normal';
+  difficulty = DIFFICULTIES[difficultyId];
+  breakerTripTimer = -1;
+  updateJournalGhostList(); // ハヤトが出ない難易度では、調査書の一覧からも外す
+}
+function getDifficultyId() { return difficultyId; }
+
+// ポルターガイストのように、幽霊が上がっているブレーカーを落とす。毎フレーム呼ぶ。落とす時間になったら true を返す
+function breakerTick(delta) {
+  if (!difficulty.breakerTrips || !breakerOn) { breakerTripTimer = -1; return false; } // 落ちているとき・落とさない難易度のときは数えない
+  if (breakerTripTimer < 0) breakerTripTimer = difficulty.tripMin + Math.random() * (difficulty.tripMax - difficulty.tripMin);
+  breakerTripTimer -= delta;
+  if (breakerTripTimer > 0) return false;
+  breakerTripTimer = -1;
+  return true;
+}
+function tripBreaker() {
+  if (!breakerOn) return;
+  breakerOn = false;
+  if (onBreakerToggle) onBreakerToggle();
+  showPickupNotice('ブレーカーが落ちた…!');
+}
+
 // 全員で同じ幽霊・同じ出没部屋・同じ手形のドアにするための、種(シード)つきの乱数。
 // ロビーの部屋から来たときだけ、main.js がサーバーから受け取った種を setHauntSeed() で渡す。ひとりで遊ぶときは、普通の乱数のまま
 let hauntRand = Math.random;
@@ -1073,7 +1112,8 @@ function setHauntSeed(seed) {
 
 // 幽霊を1体ランダムに選び、渡された候補部屋(マップ側が「出没してよい部屋」として絞り込んだもの)の中に配置する
 function initHaunting(hauntableRoomEntries) {
-  currentGhost = ghostTypes[Math.floor(hauntRand() * ghostTypes.length)];
+  const ghostPool = difficulty.hayato ? ghostTypes : ghostTypes.filter((g) => g.name !== 'ハヤト'); // 普通などは、これまでと同じ抽選
+  currentGhost = ghostPool[Math.floor(hauntRand() * ghostPool.length)];
   const hauntedRoomEntry = hauntableRoomEntries[Math.floor(hauntRand() * hauntableRoomEntries.length)];
   hauntedRoom = hauntedRoomEntry.bounds;
   notebookTimer = 15 + hauntRand() * 30; // ゴーストライティングが起こるまでの時間も、全員で同じ値にする
@@ -1296,6 +1336,10 @@ function tryInteract({ includePickup = true } = {}) {
   if (breakerBox) {
     const dbx = camera.position.x - breakerBox.x, dbz = camera.position.z - breakerBox.z;
     if (Math.sqrt(dbx * dbx + dbz * dbz) < 1.2) {
+      if (!breakerOn && !difficulty.canRaiseBreaker) { // ナイトメア: ブレーカーが上がらない(ずっと停電)
+        showPickupNotice('ブレーカーが上がらない…');
+        return;
+      }
       breakerOn = !breakerOn;
       if (onBreakerToggle) onBreakerToggle();
       showPickupNotice(breakerOn ? 'ブレーカーを入れた' : 'ブレーカーを落とした');
@@ -1503,7 +1547,7 @@ function updateJournalGhostList() {
   journalGhostList.innerHTML = '';
   journalGhostRows = [];
   const checkedList = [...checkedEvidence];
-  const matching = ghostTypes.filter(g => checkedList.every(ev => g.evidence.includes(ev)));
+  const matching = ghostTypes.filter(g => (difficulty.hayato || g.name !== 'ハヤト') && checkedList.every(ev => g.evidence.includes(ev)));
   matching.forEach(g => {
     const row = document.createElement('div');
     const isSelected = g.name === (myVote || selectedGhostName);
@@ -1971,7 +2015,7 @@ function showGroupResult(result) {
   const truth = result.truth || currentGhost.name; // 誰も特定しないまま全滅したときは、サーバーが正体を知らないので、こちらで補う
   const correct = result.winner != null && result.winner === truth;
   const reward = result.wipe ? 0 : (result.reward != null ? result.reward : calculateReward(correct, result.elapsed || 0));
-  const saved = { ...result, truth, correct, reward };
+  const saved = { ...result, truth, correct, reward, difficulty: difficultyId }; // 難易度も一緒に保存する(ロビーのボードに出す)
   try { localStorage.setItem(LAST_RESULT_KEY, JSON.stringify(saved)); } catch (e) { /* 保存できなくても、結果は出せる */ }
 
   gameOver = true; // 結果が出たら、この回のプレイは全員終了(ハントなども止める)
@@ -1986,7 +2030,7 @@ function showGroupResult(result) {
 
   identifyResultTitle.textContent = result.wipe ? '全滅…' : correct ? '特定成功!' : '特定失敗…';
   identifyResultTitle.style.color = result.wipe ? '#ff6666' : correct ? '#7CFC9A' : '#ff6666';
-  const lines = [`幽霊の正体: ${truth}`];
+  const lines = [`難易度: ${difficulty.label}`, `幽霊の正体: ${truth}`];
   if (result.wipe) {
     lines.push('特定できないまま、全員が死亡しました');
   } else {
@@ -2194,7 +2238,7 @@ function applyWorldEvent(ev, { instant = false } = {}) {
       if (breakerOn === on) return;
       breakerOn = on;
       if (onBreakerToggle) onBreakerToggle();
-      if (!instant) showPickupNotice(`${ev.name || 'だれか'}がブレーカーを${on ? '入れた' : '落とした'}`);
+      if (!instant) showPickupNotice(ev.ghost ? 'ブレーカーが落ちた…!' : `${ev.name || 'だれか'}がブレーカーを${on ? '入れた' : '落とした'}`);
       break;
     }
     case 'switch': {
@@ -2380,6 +2424,7 @@ function updateOnlineGhost(delta) {
   ghost.position.y = ghostFloorY + 1.0 + Math.sin(clock.elapsedTime * 2) * 0.1;
   ghost.rotation.y += delta * 0.5;
   if (orbRoom) updateOrb(delta); // オーブ(オーブが証拠の幽霊のときだけ出る)もホストが動かして、位置を全員へ送る
+  if (breakerTick(delta)) { tripBreaker(); netWorld({ kind: 'breaker', on: false, ghost: true }); } // ポルターガイスト: 幽霊がブレーカーを落とす(落とすのはホストだけ。全員に知らせる)
 
   ghostSendTimer -= delta;
   if (changed || ghostSendTimer <= 0) {
@@ -2657,7 +2702,10 @@ function animate() {
     }
 
     updateHotbar();
-    if (!net) updateOrb(delta); // オンラインのオーブは、ホストが動かして全員へ送る(updateOnlineGhost)
+    if (!net) { // オンラインのオーブ・ブレーカーは、ホストが動かして全員へ送る(updateOnlineGhost)
+      updateOrb(delta);
+      if (breakerTick(delta)) tripBreaker(); // ポルターガイスト: 上がっているブレーカーを、幽霊が落とす
+    }
   }
 
   // 監視カメラの映像をモニターへ(負荷を抑えるため、1回のタイマーで1台ずつ順番に更新)。カメラが無いマップなら何もしない
@@ -2795,4 +2843,5 @@ export {
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
   applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate,
+  setDifficulty, getDifficultyId,
 };
