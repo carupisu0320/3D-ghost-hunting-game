@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
 import { SERVER_URL } from './server-config.js';
-import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState } from './engine.js';
+import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate } from './engine.js';
 
 const EYE_HEIGHT = 1.6;     // 本編のカメラの高さ(床から)。足元の高さ = カメラの高さ - これ
 const NAME_VISIBLE_DIST = 12; // 名前を出す距離(m)
@@ -118,7 +118,16 @@ export function startOnlineSession({ scene, camera }) {
     socket.disconnect();
     resolveReady(null);
   }, 15000);
-  socket.on('connect', () => { socket.emit('rejoin', { code: session.code, token: session.token }); });
+  // Googleにログインしているなら、サーバーに本人確認を送る(結果の報酬を、そのアカウントに保存してもらうため)
+  async function sendAuth() {
+    try {
+      const account = await import('./account.js');
+      await account.waitForAuth();
+      const token = await account.getIdToken();
+      if (token && socket.connected) socket.emit('auth', { token });
+    } catch (e) { /* ログインしていなくても、ゲームは続けられる */ }
+  }
+  socket.on('connect', () => { socket.emit('rejoin', { code: session.code, token: session.token }); sendAuth(); });
   socket.on('connect_error', () => { if (!joined) setBadge('オンライン: サーバーにつながりません(つながるまで待っています)'); });
   socket.on('disconnect', () => { joined = false; setBadge('オンライン: 切れました(つなぎ直しています)'); });
   socket.on('rejoined', (msg) => {
@@ -153,6 +162,7 @@ export function startOnlineSession({ scene, camera }) {
   socket.on('ghost', (msg) => { if (!hooks.isHost()) applyNetGhost(msg); }); // ホストが計算した幽霊の状態
   socket.on('world', (msg) => applyWorldEvent(msg));                           // ほかの人が操作した(ドア・ブレーカー・スイッチ・道具・ノート)
   socket.on('worldState', (msg) => applyWorldState(msg));                      // 今の世界の状態(マップに入った直後などに届く)
+  socket.on('moneyUpdate', (msg) => applyMoneyUpdate(msg));                    // 結果の報酬が、Googleアカウントに保存された
   socket.on('voteUpdate', (msg) => applyVoteUpdate(msg));                      // 特定を終えた人の数
   socket.on('identifyResult', (msg) => applyIdentifyResult(msg.result));       // 多数決の結果(全員の結果画面が出て、ゲームが終わる)
   socket.on('playerDied', (msg) => { // 誰かが死んだ(自分のこともある)。ハントは全員分、そこで終わる
