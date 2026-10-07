@@ -1876,6 +1876,10 @@ identifyResultOverlay.appendChild(identifyResultDetail);
 const identifyResultReward = document.createElement('div');
 identifyResultReward.style.cssText = 'font-size:26px;color:#ffd54a;margin:18px 0 28px;';
 identifyResultOverlay.appendChild(identifyResultReward);
+// 報酬を、Googleアカウントに保存したかどうか(ログインしているときだけ保存される)
+const identifyResultMoney = document.createElement('div');
+identifyResultMoney.style.cssText = 'font-size:14px;color:#cfe6ff;margin:-14px 20px 26px;min-height:18px;max-width:560px;text-align:center;line-height:1.7;';
+identifyResultOverlay.appendChild(identifyResultMoney);
 const identifyResultLobbyBtn = document.createElement('button');
 identifyResultLobbyBtn.textContent = 'ロビーに戻る';
 identifyResultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
@@ -1999,6 +2003,43 @@ function showGroupResult(result) {
   identifyResultDetail.textContent = lines.join('\n');
   identifyResultReward.textContent = `報酬: ¥${reward.toLocaleString()}`;
   identifyResultOverlay.style.display = 'flex';
+  setupMoneyLine({ ...saved, reward });
+  if (pendingMoney) { const m = pendingMoney; pendingMoney = null; applyMoneyUpdate(m); }
+}
+
+// ---- お金の保存(Googleアカウント) ----
+// ログインしている人だけ、報酬が保存される。オンラインはサーバーが自動で保存して、applyMoneyUpdate で届く。
+// ひとりで遊んだときは、ここでサーバーへ受け取りを頼む(額はサーバーが計算する)
+let moneyFinal = false;   // 保存の結果(所持金)がもう表示されたか(あとから「保存中…」で上書きしないため)
+let pendingMoney = null;  // 結果の画面が出る前に届いた、保存の知らせ
+function showMoney(text, final = false) { identifyResultMoney.textContent = text; if (final) moneyFinal = true; }
+function applyMoneyUpdate(info) {
+  if (!info) return;
+  if (!groupResultShown) { pendingMoney = info; return; }
+  if (info.error) { showMoney('お金を保存できませんでした(あとでロビーのボードで所持金を確認してください)', true); return; }
+  if (info.duplicate) { showMoney(`所持金: ¥${Number(info.balance).toLocaleString()}(同じアカウントで、すでに受け取り済みです)`, true); return; }
+  showMoney(`所持金: ¥${Number(info.balance).toLocaleString()}(Googleアカウントに保存しました)`, true);
+}
+async function setupMoneyLine(result) {
+  if (!moneyFinal) showMoney('');
+  if (result.wipe || !result.reward) return;
+  try {
+    const account = await import('./account.js');
+    const st = await account.waitForAuth();
+    if (!st.configured) return; // ログイン機能が設定されていないゲームでは、何も出さない
+    if (!st.signedIn) { showMoney('ログインしていないので、報酬は保存されません(ロビーのボードで、Googleでログインできます)'); return; }
+    if (!moneyFinal) showMoney('お金を保存中…');
+    if (result.mode === 'solo') {
+      const r = await account.claimSoloReward({ correct: result.correct, elapsed: result.elapsed || 0, claimId: String(result.at) });
+      if (r.enabled === false) showMoney('サーバー側のお金の保存が、まだ設定されていません');
+      else if (r.duplicate) showMoney(`所持金: ¥${Number(r.balance).toLocaleString()}(すでに受け取り済みです)`);
+      else if (r.reward === undefined) showMoney(`所持金: ¥${Number(r.balance).toLocaleString()}(受け取りは、1分に1回までです。この報酬は保存されませんでした)`);
+      else showMoney(`所持金: ¥${Number(r.balance).toLocaleString()}(Googleアカウントに保存しました)`);
+    } // オンラインは、サーバーが保存して、applyMoneyUpdate で知らせてくれる(届くまで「保存中…」)
+  } catch (e) {
+    console.warn('お金の保存に失敗しました', e);
+    showMoney('お金を保存できませんでした(サーバーにつながらなかった可能性があります)');
+  }
 }
 
 const keys = {};
@@ -2753,5 +2794,5 @@ export {
   addMapCard, startEngine, enterGame,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
-  applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState,
+  applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate,
 };
