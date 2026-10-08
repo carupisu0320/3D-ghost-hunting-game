@@ -142,7 +142,7 @@ export function startOnlineSession({ scene, camera }) {
     if (msg.voteStatus) applyVoteUpdate(msg.voteStatus);
     if (msg.result) applyIdentifyResult(msg.result);            // つなぎ直す間に結果が出ていたら、その結果を出す
     if (hasEnteredGame()) hooks.requestWorld();                  // つなぎ直す間に変わったドアなどを、今の状態にそろえる
-    resolveReady({ seed: msg.seed });
+    resolveReady({ seed: msg.seed, difficulty: msg.difficulty }); // 乱数の種と難易度は、全員同じものを、サーバーから受け取る
     refreshBadge(); sendMove(true);
   });
   socket.on('playerRejoined', (info) => {
