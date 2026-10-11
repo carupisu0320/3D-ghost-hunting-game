@@ -8,6 +8,7 @@ const INK = '#2a2c30', SUB = '#6a6e75', RED = '#c0392b', BLUE = '#2f6fbf';
 export const MAPS = [
   { id: 'house', label: '一軒家', lines: ['1階+地下室の小さな一軒家', '玄関・リビング・寝室などがある', 'ブレーカーは地下にあります'] },
   { id: 'grafton', label: 'Grafton Farmhouse', lines: ['3階建て(1階・2階・屋根裏)の農家の廃屋', '部屋数14、推奨2人', 'ブレーカーはUtility Room'] },
+  { id: 'sunny', label: 'Sunny Meadows', lines: ['1階+地下の、大きな精神病院', '部屋数90、推奨3〜4人', '玄関から奥の棟まで約100m', 'ブレーカーはUtility Room(1階・中庭の東)'] },
 ];
 export function mapLabel(id) { const m = MAPS.find(x => x.id === id); return m ? m.label : id; }
 

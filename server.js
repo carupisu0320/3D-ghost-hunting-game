@@ -31,7 +31,7 @@ const PORT = process.env.PORT || 8080;
 const MAX_PLAYERS = 4;
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 0/O, 1/I など紛らわしい文字は除外
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33]; // 最大4人ぶんの識別色
-const MAPS = ['house', 'grafton']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
+const MAPS = ['house', 'grafton', 'sunny']; // 選べるマップのid(lobby-board.js の MAPS と同じ。main.js の ?map= にもそのまま使う)
 const DEFAULT_MAP = 'grafton';
 // 選べる難易度のid(lobby-board.js の DIFFICULTIES・engine.js の DIFFICULTIES と同じ)。普通がこれまでのゲーム
 //   easy=易しい(ブレーカーは一度上げれば落ちない) / normal=普通 / hard=難しい(ブレーカーが落とされやすい) / nightmare=ナイトメア(ブレーカーが上がらない・ハヤトは出ない)

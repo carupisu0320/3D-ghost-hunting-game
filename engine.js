@@ -1232,7 +1232,7 @@ function addLightSwitch(roomName, rl, customX, customZ) {
   mesh.position.set(x, y + 1.1, z);
   mesh.castShadow = true;
   scene.add(mesh);
-  lightSwitches.push({ x, z, roomName, rl, fixtureMat: rl.fixtureMat, switchMat: mat, on: true });
+  lightSwitches.push({ x, z, roomName, rl, fixtureMat: rl.fixtureMat, switchMat: mat, on: true, upperFloor: buildingUpperFloor }); // 階も覚えておく(上下の階に同じ位置のスイッチがあっても、いまいる階のものだけを押せるように)
 }
 
 // スイッチ・ブレーカーが切り替わったときだけ呼ぶ(プレイヤーの位置は一切見ない=毎フレームは動かないので、移動によるコストは無い)
@@ -1365,6 +1365,7 @@ function tryInteract({ includePickup = true } = {}) {
 
   let nearest = null, nearestDist = 1.4;
   for (const sw of lightSwitches) {
+    if ((sw.upperFloor || 0) !== currentUpperFloor) continue; // ほかの階のスイッチは押せない
     const dx = camera.position.x - sw.x;
     const dz = camera.position.z - sw.z;
     const d = Math.sqrt(dx * dx + dz * dz);
