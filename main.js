@@ -4,6 +4,7 @@
 import { addMapCard, startEngine, enterGame, requestPadStart, setHauntSeed, setDifficulty, scene, camera } from './engine.js';
 import { build as buildHouse, mapLabel as houseLabel } from './house-map.js';
 import { build as buildGrafton, mapLabel as graftonLabel } from './grafton-map.js';
+import { build as buildSunny, mapLabel as sunnyLabel } from './sunny-meadows-map.js';
 
 // ---- ロード画面 ----
 // マップの組み立てと描画の準備は重く、その間ブラウザが固まって見えるので、黒い画面と「読み込み中」を出しておく。
@@ -54,8 +55,10 @@ function selectMap(label, buildFn) {
 
 const startHouse = selectMap(houseLabel, buildHouse);
 const startGrafton = selectMap(graftonLabel, buildGrafton);
+const startSunny = selectMap(sunnyLabel, buildSunny);
 addMapCard(houseLabel, true, startHouse);
 addMapCard(graftonLabel, true, startGrafton);
+addMapCard(sunnyLabel, true, startSunny);
 addMapCard('近日追加予定', false, null);
 
 startEngine();
@@ -77,7 +80,7 @@ if (hasOnlineSession) {
 // ポインターロック(マウスで視点を動かす状態)は、ページを移動した直後はクリックがないと始められないので、
 // 「クリックして開始」の画面を一度はさむ。
 const lobbyMap = new URLSearchParams(location.search).get('map');
-const lobbyMaps = { house: [houseLabel, startHouse], grafton: [graftonLabel, startGrafton] };
+const lobbyMaps = { house: [houseLabel, startHouse], grafton: [graftonLabel, startGrafton], sunny: [sunnyLabel, startSunny] };
 if (lobbyMap && lobbyMaps[lobbyMap]) {
   const [label, start] = lobbyMaps[lobbyMap];
   const gate = document.createElement('div');
