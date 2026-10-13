@@ -8,7 +8,8 @@ import {
   toolNames, toolIcons, viewmodelBase, viewmodelOverrides,
 } from './tool-models.js';
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
-import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js'; // プレイヤーの見た目(黒いロボット)
+import { loadSkin, createSkinAvatar, createPlaceholderAvatar } from './skins.js'; // プレイヤーの見た目(スキン)
+import { SKIN_CATALOG, normalizeSkinId } from './skin-catalog.js';
 import { SERVER_URL } from './server-config.js';
 import { initAccount, onAccountChange, signIn, signOutAccount, getIdToken, fetchMe } from './account.js'; // Googleアカウントでのログインと、所持金
 
@@ -39,6 +40,7 @@ const board = {
   screen: 'main',                                   // 'main' | 'maps'
   name: loadSetting('ghost_name', 'プレイヤー'),
   selectedMap: loadSetting('ghost_map', 'grafton'),
+  skin: normalizeSkinId(loadSetting('ghost_skin', '')),   // 自分のスキン(ほかの人の画面に出る見た目)
   difficulty: loadSetting('ghost_difficulty', 'normal'), // 難易度(easy / normal / hard / nightmare)。普通が、これまでのゲーム
   hoverId: null,
   message: '',
@@ -197,6 +199,7 @@ renderer.domElement.addEventListener('click', () => { if (controls.isLocked) act
 function handleButton(id) {
   if (id.startsWith('map:')) { chooseMap(id.slice(4)); return; }
   if (id.startsWith('diff:')) { chooseDifficulty(id.slice(5)); return; }
+  if (id.startsWith('skin:')) { chooseSkin(id.slice(5)); return; }
   switch (id) {
     case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap, board.difficulty); break; // 部屋にいたなら、すぐ抜ける
     case 'create': createRoom(); break;
@@ -204,6 +207,7 @@ function handleButton(id) {
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
     case 'account': toggleAccount(); break;
     case 'maps': board.screen = 'maps'; boardDirty = true; break;
+    case 'skin': board.screen = 'skins'; boardDirty = true; break;
     case 'back': board.screen = 'main'; boardDirty = true; break;
     case 'start': if (socket) send({ type: 'start' }); break;
     case 'leave': leaveRoom(); break;
@@ -250,6 +254,13 @@ function chooseMap(mapId) {
   if (board.room && !board.room.isHost) return;
   board.selectedMap = mapId; saveSetting('ghost_map', mapId);
   if (board.room) { board.room.map = mapId; send({ type: 'setMap', map: mapId }); }
+  board.screen = 'main'; boardDirty = true;
+}
+// スキンを選ぶ(誰でも。部屋にいるときは、ほかの人の画面にも反映される)
+function chooseSkin(id) {
+  if (!SKIN_CATALOG.some(sk => sk.id === id)) return;
+  board.skin = id; saveSetting('ghost_skin', id);
+  if (board.room) send({ type: 'setSkin', skin: id });
   board.screen = 'main'; boardDirty = true;
 }
 // 難易度を選ぶ(部屋にいるときは、ホストだけ。選んだものは部屋の全員に適用される)。マップ選択の画面にとどまって、続けて選べる
@@ -320,8 +331,8 @@ function connectAndSend(msg) {
   });
   s.onAny((event, payload) => handleServerMessage({ ...payload, type: event }));
 }
-function createRoom() { connectAndSend({ type: 'create', name: board.name, map: board.selectedMap, difficulty: board.difficulty }); }
-function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, code }); }
+function createRoom() { connectAndSend({ type: 'create', name: board.name, skin: board.skin, map: board.selectedMap, difficulty: board.difficulty }); }
+function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, skin: board.skin, code }); }
 function leaveRoom() {
   send({ type: 'leave' }); // 切れたときと違って、待たずにすぐ部屋から外してもらう
   closeSocket(); clearRoom();
@@ -406,6 +417,9 @@ function handleServerMessage(msg) {
     room.map = msg.map; board.selectedMap = msg.map; boardDirty = true;
   } else if (msg.type === 'difficultyChanged') {
     room.difficulty = msg.difficulty; board.difficulty = msg.difficulty; boardDirty = true; // ホストが難易度を変えた
+  } else if (msg.type === 'skinChanged') {
+    const rp = remotePlayers.get(msg.id);
+    if (rp) { rp.skin = normalizeSkinId(msg.skin); loadSkin(rp.skin).then(() => attachBody(rp)); } // 読み込めるまでは、今の見た目のまま
   } else if (msg.type === 'playerMove') {
     moveRemotePlayer(msg);
   } else if (msg.type === 'gameStart') {
@@ -432,35 +446,25 @@ function makeNameSprite(text) {
 }
 const PLAYER_COLORS = [0xff5555, 0x55aaff, 0x55dd77, 0xffcc33];
 
-// ほかのプレイヤーの体。ロボットのモデル(robot/robot.fbx)が読み込めたらロボット、まだ(または読み込めなかった)ときはカプセル
-let robotTemplate = null;
+// ほかのプレイヤーの体。そのプレイヤーのスキン(skins.js)が読み込めたらそれ、まだ(または読み込めなかった)ときは仮のカプセル
 function attachBody(rp) {
   if (rp.body) { rp.group.remove(rp.body); rp.body = null; }
-  if (robotTemplate) {
-    rp.avatar = createRobotAvatar(robotTemplate, rp.color);
-    rp.body = rp.avatar.group;
-  } else {
-    rp.avatar = null;
-    rp.body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 4, 8), new THREE.MeshLambertMaterial({ color: rp.color }));
-    rp.body.position.y = 0.85;
-  }
+  rp.avatar = createSkinAvatar(rp.skin, rp.color) || createPlaceholderAvatar(rp.color, { ringOpacity: 0 }); // 仮の見た目は、足元のリングなし(これまでと同じ)
+  rp.body = rp.avatar.group;
   rp.group.add(rp.body);
 }
-loadRobotTemplate().then((template) => {
-  robotTemplate = template; // 失敗したときはnull(カプセルのまま)
-  if (template) remotePlayers.forEach(attachBody); // すでに部屋にいる人も、ロボットに差し替える
-});
 
 function addRemotePlayer(info) {
   if (remotePlayers.has(info.id)) return;
   const group = new THREE.Group();
   const color = info.color != null ? info.color : PLAYER_COLORS[remotePlayers.size % PLAYER_COLORS.length];
-  const rp = { group, color, body: null, avatar: null, target: new THREE.Vector3(-6.5, 0, 2.6), prev: new THREE.Vector3(-6.5, 0, 2.6), rotY: 0 };
+  const rp = { group, color, skin: normalizeSkinId(info.skin), body: null, avatar: null, target: new THREE.Vector3(-6.5, 0, 2.6), prev: new THREE.Vector3(-6.5, 0, 2.6), rotY: 0 };
   group.add(makeNameSprite(info.name + (info.host ? ' ★' : '')));
   group.position.set(-6.5, 0, 2.6);
   scene.add(group);
   remotePlayers.set(info.id, rp);
   attachBody(rp);
+  loadSkin(rp.skin).then(() => attachBody(rp)); // 読み込めたら、そのスキンに差し替える(すでに読み込み済みなら、すぐ)
 }
 function removeRemotePlayer(id) {
   const rp = remotePlayers.get(id);

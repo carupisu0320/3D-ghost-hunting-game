@@ -1,5 +1,6 @@
 // ホワイトボードの画面(ロビーのメニュー)を描く。描画とボタンの配置だけを担当し、通信や操作は lobby.js 側が行う。
 // ボードの大きさ(canvas)は 1280×672。drawBoard() は描いたボタンの一覧(位置つき)を返すので、視線の先のボタンを調べるのに使う。
+import { SKIN_CATALOG, skinLabel } from './skin-catalog.js';
 export const BOARD_W = 1280, BOARD_H = 672;
 const FONT = '"Yomogi","Klee One","Hiragino Maru Gothic ProN","Yu Gothic","Meiryo","Noto Sans CJK JP",sans-serif';
 const INK = '#2a2c30', SUB = '#6a6e75', RED = '#c0392b', BLUE = '#2f6fbf';
@@ -21,7 +22,7 @@ export const DIFFICULTIES = [
 ];
 export function difficultyLabel(id) { const d = DIFFICULTIES.find(x => x.id === id); return d ? d.label : '普通'; }
 
-// state: { screen: 'main'|'maps', name, selectedMap, hoverId, message,
+// state: { screen: 'main'|'maps'|'skins', name, selectedMap, skin(スキンの id), hoverId, message,
 //          room: null | { code, isHost, myId, map, players: [{ id, name, host }] },
 //          difficulty: 'easy'|'normal'|'hard'|'nightmare',
 //          lastResult: null | 前回の特定の結果(ゲーム本編が保存したもの。下の drawResultBlock を見る),
@@ -39,7 +40,7 @@ export function drawBoard(ctx, state) {
   // タイトル
   ctx.fillStyle = INK; ctx.textAlign = 'center';
   ctx.font = `bold 58px ${FONT}`;
-  ctx.fillText(state.screen === 'maps' ? 'マップ選択' : 'ゴーストハンティング', BOARD_W / 2, 92);
+  ctx.fillText(state.screen === 'maps' ? 'マップ選択' : state.screen === 'skins' ? 'スキン選択' : 'ゴーストハンティング', BOARD_W / 2, 92);
   ctx.strokeStyle = INK; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(300, 112); ctx.lineTo(980, 112); ctx.stroke();
 
@@ -55,7 +56,7 @@ export function drawBoard(ctx, state) {
   const fit = (text, max) => { let t = text; while (ctx.measureText(t).width > max && t.length > 1) t = t.slice(0, -2) + '…'; return t; };
 
   // ボタン
-  const BX = 430, BW = 420, BH = 80, BY0 = 150, GAP = 14;
+  const BX = 430, BW = 420, BH = 72, BY0 = 150, GAP = 10; // 6段まで並べられる(150 + 6×82 - 10 = 632 < 672)
   const button = (id, label, row, enabled = true, sub = '') => {
     const x = BX, y = BY0 + row * (BH + GAP);
     const hover = enabled && state.hoverId === id;
@@ -65,9 +66,9 @@ export function drawBoard(ctx, state) {
     ctx.strokeRect(x, y, BW, BH);
     if (!hover) ctx.strokeRect(x + 2, y + 2, BW - 3, BH - 3);
     ctx.fillStyle = enabled ? (hover ? BLUE : INK) : '#a9acb2';
-    ctx.textAlign = 'center'; ctx.font = `bold 40px ${FONT}`;
-    ctx.fillText(label, x + BW / 2, y + (sub ? 40 : 54));
-    if (sub) { ctx.font = `24px ${FONT}`; ctx.fillStyle = enabled ? SUB : '#b4b7bc'; ctx.fillText(fit(sub, BW - 24), x + BW / 2, y + 68); }
+    ctx.textAlign = 'center'; ctx.font = `bold ${sub ? 34 : 40}px ${FONT}`; // 補足(sub)があるときは、2段が収まるように、文字を少し小さくする
+    ctx.fillText(label, x + BW / 2, y + (sub ? 34 : 50));
+    if (sub) { ctx.font = `22px ${FONT}`; ctx.fillStyle = enabled ? SUB : '#b4b7bc'; ctx.fillText(fit(sub, BW - 24), x + BW / 2, y + 62); }
     buttons.push({ id, label, x, y, w: BW, h: BH, enabled });
   };
 
@@ -134,7 +135,17 @@ export function drawBoard(ctx, state) {
   const mapAndDiff = `${mapName} / ${diffName}`;
   const rightLines = (title, lines) => { panel(900, 150, 340, 470, title); lines.forEach((t, i) => line(t, 922, 248 + i * 38, 25)); };
 
-  if (state.screen === 'maps') {
+  if (state.screen === 'skins') {
+    // ---- スキン選択(自分の見た目。ほかのプレイヤーの画面に出る。誰でも選べる) ----
+    button('back', '戻る', 0);
+    panel(40, 150, 340, 470, 'スキン');
+    SKIN_CATALOG.slice(0, 6).forEach((sk, i) => smallButton('skin:' + sk.id, (state.skin === sk.id ? '✓ ' : '') + sk.label, 62, 214 + i * 68, 296, 58));
+    const shown = SKIN_CATALOG.find(x => state.hoverId === 'skin:' + x.id) || SKIN_CATALOG.find(x => x.id === state.skin) || SKIN_CATALOG[0];
+    panel(900, 150, 340, 470, shown.label);
+    let yy = 248;
+    shown.lines.forEach((para) => { wrapText(para, 296).forEach((t) => { line(t, 922, yy, 25); yy += 36; }); yy += 12; });
+    line('自分には見えません。', 922, 560, 21, SUB); line('ほかの人の画面に出ます。', 922, 590, 21, SUB);
+  } else if (state.screen === 'maps') {
     // ---- マップ選択 ----
     const canChoose = !room || room.isHost;
     MAPS.forEach((m, i) => button('map:' + m.id, (state.selectedMap === m.id ? '✓ ' : '') + m.label, i, canChoose));
@@ -163,7 +174,8 @@ export function drawBoard(ctx, state) {
     accountBlock(444, 556);
     if (room.isHost) button('start', 'ゲーム開始', 0); else button('wait', 'ホストの開始待ち', 0, false);
     button('maps', 'マップ・難易度', 1, room.isHost, mapAndDiff);
-    button('leave', '部屋を出る', 2);
+    button('skin', 'スキン', 2, true, skinLabel(state.skin));
+    button('leave', '部屋を出る', 3);
     panel(900, 150, 340, 470, '部屋コード');
     ctx.fillStyle = BLUE; ctx.textAlign = 'center'; ctx.font = `bold 72px ${FONT}`; ctx.fillText(room.code, 1070, 270);
     line('友達にこのコードを', 930, 322, 25); line('教えて参加してもらおう', 930, 358, 25);
@@ -175,7 +187,8 @@ export function drawBoard(ctx, state) {
     button('create', '部屋を作る', 1);
     button('join', '部屋に参加', 2);
     button('maps', 'マップ・難易度', 3, true, mapAndDiff);
-    button('rename', '名前を変える', 4, true, state.name);
+    button('skin', 'スキン', 4, true, skinLabel(state.skin));
+    button('rename', '名前を変える', 5, true, state.name);
     panel(40, 150, 340, 470, 'ステータス');
     line('名前', 62, 226, 22, SUB); line(fit(state.name, 290), 62, 258, 28);
     line('マップ', 62, 296, 22, SUB); line(fit(mapName, 290), 62, 328, 28);

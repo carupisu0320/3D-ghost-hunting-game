@@ -4,7 +4,8 @@
 // 幽霊の動きと死亡の判定はホストのブラウザが計算して(engine.js の updateOnlineGhost)、このファイルが通信の窓口になる。
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
-import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
+import { loadSkin, createSkinAvatar, createPlaceholderAvatar } from './skins.js';
+import { normalizeSkinId } from './skin-catalog.js';
 import { SERVER_URL } from './server-config.js';
 import { setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame, applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate } from './engine.js';
 
@@ -51,21 +52,13 @@ export function startOnlineSession({ scene, camera }) {
   const refreshBadge = () => setBadge(`オンライン 部屋: ${session.code}  ${Array.from(remotes.values()).filter((r) => !r.dead).length + 1}人`);
   setBadge('オンライン: 接続中…');
 
-  // ---- ほかのプレイヤーの体(ロボット。モデルが読み込めないときはカプセル) ----
-  let template = null;
+  // ---- ほかのプレイヤーの体(そのプレイヤーのスキン。読み込めないときは仮のカプセル) ----
   function attachBody(rp) {
     if (rp.body) rp.group.remove(rp.body);
-    if (template) {
-      rp.avatar = createRobotAvatar(template, rp.color, { ringOpacity: 0.4 }); // 本編は暗いので、足元のリングは控えめに
-      rp.body = rp.avatar.group;
-    } else {
-      rp.avatar = null;
-      rp.body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 4, 8), new THREE.MeshStandardMaterial({ color: rp.color, roughness: 0.8 }));
-      rp.body.position.y = 0.85;
-    }
+    rp.avatar = createSkinAvatar(rp.skin, rp.color, { ringOpacity: 0.4 }) || createPlaceholderAvatar(rp.color, { ringOpacity: 0 }); // 本編は暗いので、足元のリングは控えめに
+    rp.body = rp.avatar.group;
     rp.group.add(rp.body);
   }
-  loadRobotTemplate('./robot/').then((t) => { template = t; if (t) remotes.forEach(attachBody); });
 
   function setPos(rp, pos) {
     rp.target.set(pos.x, pos.y, pos.z); rp.rotY = pos.rotY;
@@ -80,10 +73,11 @@ export function startOnlineSession({ scene, camera }) {
     const label = makeNameSprite(info.name + (info.host ? ' ★' : ''));
     group.add(label);
     scene.add(group);
-    const rp = { group, label, body: null, avatar: null, target: new THREE.Vector3(), prev: new THREE.Vector3(), rotY: 0, color: info.color, name: info.name, hasPos: false,
+    const rp = { group, label, body: null, avatar: null, target: new THREE.Vector3(), prev: new THREE.Vector3(), rotY: 0, color: info.color, skin: normalizeSkinId(info.skin), name: info.name, hasPos: false,
       sanity: info.sanity, dead: info.alive === false, out: !!info.out };
     remotes.set(info.id, rp);
     attachBody(rp);
+    loadSkin(rp.skin).then(() => attachBody(rp)); // 読み込めたら、そのスキンに差し替える
     if (info.pos) setPos(rp, info.pos);
     if (rp.dead) group.visible = false; // すでに死んでいる人は出さない
     refreshBadge();
@@ -149,6 +143,10 @@ export function startOnlineSession({ scene, camera }) {
     addRemote(info);
     const rp = remotes.get(info.id);
     if (rp && info.pos) setPos(rp, info.pos);
+  });
+  socket.on('skinChanged', (msg) => { // ゲーム中に変えた人はいないが、念のため(ロビーと同じ)
+    const rp = remotes.get(msg.id);
+    if (rp) { rp.skin = normalizeSkinId(msg.skin); loadSkin(rp.skin).then(() => attachBody(rp)); }
   });
   socket.on('playerLeft', (msg) => removeRemote(msg.id));
   socket.on('hostChanged', (msg) => { hostId = msg.id; }); // ホストが交代したら、新しいホストのブラウザが幽霊の計算を引き継ぐ
