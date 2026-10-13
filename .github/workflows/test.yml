@@ -1,0 +1,15 @@
+# GitHub に push したとき・Pull Request を作ったときに、自動で npm test を実行する。
+# 自分のパソコンに Node.js がなくても、GitHub の画面の「Actions」(または Pull Request の下)で、結果(緑=成功・赤=失敗)が見られる。
+name: test
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
