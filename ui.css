@@ -1,0 +1,479 @@
+/* ゲーム本編(game.html)の画面の部品の見た目。色・文字・配置は、ここだけを直せばよい(engine.js などのコードは触らなくてよい)。
+ *
+ * 決まりごと
+ *  - クラス名はすべて gh- で始まる。コード側は className = 'gh-...' で付けているだけで、見た目の指定はここにしかない。
+ *  - 表示・非表示(display)は、コードが style.display で切り替える。ここに display:none と書いてあるものは「最初は隠れている」という意味で、
+ *    コードが表示するときに、直接 display を指定して上書きする(なので、display の値を変えるときは、コード側の指定も確認する)。
+ *  - 動きの途中で変わる値(opacity・outline・位置など)も、コードが直接書き換える。ここに書いた値は「最初の状態」。
+ *  - 画面の部品を増やすときは、ここにクラスを足して、コードからは className で付ける(style.cssText は使わない。npm test が検出する)。
+ */
+
+/* ===== ゲーム中の画面の隅の表示(道具の表示・拾った通知・視線の先の案内・ミニマップ・ホットバー) ===== */
+.gh-gaze-hint {
+  position:fixed;
+  left:50%;
+  top:58%;
+  transform:translateX(-50%);
+  color:#fff;
+  background:rgba(0,0,0,0.55);
+  padding:4px 12px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:14px;
+  z-index:50;
+  pointer-events:none;
+  display:none;
+}
+.gh-pickup-notice {
+  position:fixed;
+  top:56px;
+  left:8px;
+  color:#ff0;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-emf-display {
+  position:fixed;
+  top:32px;
+  left:8px;
+  color:#0f0;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-thermo-display {
+  position:fixed;
+  top:52px;
+  left:8px;
+  color:#0ff;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-notebook-display {
+  position:fixed;
+  top:72px;
+  left:8px;
+  color:#e8c060;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-spirit-box-display {
+  position:fixed;
+  top:92px;
+  left:8px;
+  color:#ff66aa;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-dots-display {
+  position:fixed;
+  top:112px;
+  left:8px;
+  color:#33ff55;
+  font-family:monospace;
+  font-size:14px;
+  z-index:10;
+}
+.gh-minimap {
+  position:fixed;
+  top:8px;
+  right:8px;
+  background:rgba(0,0,0,0.6);
+  border:1px solid #0f0;
+  z-index:10;
+}
+.gh-hotbar {
+  position:fixed;
+  bottom:16px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:6px;
+  z-index:10;
+}
+.gh-hotbar-slot {
+  width:52px;
+  height:52px;
+  background:rgba(20,20,20,0.6);
+  border:2px solid rgba(255,255,255,0.25);
+  border-radius:4px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  position:relative;
+  box-sizing:border-box;
+  transition:border-color 0.1s;
+}
+.gh-hotbar-num {
+  position:absolute;
+  top:1px;
+  left:3px;
+  font-size:10px;
+  color:#ccc;
+  font-family:monospace;
+}
+
+/* ===== 調査書(Jキーなどで開く本) ===== */
+.gh-journal-overlay {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.75);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:50;
+}
+.gh-journal-book {
+  display:flex;
+  width:min(860px,92vw);
+  height:min(560px,82vh);
+  box-shadow:0 10px 40px rgba(0,0,0,0.6);
+  border-radius:4px;
+  overflow:hidden;
+}
+.gh-journal-left-title {
+  margin:0 0 16px;
+  font-size:20px;
+  border-bottom:1px solid #b8a97e;
+  padding-bottom:8px;
+}
+.gh-evidence-row {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 4px;
+  font-size:16px;
+  cursor:pointer;
+}
+.gh-evidence-checkbox {
+  width:16px;
+  height:16px;
+  cursor:pointer;
+}
+.gh-journal-lobby-btn {
+  display:block;
+  margin-top:24px;
+  padding:9px 18px;
+  font-size:14px;
+  font-family:Georgia,serif;
+  background:#3a3428;
+  color:#ece3cf;
+  border:none;
+  border-radius:3px;
+  cursor:pointer;
+}
+.gh-journal-right-title {
+  margin:0 0 16px;
+  font-size:20px;
+  border-bottom:1px solid #b8a97e;
+  padding-bottom:8px;
+}
+.gh-journal-ghost-list {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  column-gap:8px;
+  max-height:calc(min(560px,82vh) - 200px);
+  overflow-y:auto;
+}
+.gh-journal-identify-btn {
+  display:none;
+  margin-top:20px;
+  padding:10px 28px;
+  font-size:16px;
+  font-family:Georgia,serif;
+  background:#6b1f1f;
+  color:#f0e6d2;
+  border:none;
+  border-radius:3px;
+  cursor:pointer;
+}
+.gh-journal-vote-status {
+  display:none;
+  margin-top:16px;
+  font-size:14px;
+  line-height:1.7;
+  color:#4a3a1f;
+  white-space:pre-line;
+}
+.gh-journal-force-btn {
+  display:none;
+  margin-top:10px;
+  padding:7px 14px;
+  font-size:13px;
+  font-family:Georgia,serif;
+  background:#3a3428;
+  color:#ece3cf;
+  border:none;
+  border-radius:3px;
+  cursor:pointer;
+}
+.gh-journal-empty {
+  color:#8a7a5a;
+  font-style:italic;
+  padding:10px 8px;
+}
+.gh-journal-pad-hint {
+  position:absolute;
+  left:50%;
+  bottom:16px;
+  transform:translateX(-50%);
+  color:#d8cfb8;
+  font-family:Georgia,serif;
+  font-size:13px;
+  white-space:nowrap;
+  text-shadow:0 1px 3px #000;
+  pointer-events:none;
+}
+/* 調査書の左右のページ。--left / --right は、綴じ目の側の線 */
+.gh-journal-page {
+  flex: 1;
+  background: #ece3cf;
+  color: #2a2419;
+  font-family: Georgia, serif;
+  padding: 26px 24px;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.gh-journal-page--left { border-left: 2px solid #b8a97e; }
+.gh-journal-page--right { border-right: 2px solid #b8a97e; }
+
+/* 特定の候補の行。is-locked: 特定したあと(もう変えられない) / is-selected: いま選んでいる幽霊 */
+.gh-journal-ghost-row {
+  padding: 10px 8px;
+  font-size: 17px;
+  cursor: pointer;
+  border-radius: 3px;
+  margin-bottom: 4px;
+}
+.gh-journal-ghost-row.is-locked { cursor: default; }
+.gh-journal-ghost-row.is-selected { background: #b8a97e; font-weight: bold; }
+
+/* ===== ハントに捕まったときのリザルト画面 ===== */
+.gh-result-overlay {
+  position:fixed;
+  inset:0;
+  z-index:96;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  color:#eee;
+  font-family:monospace;
+  background:rgba(0,0,0,0.55);
+}
+.gh-result-title {
+  font-size:34px;
+  color:#ff4444;
+  letter-spacing:4px;
+  margin-bottom:18px;
+  text-shadow:0 0 12px rgba(255,0,0,0.6);
+}
+.gh-result-ghost-text {
+  font-size:16px;
+  margin-bottom:6px;
+}
+.gh-result-time-text {
+  font-size:14px;
+  color:#aaa;
+  margin-bottom:28px;
+}
+.gh-result-lobby-btn {
+  padding:12px 30px;
+  font-size:15px;
+  background:#3a7ad9;
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+/* ハントに捕まったときの血の画面。--blood-splatter(しぶきの絵)は、コードが canvas で描いて渡す */
+.gh-blood-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease-in;
+  background:
+    radial-gradient(circle, rgba(90,0,0,0.05) 0%, rgba(60,0,0,0.55) 60%, rgba(15,0,0,0.92) 100%),
+    var(--blood-splatter);
+  background-size: cover;
+}
+
+/* ===== 特定の結果の画面と、投票の案内 ===== */
+.gh-identify-result-overlay {
+  position:fixed;
+  inset:0;
+  z-index:96;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  color:#eee;
+  font-family:monospace;
+  background:rgba(0,0,0,0.75);
+}
+.gh-identify-result-title {
+  font-size:30px;
+  letter-spacing:3px;
+  margin-bottom:18px;
+}
+.gh-identify-result-detail {
+  font-size:15px;
+  color:#ccc;
+  margin-bottom:6px;
+  line-height:1.8;
+  white-space:pre-line;
+  text-align:center;
+}
+.gh-identify-result-reward {
+  font-size:26px;
+  color:#ffd54a;
+  margin:18px 0 28px;
+}
+.gh-identify-result-money {
+  font-size:14px;
+  color:#cfe6ff;
+  margin:-14px 20px 26px;
+  min-height:18px;
+  max-width:560px;
+  text-align:center;
+  line-height:1.7;
+}
+.gh-identify-result-lobby-btn {
+  padding:12px 30px;
+  font-size:15px;
+  background:#3a7ad9;
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+.gh-vote-banner {
+  position:fixed;
+  top:44px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:12;
+  display:none;
+  color:#ffe9a8;
+  background:rgba(0,0,0,0.6);
+  border:1px solid #6a5a2a;
+  border-radius:4px;
+  padding:5px 14px;
+  font-family:monospace;
+  font-size:13px;
+  pointer-events:none;
+}
+
+/* ===== マップ選択・読み込み・開始前の画面 ===== */
+.gh-loading {
+  position:fixed;
+  inset:0;
+  background:#000;
+  color:#0f0;
+  font-family:monospace;
+  font-size:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:100;
+}
+.gh-map-select-overlay {
+  position:fixed;
+  inset:0;
+  background:radial-gradient(circle at center,#1a1a2a 0%,#000 100%);
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  z-index:90;
+  font-family:monospace;
+  color:#eee;
+}
+.gh-map-select-title {
+  font-size:20px;
+  color:#9fd3ff;
+  margin-bottom:20px;
+}
+.gh-map-select-grid {
+  display:flex;
+  gap:16px;
+  flex-wrap:wrap;
+  justify-content:center;
+  max-width:720px;
+}
+.gh-map-loading {
+  position:fixed;
+  inset:0;
+  background:#000;
+  color:#ccc;
+  font-family:monospace;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  z-index:200;
+}
+.gh-start-gate {
+  position:fixed;
+  inset:0;
+  z-index:150;
+  background:#000;
+  color:#ccc;
+  font-family:monospace;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  cursor:pointer;
+}
+/* マップのカード。is-enabled: 選べる / is-disabled: 「近日追加予定」など */
+.gh-map-card {
+  width: 180px;
+  height: 130px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+.gh-map-card.is-enabled { border: 1px solid #3a7ad9; background: #14141c; color: #eee; cursor: pointer; }
+.gh-map-card.is-enabled:hover { background: #1c2438; }
+.gh-map-card.is-disabled { border: 1px solid #333; background: #0a0a0e; color: #555; cursor: default; }
+
+/* 読み込み画面(マップの組み立て中)。点滅は CSS アニメーションなので、重い処理の最中でも止まらない */
+.gh-map-loading-name { font-size: 14px; color: #777; }
+.gh-map-loading-text { font-size: 22px; color: #9fe6a0; letter-spacing: 2px; animation: gh-map-loading-pulse 1.2s ease-in-out infinite; }
+.gh-map-loading-note { font-size: 12px; color: #555; }
+@keyframes gh-map-loading-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* 「クリックして開始」の画面の文字 */
+.gh-gate-map { font-size: 14px; color: #777; }
+.gh-gate-main { font-size: 24px; color: #9fe6a0; letter-spacing: 2px; }
+.gh-gate-sub { font-size: 13px; color: #666; }
+
+/* ===== オンラインの表示 ===== */
+.gh-online-badge {
+  position:fixed;
+  left:8px;
+  bottom:8px;
+  z-index:6;
+  color:#9fd3ff;
+  font-family:monospace;
+  font-size:12px;
+  background:rgba(0,0,0,0.45);
+  padding:3px 8px;
+  border-radius:3px;
+  pointer-events:none;
+}

@@ -515,24 +515,24 @@ camera.add(torch, torch.target);
 const hud = {};
 [['emf', '#0f0'], ['thermometer', '#0ff'], ['spiritbox', '#ff66aa'], ['dots', '#33ff55']].forEach(([key, color], i) => {
   const el = document.createElement('div');
-  el.style.cssText = `position:fixed;top:${44 + i * 20}px;left:10px;color:${color};font-family:monospace;font-size:14px;z-index:7;text-shadow:0 0 3px #000;`;
+  el.className = `gh-lobby-hud gh-lobby-hud--${key}`; // 位置と色は lobby.css
   document.body.appendChild(el); hud[key] = el;
 });
 const hotbarEl = document.createElement('div');
-hotbarEl.style.cssText = 'position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:7;';
+hotbarEl.className = 'gh-lobby-hotbar';
 const hotbarSlots = [0, 1, 2].map((i) => {
   const el = document.createElement('div');
-  el.style.cssText = 'position:relative;width:52px;height:52px;border:2px solid rgba(255,255,255,0.25);border-radius:6px;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:26px;opacity:0.35;';
+  el.className = 'gh-lobby-hotbar-slot';
   const num = document.createElement('div');
   num.textContent = String(i + 1);
-  num.style.cssText = 'position:absolute;top:1px;left:4px;font-size:11px;color:#ccc;font-family:monospace;';
+  num.className = 'gh-lobby-hotbar-num';
   const icon = document.createElement('div');
   el.appendChild(num); el.appendChild(icon); hotbarEl.appendChild(el);
   return { el, icon };
 });
 document.body.appendChild(hotbarEl);
 const toolHint = document.createElement('div');
-toolHint.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:4px;font-family:monospace;font-size:14px;z-index:7;pointer-events:none;display:none;';
+toolHint.className = 'gh-lobby-tool-hint';
 document.body.appendChild(toolHint);
 
 function refreshHotbar() {

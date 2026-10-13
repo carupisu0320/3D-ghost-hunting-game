@@ -4,7 +4,9 @@
   "description": "3Dゴーストハンティングゲームのマルチプレイ用ロビーサーバー(Socket.IO)+ 報酬をGoogleアカウントごとに保存(Firebase)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test/run.js",
+    "test:selfcheck": "node test/self-check.js"
   },
   "engines": {
     "node": ">=18"

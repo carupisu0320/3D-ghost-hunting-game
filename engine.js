@@ -7,404 +7,15 @@ import {
   createPegboard, toolNames, toolIcons, viewmodelBase, viewmodelOverrides,
 } from './tool-models.js'; // 道具の見た目とペグボード(ロビーと共有)
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-
-// 部屋一覧。中身は空のまま持っておき、マップ側(house-map.js)がpush()で登録する
-const rooms = [];
-
-function room(name) {
-  return rooms.find(r => r.name === name).bounds;
-}
-
-function getRoomAt(x, z) {
-  if (currentUpperFloor > 0) {
-    return rooms.find(r =>
-      r.upperFloor === currentUpperFloor &&
-      x >= r.bounds.minX && x <= r.bounds.maxX &&
-      z >= r.bounds.minZ && z <= r.bounds.maxZ
-    )?.name ?? "外";
-  }
-  if (!onGroundFloor) return "地下室";
-  return rooms.find(r =>
-    !r.upperFloor &&
-    x >= r.bounds.minX && x <= r.bounds.maxX &&
-    z >= r.bounds.minZ && z <= r.bounds.maxZ
-  )?.name ?? "外";
-}
-
-
-let onGroundFloor = true; // 階段を上り下りして今いる階(1階/地下)を判定するためのフラグ。既存マップ(一軒家)はこれだけで完結する
-
-// 2階・屋根裏など、地下とは別に「地上より上の階」を持ちたいマップ向けの仕組み。
-// 一軒家のような1階+地下だけのマップには一切影響しない(currentUpperFloorが0のときは今まで通りの分岐を通る)
-const upperFloorHeights = {}; // 階のインデックス(1,2,...) -> その階の基準Y
-const upperFloorWallBoxes = {}; // 階のインデックス -> 当たり判定の矩形一覧
-let buildingUpperFloor = 0; // 今どの階のジオメトリを組み立てているか(addWall/addFurnitureが自動でYをずらすのに使う)
-let currentUpperFloor = 0; // プレイヤーが今いる階(0=1階/地下の従来ロジックを使う、1以上=その階)
-function defineUpperFloor(index, y) {
-  upperFloorHeights[index] = y;
-  upperFloorWallBoxes[index] = [];
-}
-function setBuildingUpperFloor(i) { buildingUpperFloor = i; }
-function setCurrentUpperFloor(i) { currentUpperFloor = i; }
-
-// 床・天井に矩形の穴を開けて、その周囲を4枚の板で埋める(階段の吹き抜け用)
-function addFramedPlane(outer, hole, y, material, facingUp) {
-  const pieces = [];
-  if (outer.maxZ > hole.maxZ) pieces.push({ minX: outer.minX, maxX: outer.maxX, minZ: hole.maxZ, maxZ: outer.maxZ });
-  if (hole.minZ > outer.minZ) pieces.push({ minX: outer.minX, maxX: outer.maxX, minZ: outer.minZ, maxZ: hole.minZ });
-  if (hole.minX > outer.minX) pieces.push({ minX: outer.minX, maxX: hole.minX, minZ: hole.minZ, maxZ: hole.maxZ });
-  if (outer.maxX > hole.maxX) pieces.push({ minX: hole.maxX, maxX: outer.maxX, minZ: hole.minZ, maxZ: hole.maxZ });
-  pieces.forEach(p => {
-    const w = p.maxX - p.minX, d = p.maxZ - p.minZ;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
-    mesh.rotation.x = facingUp ? -Math.PI / 2 : Math.PI / 2;
-    mesh.position.set((p.minX + p.maxX) / 2, y, (p.minZ + p.maxZ) / 2);
-    mesh.receiveShadow = true;
-    scene.add(mesh);
-  });
-}
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x03030a);
-scene.fog = new THREE.Fog(0x03030a, 6, 24);
-
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-// 回転の順番は「左右の向き → 上下の向き」(YXZ)にする(ロビーのカメラと同じ)。
-// 初期設定(XYZ)のままだと、上や下を向いたままコントローラーのスティックで左右に振り向くと、画面が傾いてしまう。
-// また、オンラインで他のプレイヤーへ送る「向き」(camera.rotation.y)が、上下を向いているときにずれてしまうのも、これで直る
-camera.rotation.order = 'YXZ';
-
-const renderer = new THREE.WebGLRenderer({ antialias: false });
-renderer.setPixelRatio(1);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.BasicShadowMap; // 一番軽い影の種類に変更
-document.body.appendChild(renderer.domElement);
-
-// ---- 手続き的テクスチャ(画像ファイルを使わず、その場で模様を描く) ----
-function makeWoodTexture(baseColor = '#8a6642') {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 256, 256);
-  const plankCount = 6;
-  const plankH = 256 / plankCount;
-  for (let i = 0; i < plankCount; i++) {
-    const shade = (Math.random() - 0.5) * 40;
-    ctx.fillStyle = shade > 0 ? `rgba(255,255,255,${shade / 255})` : `rgba(0,0,0,${-shade / 255})`;
-    ctx.fillRect(0, i * plankH, 256, plankH);
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, i * plankH);
-    ctx.lineTo(256, i * plankH);
-    ctx.stroke();
-  }
-  for (let i = 0; i < 250; i++) {
-    ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.08})`;
-    const y = Math.random() * 256;
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * 200, y);
-    ctx.lineTo(Math.random() * 200 + 40, y + (Math.random() * 4 - 2));
-    ctx.stroke();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function makeTileTexture(baseColor = '#d9d4c8') {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 256, 256);
-  const gridSize = 4;
-  const cell = 256 / gridSize;
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-  ctx.lineWidth = 3;
-  for (let i = 0; i <= gridSize; i++) {
-    ctx.beginPath(); ctx.moveTo(i * cell, 0); ctx.lineTo(i * cell, 256); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i * cell); ctx.lineTo(256, i * cell); ctx.stroke();
-  }
-  for (let i = 0; i < 400; i++) {
-    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 3, 3);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function makeWallTexture(baseColor = '#767676') {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 3000; i++) {
-    const v = Math.random() * 24 - 12;
-    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 200})` : `rgba(0,0,0,${-v / 200})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function makeConcreteTexture(baseColor = '#9a9c9a') {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 256, 256);
-  // 打ちっ放しコンクリートのパネル目地(大きめのグリッド)
-  const cols = 2, rows = 3;
-  const cw = 256 / cols, ch = 256 / rows;
-  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-  ctx.lineWidth = 2;
-  for (let i = 0; i <= cols; i++) {
-    ctx.beginPath(); ctx.moveTo(i * cw, 0); ctx.lineTo(i * cw, 256); ctx.stroke();
-  }
-  for (let j = 0; j <= rows; j++) {
-    ctx.beginPath(); ctx.moveTo(0, j * ch); ctx.lineTo(256, j * ch); ctx.stroke();
-  }
-  // セパレーター(型枠の丸い跡)をパネルの四隅寄りに配置
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  for (let i = 0; i < cols; i++) {
-    for (let j = 0; j < rows; j++) {
-      [[0.18, 0.18], [0.82, 0.18], [0.18, 0.82], [0.82, 0.82]].forEach(([fx, fy]) => {
-        const cx = i * cw + cw * fx, cy = j * ch + ch * fy;
-        ctx.beginPath(); ctx.arc(cx, cy, 2.4, 0, Math.PI * 2); ctx.fill();
-      });
-    }
-  }
-  // 色ムラ・シミ
-  for (let i = 0; i < 2000; i++) {
-    const v = Math.random() * 22 - 11;
-    ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 200})` : `rgba(0,0,0,${-v / 200})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function makeDoorTexture(baseColor = '#6b4022') {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, 128, 256);
-  for (let i = 0; i < 40; i++) {
-    ctx.strokeStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
-    const y = Math.random() * 256;
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * 60, y);
-    ctx.lineTo(Math.random() * 60 + 60, y + (Math.random() * 3 - 1.5));
-    ctx.stroke();
-  }
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(14, 18, 100, 96);
-  ctx.strokeRect(14, 142, 100, 96);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function makeGrassTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#2e3d24';
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 2500; i++) {
-    const v = Math.random();
-    ctx.fillStyle = v > 0.5
-      ? `rgba(110,130,80,${Math.random() * 0.5})`
-      : `rgba(15,20,10,${Math.random() * 0.5})`;
-    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 3);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  return texture;
-}
-
-function scaled(base, rx, ry) {
-  const t = base.clone();
-  t.needsUpdate = true;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(rx, ry);
-  return t;
-}
-
-const woodBase = makeWoodTexture();
-const tileBase = makeTileTexture();
-const wallBase = makeWallTexture();
-
-// 床(水回りはタイル、それ以外は木目)
-
-// 壁・ドア(描画は最後にまとめて1メッシュずつに結合する。当たり判定は今まで通りwallBoxesで個別管理)
-const wallBoxes = [];
-const basementWallBoxes = []; // 地下室の壁(1階にいる間は無視する)
-const wallGeometries = [];
-const doorFrameGeometries = [];
-const doors = []; // { hinge, isOpen, targetRotation, box, center } 開閉・当たり判定用に個別管理する
-const wallHeight = 3;
-const wallThickness = 0.2;
-const doorWidth = 1.2;
-const doorHeight = 2.1;
-const wallMaterial = new THREE.MeshLambertMaterial({ map: scaled(wallBase, 4, 2) });
-const doorMaterial = new THREE.MeshLambertMaterial({ map: scaled(makeDoorTexture(), 1, 1) });
-const doorFrameMaterial = new THREE.MeshLambertMaterial({ color: 0x3d2b1a });
-const doorHandleMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
-
-function addWallSegment(minX, maxX, minZ, maxZ) {
-  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  const geo = new THREE.BoxGeometry(maxX - minX, wallHeight, maxZ - minZ);
-  geo.translate((minX + maxX) / 2, y + wallHeight / 2, (minZ + maxZ) / 2);
-  wallGeometries.push(geo);
-  if (buildingUpperFloor > 0) {
-    upperFloorWallBoxes[buildingUpperFloor].push({ minX, maxX, minZ, maxZ });
-  } else {
-    wallBoxes.push({ minX, maxX, minZ, maxZ });
-  }
-}
-
-// 開け閉めできる扉(蝶番=doorAt-doorWidth/2の側。ちょうつがいのGroupごと回して開閉する)
-function addDoor(axis, fixedPos, doorAt) {
-  const trimW = 0.06;
-  const trimDepth = wallThickness + 0.04;
-  const sideLen = doorHeight + trimW;
-  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-
-  if (axis === 'x') {
-    const hinge = new THREE.Group();
-    hinge.position.set(doorAt - doorWidth / 2, y, fixedPos);
-    const panelGeo = new THREE.BoxGeometry(doorWidth, doorHeight, wallThickness);
-    panelGeo.translate(doorWidth / 2, doorHeight / 2, 0);
-    const panel = new THREE.Mesh(panelGeo, doorMaterial);
-    panel.castShadow = true; panel.receiveShadow = true;
-    hinge.add(panel);
-    scene.add(hinge);
-    doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
-      box: { minX: doorAt - doorWidth / 2, maxX: doorAt + doorWidth / 2, minZ: fixedPos - wallThickness / 2, maxZ: fixedPos + wallThickness / 2 },
-      center: { x: doorAt, z: fixedPos },
-    });
-
-    [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(x => {
-      const side = new THREE.BoxGeometry(trimW, sideLen, trimDepth);
-      side.translate(x, y + sideLen / 2, fixedPos);
-      doorFrameGeometries.push(side);
-    });
-    const top = new THREE.BoxGeometry(doorWidth + trimW * 2, trimW, trimDepth);
-    top.translate(doorAt, y + doorHeight + trimW / 2, fixedPos);
-    doorFrameGeometries.push(top);
-
-    const header = new THREE.BoxGeometry(doorWidth, wallHeight - doorHeight, wallThickness);
-    header.translate(doorAt, y + doorHeight + (wallHeight - doorHeight) / 2, fixedPos);
-    wallGeometries.push(header);
-
-    [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(zOff => {
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.14, 0.05), doorHandleMaterial);
-      handle.position.set(doorWidth * 0.86, doorHeight * 0.45, zOff);
-      hinge.add(handle);
-    });
-  } else {
-    const hinge = new THREE.Group();
-    hinge.position.set(fixedPos, y, doorAt - doorWidth / 2);
-    const panelGeo = new THREE.BoxGeometry(wallThickness, doorHeight, doorWidth);
-    panelGeo.translate(0, doorHeight / 2, doorWidth / 2);
-    const panel = new THREE.Mesh(panelGeo, doorMaterial);
-    panel.castShadow = true; panel.receiveShadow = true;
-    hinge.add(panel);
-    scene.add(hinge);
-    doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
-      box: { minX: fixedPos - wallThickness / 2, maxX: fixedPos + wallThickness / 2, minZ: doorAt - doorWidth / 2, maxZ: doorAt + doorWidth / 2 },
-      center: { x: fixedPos, z: doorAt },
-    });
-
-    [doorAt - doorWidth / 2 - trimW / 2, doorAt + doorWidth / 2 + trimW / 2].forEach(z => {
-      const side = new THREE.BoxGeometry(trimDepth, sideLen, trimW);
-      side.translate(fixedPos, y + sideLen / 2, z);
-      doorFrameGeometries.push(side);
-    });
-    const top = new THREE.BoxGeometry(trimDepth, trimW, doorWidth + trimW * 2);
-    top.translate(fixedPos, y + doorHeight + trimW / 2, doorAt);
-    doorFrameGeometries.push(top);
-
-    const header = new THREE.BoxGeometry(wallThickness, wallHeight - doorHeight, doorWidth);
-    header.translate(fixedPos, y + doorHeight + (wallHeight - doorHeight) / 2, doorAt);
-    wallGeometries.push(header);
-
-    [wallThickness / 2 + 0.03, -(wallThickness / 2 + 0.03)].forEach(xOff => {
-      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 0.035), doorHandleMaterial);
-      handle.position.set(xOff, doorHeight * 0.45, doorWidth * 0.86);
-      hinge.add(handle);
-    });
-  }
-}
-
-function addWall(axis, fixedPos, from, to, doorAt) {
-  const ranges = doorAt === undefined
-    ? [[from, to]]
-    : [[from, doorAt - doorWidth / 2], [doorAt + doorWidth / 2, to]];
-
-  ranges.forEach(([s, e]) => {
-    if (e - s < 0.05) return;
-    if (axis === 'x') addWallSegment(s, e, fixedPos - wallThickness / 2, fixedPos + wallThickness / 2);
-    else addWallSegment(fixedPos - wallThickness / 2, fixedPos + wallThickness / 2, s, e);
-  });
-  if (doorAt !== undefined) addDoor(axis, fixedPos, doorAt);
-}
-
-function collidesWithWalls(x, z, radius = 0.3) {
-  if (currentUpperFloor > 0) {
-    const boxes = upperFloorWallBoxes[currentUpperFloor] || [];
-    if (boxes.some(b => x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ)) {
-      return true;
-    }
-    return doors.some(d => d.upperFloor === currentUpperFloor && !d.isOpen &&
-      x + radius > d.box.minX && x - radius < d.box.maxX &&
-      z + radius > d.box.minZ && z - radius < d.box.maxZ
-    );
-  }
-  const boxes = onGroundFloor ? wallBoxes : basementWallBoxes;
-  if (boxes.some(b => x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ)) {
-    return true;
-  }
-  if (onGroundFloor) {
-    return doors.some(d => !d.upperFloor && !d.isOpen &&
-      x + radius > d.box.minX && x - radius < d.box.maxX &&
-      z + radius > d.box.minZ && z - radius < d.box.maxZ
-    );
-  }
-  return false;
-}
-
-
-// 壁・ドアをまとめて1メッシュずつにする(個別に作るより描画負荷が大幅に軽い)
-function addMergedMesh(geometries, material) {
-  if (geometries.length === 0) return;
-  const merged = mergeGeometries(geometries);
-  const mesh = new THREE.Mesh(merged, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-}
-
-
-
-
+// ---- engine.js から分けたファイル(engine/ フォルダ)。このファイルは、それらを使って、残りの仕組みを組み立てる ----
+import { scene, camera, renderer, rooms, room, getRoomAt, onGroundFloor, currentUpperFloor, upperFloorHeights, defineUpperFloor, setBuildingUpperFloor, setCurrentUpperFloor, addFramedPlane, setOnGroundFloor, buildingUpperFloor } from './engine/scene.js';
+import { makeWoodTexture, makeTileTexture, makeWallTexture, makeConcreteTexture, makeDoorTexture, makeGrassTexture, scaled, woodBase, tileBase, wallBase, makeFingerprintTexture, makeGlowTexture } from './engine/textures.js';
+import { wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, doorWidth, doorHeight, wallMaterial, doorMaterial, doorFrameMaterial, doorHandleMaterial, addWallSegment, addMergedMesh, addWall, addDoor, collidesWithWalls } from './engine/walls.js';
+import { addFurniture, addDetailMesh, addLeg, addLegsUnder, pushWallBox, woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn } from './engine/furniture.js';
+import { ghostTypes, DIFFICULTIES } from './engine/ghost-data.js';
+import { randomPointInRoom, calculateReward, formatTime, deadzone, emfLevelAt } from './engine/calc.js';
+import { makeNotebookItemMesh, drawNotebookPage, makeBloodSplatterDataURL } from './engine/art.js';
+import { mapSelectOverlay, addMapCard } from './engine/map-select.js';
 
 // 拠点のテント(懐中電灯・EMFリーダーはここで拾うまで使えない)
 let hasFlashlight = false;
@@ -423,6 +34,7 @@ const HUNT_MIN_SECONDS = 10, HUNT_MAX_SECONDS = 60;
 let huntCheckTimer = 8; // 最初の判定までの猶予
 const sanityCanvas = document.createElement('canvas');
 sanityCanvas.width = 128; sanityCanvas.height = 96;
+
 const sanityTexture = new THREE.CanvasTexture(sanityCanvas);
 function drawSanityScreen(value) {
   const ctx = sanityCanvas.getContext('2d');
@@ -470,66 +82,6 @@ function addSurveillanceCamera(roomName, floorY = 0) {
   videoCams.push({ camera: cam, rt, material, roomName });
 }
 
-function makeNotebookItemMesh() {
-  // 手持ち表示では開いた状態に見えるよう、ページを表紙より上に、はっきり見える高さで重ねる
-  const group = new THREE.Group();
-  const cover = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.008, 0.19), new THREE.MeshLambertMaterial({ color: 0x5a2a2a }));
-  cover.position.y = -0.006;
-  group.add(cover);
-  // ページも書き換え可能なキャンバスにして、白紙/書き込みありを見た目で区別できるようにする
-  const pageCanvas = document.createElement('canvas');
-  pageCanvas.width = 128; pageCanvas.height = 160;
-  drawNotebookPage(pageCanvas, false);
-  const pageTexture = new THREE.CanvasTexture(pageCanvas);
-  const pages = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.17), new THREE.MeshBasicMaterial({ map: pageTexture }));
-  pages.rotation.x = -Math.PI / 2;
-  pages.position.y = 0.001;
-  group.add(pages);
-  group.userData.pageCanvas = pageCanvas;
-  group.userData.pageTexture = pageTexture;
-  return group;
-}
-// ノートのページを描き直す(白紙、または幽霊が書き込んだ魔法陣)
-function drawNotebookPage(canvas, written) {
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height;
-  ctx.fillStyle = '#f2ecd8';
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = 'rgba(120,140,170,0.5)';
-  ctx.lineWidth = 1;
-  for (let y = 14; y < h; y += 12) {
-    ctx.beginPath(); ctx.moveTo(6, y); ctx.lineTo(w - 6, y); ctx.stroke();
-  }
-  if (written) {
-    const cx = w / 2, cy = h / 2;
-    const r = Math.min(w, h) * 0.4;
-    ctx.strokeStyle = 'rgba(100,10,10,0.85)';
-    ctx.lineWidth = 1.5;
-    // 二重の円
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2); ctx.stroke();
-    // 内側の五芒星
-    ctx.beginPath();
-    for (let i = 0; i <= 5; i++) {
-      const a = Math.PI * 2 * ((i * 2) % 5) / 5 - Math.PI / 2;
-      const x = cx + Math.cos(a) * r * 0.8;
-      const y = cy + Math.sin(a) * r * 0.8;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.stroke();
-    // 円周を囲む小さな印(ルーンのような十字の刻み)
-    for (let i = 0; i < 8; i++) {
-      const a = (Math.PI * 2 * i) / 8;
-      const x = cx + Math.cos(a) * r * 0.93;
-      const y = cy + Math.sin(a) * r * 0.93;
-      ctx.beginPath();
-      ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y);
-      ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3);
-      ctx.stroke();
-    }
-  }
-}
 // 各道具の「置き場の面から自分の原点までの高さ」。テーブル(0.75)でも床(0)でも、この分だけ浮かせて自然に載せる
 const toolRestOffset = { flashlight: 0.04, emf: 0.1, thermometer: 0.005, notebook: 0.03, spiritbox: 0, uv: 0, dots: 0.045 };
 const toolMeshMakers = { flashlight: makeFlashlightItemMesh, emf: makeEMFItemMesh, thermometer: makeThermoItemMesh, notebook: makeNotebookItemMesh, spiritbox: makeSpiritBoxItemMesh, uv: makeUVItemMesh, dots: makeDotsItemMesh };
@@ -607,7 +159,7 @@ function updateGazeHint() {
   if (!pickupItems.some(i => i.gaze && !i.collected)) { if (gazeHintEl) gazeHintEl.style.display = 'none'; return; }
   if (!gazeHintEl) {
     gazeHintEl = document.createElement('div');
-    gazeHintEl.style.cssText = 'position:fixed;left:50%;top:58%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.55);padding:4px 12px;border-radius:4px;font-family:monospace;font-size:14px;z-index:50;pointer-events:none;display:none;';
+    gazeHintEl.className = 'gh-gaze-hint';
     document.body.appendChild(gazeHintEl);
   }
   const item = inControl() ? findGazePickup() : null;
@@ -656,7 +208,7 @@ function dropCurrentTool() {
 
 // 道具入手時の通知
 const pickupNotice = document.createElement('div');
-pickupNotice.style.cssText = 'position:fixed;top:56px;left:8px;color:#ff0;font-family:monospace;font-size:14px;z-index:10;';
+pickupNotice.className = 'gh-pickup-notice';
 document.body.appendChild(pickupNotice);
 let pickupNoticeTimer = 0;
 function showPickupNotice(text) {
@@ -664,230 +216,9 @@ function showPickupNotice(text) {
   pickupNoticeTimer = 2.5;
 }
 
-// ---- 家具の材質(木・陶器・布・金属) ----
-const woodFurnitureMaterial = new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#6b4a30'), 2, 2) });
-const ceramicMaterial = new THREE.MeshLambertMaterial({ color: 0xe8e6e0 });
-const fabricMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4550 });
-const metalMaterial = new THREE.MeshLambertMaterial({ color: 0xc8ccd0 });
-const mattressMaterial = new THREE.MeshLambertMaterial({ color: 0xe8e2d0 });
-const handleMaterial = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
-const countertopMaterial = new THREE.MeshLambertMaterial({ color: 0xb8b4ac });
-
-// 見た目だけの飾りパーツ(当たり判定には登録しない。細かい部品なので影は落とさず、受けるだけにして負荷を抑える)
-function addDetailMesh(x, y, z, w, h, d, material) {
-  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, floorY + y, z);
-  mesh.castShadow = false;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  return mesh;
-}
-// 脚(円柱)。ベッド・ソファ・カウンター・冷蔵庫などの「浮いている感」をなくす細部パーツ
-function addLeg(x, y, z, radius, height, material = woodFurnitureMaterial) {
-  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.1, height, 8), material);
-  mesh.position.set(x, floorY + y + height / 2, z);
-  mesh.castShadow = false;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  return mesh;
-}
-function addLegsUnder(x, z, w, d, inset, radius, height, material) {
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
-    addLeg(x + sx * (w / 2 - inset), 0, z + sz * (d / 2 - inset), radius, height, material);
-  });
-}
-
-// ベッド = 脚 + 木の土台 + ヘッドボード + マットレス + 枕
-function bedIn(name, dx, dz, w, d) {
-  const r = room(name);
-  const x = r.minX + dx, z = r.minZ + dz;
-  const legH = 0.14, frameH = 0.16, mattressH = 0.22;
-  addLegsUnder(x, z, w, d, 0.08, 0.025, legH, woodFurnitureMaterial);
-  addFurniture(x, z, w, d, frameH, woodFurnitureMaterial, legH); // 脚の上に土台を乗せる(判定の高さは脚込みで扱う)
-  addDetailMesh(x, legH + frameH + mattressH / 2, z, w * 0.92, mattressH, d * 0.92, mattressMaterial);
-  // ヘッドボード(部屋の入口から遠いほう=-Z側を頭側と想定)
-  const headboardH = 0.55;
-  addDetailMesh(x, legH + frameH + headboardH / 2, z - d / 2 + 0.03, w * 0.94, headboardH, 0.05, woodFurnitureMaterial);
-  // 枕(2つ、頭側に寄せて並べる)
-  const pillowY = legH + frameH + mattressH + 0.045;
-  addDetailMesh(x - w * 0.22, pillowY, z - d * 0.32, w * 0.32, 0.09, d * 0.24, ceramicMaterial);
-  addDetailMesh(x + w * 0.22, pillowY, z - d * 0.32, w * 0.32, 0.09, d * 0.24, ceramicMaterial);
-}
-
-// ソファ = 脚 + 座面クッション(2分割)+ 肘掛け2つ + 背もたれクッション(2分割)
-function sofaAt(x, z, w, d) {
-  const legH = 0.1, seatH = 0.32, cushionH = 0.14, backH = 0.4, backT = 0.16, armW = 0.14;
-  addLegsUnder(x, z, w, d, 0.06, 0.02, legH, handleMaterial);
-  addFurniture(x, z, w, d, seatH, fabricMaterial, legH); // 脚の上に座面ベースを乗せる
-  // 座面クッションを2つに分けて継ぎ目を見せる
-  const cushionW = (w - armW * 2 - 0.04) / 2;
-  [-1, 1].forEach(sx => {
-    addDetailMesh(x + sx * (cushionW / 2 + 0.02), legH + seatH + cushionH / 2, z - backT / 2, cushionW, cushionH, d - backT - 0.06, fabricMaterial);
-  });
-  // 肘掛け(両端、座面より少し高く)
-  const armH = 0.32;
-  [-1, 1].forEach(sx => {
-    addDetailMesh(x + sx * (w / 2 - armW / 2), legH + armH / 2, z, armW, armH, d, fabricMaterial);
-  });
-  // 背もたれクッションを2つに分けて配置
-  [-1, 1].forEach(sx => {
-    addDetailMesh(x + sx * (cushionW / 2 + 0.02), legH + seatH + backH / 2, z + d / 2 - backT / 2, cushionW, backH, backT, fabricMaterial);
-  });
-}
-
-// ワードローブ = 本体 + 上部の見切り + 中央の縦の継ぎ目 + 取っ手2つ(部屋の内側=-X向きに面する想定)
-function wardrobeIn(name, dx, dz, w, d, h) {
-  const r = room(name);
-  const x = r.minX + dx, z = r.minZ + dz;
-  addFurniture(x, z, w, d, h, woodFurnitureMaterial);
-  addDetailMesh(x, h + 0.02, z, w + 0.03, 0.04, d + 0.03, woodFurnitureMaterial); // 上部の見切り板
-  const faceX = x - w / 2 - 0.01;
-  addDetailMesh(faceX, h * 0.5, z, 0.015, h * 0.94, 0.006, handleMaterial); // 中央の縦の継ぎ目(左右の扉の境目)
-  addDetailMesh(faceX - 0.02, h * 0.5, z - d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
-  addDetailMesh(faceX - 0.02, h * 0.5, z + d * 0.2, 0.03, 0.15, 0.04, handleMaterial);
-}
-
-// キッチンカウンター = 木の台 + 引き出し前板×2 + 取っ手 + 天板(少しはみ出す)
-function counterAt(x, z, w, d, h) {
-  addFurniture(x, z, w, d, h, woodFurnitureMaterial);
-  addDetailMesh(x, h + 0.03, z, w + 0.08, 0.06, d + 0.08, countertopMaterial);
-  // 引き出し前板を2枚、少し前面に張り出させて陰影を作る
-  const faceZ = z + d / 2 + 0.005;
-  const drawerW = w / 2 - 0.04;
-  [-1, 1].forEach(sx => {
-    addDetailMesh(x + sx * (drawerW / 2 + 0.02), h * 0.72, faceZ, drawerW, h * 0.32, 0.02, woodFurnitureMaterial);
-    addDetailMesh(x + sx * (drawerW / 2 + 0.02), h * 0.72, faceZ + 0.015, 0.1, 0.02, 0.02, handleMaterial);
-  });
-}
-
-// 冷蔵庫 = 脚 + 本体 + 冷凍庫との仕切りライン + 取っ手(部屋の内側=-Z向きに面する想定)
-function fridgeAt(x, z, w, d, h) {
-  const legH = 0.03;
-  addLegsUnder(x, z, w, d, 0.05, 0.015, legH, handleMaterial);
-  addFurniture(x, z, w, d, h, metalMaterial, legH);
-  const faceZ = z - d / 2 - 0.01;
-  addDetailMesh(x, legH + h * 0.72, faceZ, w - 0.03, 0.012, 0.01, handleMaterial); // 冷蔵室/冷凍室の仕切りライン
-  addDetailMesh(x + w * 0.15, legH + h * 0.55, faceZ, 0.06, h * 0.35, 0.03, handleMaterial);
-  addDetailMesh(x + w * 0.15, legH + h * 0.85, faceZ, 0.05, h * 0.14, 0.03, handleMaterial);
-}
-
-function addFurniture(x, z, w, d, h, material = woodFurnitureMaterial, baseY = 0) {
-  const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  mesh.position.set(x, y + baseY + h / 2, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  if (buildingUpperFloor > 0) {
-    upperFloorWallBoxes[buildingUpperFloor].push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
-  } else {
-    wallBoxes.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
-  }
-}
-// 見た目のメッシュは自前で作りたいが、当たり判定だけは「今組み立てている階」に正しく登録したい場合に使う
-// (addFurnitureと同じ振り分けルールを、矩形の当たり判定だけ単独で使えるようにしたもの)
-function pushWallBox(box) {
-  if (buildingUpperFloor > 0) {
-    upperFloorWallBoxes[buildingUpperFloor].push(box);
-  } else {
-    wallBoxes.push(box);
-  }
-}
-function furnitureIn(name, dx, dz, w, d, h, material) {
-  const r = room(name);
-  addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
-}
-// 洗面台 = 支柱 + 台座 + くぼんだ洗面ボウル(円柱をくぼみに見立てて縁取り)+ 蛇口
-function washstandIn(name, dx, dz, w, d, h) {
-  const r = room(name);
-  const x = r.minX + dx, z = r.minZ + dz;
-  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  addLeg(x, 0, z, 0.035, h * 0.55, ceramicMaterial); // 中央の支柱
-  addFurniture(x, z, w, d, h, ceramicMaterial);
-  const basinR = Math.min(w, d) * 0.36;
-  addDetailMesh(x, h + 0.02, z, w - 0.04, 0.04, d - 0.04, ceramicMaterial); // 天板
-  const basinRim = new THREE.Mesh(new THREE.CylinderGeometry(basinR, basinR * 0.9, 0.05, 16), ceramicMaterial);
-  basinRim.position.set(x, floorY + h + 0.035, z);
-  basinRim.receiveShadow = true;
-  scene.add(basinRim);
-  const basinWell = new THREE.Mesh(new THREE.CylinderGeometry(basinR * 0.78, basinR * 0.6, 0.04, 16), new THREE.MeshLambertMaterial({ color: 0xd8d6ce }));
-  basinWell.position.set(x, floorY + h + 0.025, z);
-  basinWell.receiveShadow = true;
-  scene.add(basinWell);
-  addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial); // 蛇口の柱
-  addDetailMesh(x, h + 0.27, z - d / 2 + 0.14, 0.03, 0.03, 0.14, metalMaterial); // 蛇口の口
-}
-
-// トイレ = ボウル(当たり判定あり) + 座面リング + 蓋 + 背面のタンク + 洗浄レバー(見た目のみ)
-function toiletIn(name, dx, dz) {
-  const r = room(name);
-  const x = r.minX + dx, z = r.minZ + dz;
-  const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
-  const bowlW = 0.38, bowlD = 0.48, bowlH = 0.38;
-  addFurniture(x, z, bowlW, bowlD, bowlH, ceramicMaterial);
-  // 座面リング(楕円に近づけるため薄い円柱)+ 蓋(少し立て掛けた板)
-  const seatRing = new THREE.Mesh(new THREE.CylinderGeometry(bowlW * 0.52, bowlW * 0.5, 0.03, 16), ceramicMaterial);
-  seatRing.position.set(x, floorY + bowlH + 0.02, z + bowlD * 0.05);
-  seatRing.scale.z = bowlD / bowlW * 1.05;
-  seatRing.receiveShadow = true;
-  scene.add(seatRing);
-  addDetailMesh(x, bowlH + 0.045, z - bowlD * 0.32, bowlW * 0.9, 0.025, bowlD * 0.55, ceramicMaterial); // 蓋
-  const tankH = 0.32;
-  addDetailMesh(x, bowlH + tankH / 2, z - bowlD / 2 + 0.09, bowlW + 0.02, tankH, 0.16, ceramicMaterial);
-  addDetailMesh(x + bowlW * 0.3, bowlH + tankH - 0.05, z - bowlD / 2 + 0.02, 0.05, 0.02, 0.03, metalMaterial); // 洗浄レバー
-}
-
-
-// 幽霊(証拠システムの土台込み)。証拠は7種類、幽霊ごとに異なる3種の組み合わせを持つ
-// 幽霊の種類の一覧(証拠は7種類、幽霊ごとに異なる3種の組み合わせを持つ)。マップに依存しない共通のロースター
-const ghostTypes = [
-  // 通常の幽霊(28種類)。名前はジャーナルに表示される日本語名、enは英語名。証拠はどれも3つで、組み合わせは1体ずつ異なる(証拠がそろえば1体に絞れる)
-  { name: "レイス", en: "Wraith", evidence: ["EMF5", "スピリットボックス", "D.O.T.S"] },
-  { name: "ファントム", en: "Phantom", evidence: ["スピリットボックス", "指紋", "D.O.T.S"] },
-  { name: "ポルターガイスト", en: "Poltergeist", evidence: ["スピリットボックス", "指紋", "ゴーストライティング"] },
-  { name: "バンシー", en: "Banshee", evidence: ["指紋", "オーブ", "D.O.T.S"] },
-  { name: "ジン", en: "Jinn", evidence: ["EMF5", "指紋", "冷えた温度"] },
-  { name: "メアー", en: "Mare", evidence: ["スピリットボックス", "オーブ", "ゴーストライティング"] },
-  { name: "レヴナント", en: "Revenant", evidence: ["オーブ", "ゴーストライティング", "冷えた温度"] },
-  { name: "シェード", en: "Shade", evidence: ["EMF5", "ゴーストライティング", "冷えた温度"] },
-  { name: "デーモン", en: "Demon", evidence: ["指紋", "ゴーストライティング", "冷えた温度"] },
-  { name: "幽霊", en: "Yurei", evidence: ["オーブ", "冷えた温度", "D.O.T.S"] },
-  { name: "鬼", en: "Oni", evidence: ["EMF5", "冷えた温度", "D.O.T.S"] },
-  { name: "妖怪", en: "Yokai", evidence: ["スピリットボックス", "オーブ", "D.O.T.S"] },
-  { name: "ハントゥ", en: "Hantu", evidence: ["指紋", "オーブ", "冷えた温度"] },
-  { name: "御霊", en: "Goryo", evidence: ["EMF5", "指紋", "D.O.T.S"] },
-  { name: "マイリング", en: "Myling", evidence: ["EMF5", "指紋", "ゴーストライティング"] },
-  { name: "怨霊", en: "Onryo", evidence: ["スピリットボックス", "オーブ", "冷えた温度"] },
-  { name: "ツインズ", en: "The Twins", evidence: ["EMF5", "スピリットボックス", "冷えた温度"] },
-  { name: "雷獣", en: "Raiju", evidence: ["EMF5", "オーブ", "D.O.T.S"] },
-  { name: "化け狐", en: "Obake", evidence: ["EMF5", "指紋", "オーブ"] },
-  { name: "ミミック", en: "The Mimic", evidence: ["スピリットボックス", "指紋", "冷えた温度"] },
-  { name: "モーロイ", en: "Moroi", evidence: ["スピリットボックス", "ゴーストライティング", "冷えた温度"] },
-  { name: "デオヘン", en: "Deogen", evidence: ["スピリットボックス", "ゴーストライティング", "D.O.T.S"] },
-  { name: "セーイ", en: "Thaye", evidence: ["オーブ", "ゴーストライティング", "D.O.T.S"] },
-  { name: "ダヤン", en: "Dayan", evidence: ["EMF5", "オーブ", "スピリットボックス"] },
-  { name: "ガルル", en: "Gallu", evidence: ["EMF5", "指紋", "スピリットボックス"] },
-  { name: "オバンボ", en: "Obambo", evidence: ["ゴーストライティング", "指紋", "D.O.T.S"] },
-  { name: "アスワング", en: "Aswang", evidence: ["冷えた温度", "ゴーストライティング", "D.O.T.S"] },
-  { name: "コルモス", en: "Kormos", evidence: ["オーブ", "スピリットボックス", "指紋"] },
-  // 特別な幽霊。証拠はスピリットボックスだけで、スピリットボックスには必ず同じ言葉で応える。
-  // 見た目は常に人型モデル(ghost-model.fbx)で、襲ってこない(ハントも死亡もゲームオーバーも起きない)
-  { name: "ハヤト", evidence: ["スピリットボックス"], spiritBoxWord: "いらっしゃいませ////", alwaysModel: true, noHunt: true },
-];
-
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
 let notebookWritten = false;
 let notebookTimer = 15 + Math.random() * 30;
-
-function randomPointInRoom(r, margin = 0.6, rand = Math.random) {
-  return new THREE.Vector3(
-    r.minX + margin + rand() * Math.max(0.1, r.maxX - r.minX - margin * 2),
-    1.0,
-    r.minZ + margin + rand() * Math.max(0.1, r.maxZ - r.minZ - margin * 2)
-  );
-}
 
 // 幽霊の見た目(マテリアル・メッシュ自体はどのマップでも共通なので先に作っておく。実際にどこへ出すかはinitHaunting()で決める)
 const ghostMaterial = new THREE.MeshLambertMaterial({
@@ -968,54 +299,6 @@ function applyGhostModel() {
 // スピリットボックスが返す単語(証拠に一致する幽霊が近くにいるときだけ、雑音の代わりにこの中から返る)
 const spiritBoxWords = ['Y6uB4†b', 'P0см0три n4 меня', '0л4 0л4 0л4 0л4'];
 let spiritBoxTimer = 2;
-
-// 指紋(手形)のテクスチャ。手のひら+親指+4本指を手続き的に描き、UVを当てたときだけ浮かぶ薄紫の手形にする
-function makeFingerprintTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, 128, 128);
-  ctx.fillStyle = 'rgba(179,136,255,0.6)';
-  try { ctx.filter = 'blur(1.5px)'; } catch (e) { /* 一部環境でblurが未対応でも問題ない */ }
-  // 手のひら
-  ctx.beginPath();
-  ctx.ellipse(64, 80, 25, 30, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // 親指
-  ctx.save();
-  ctx.translate(34, 62);
-  ctx.rotate(-0.7);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 9, 19, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-  // 4本指(根元の位置・長さ・傾きをそれぞれ変えて自然な形に)
-  [
-    { x: 42, len: 32, rot: -0.2 },
-    { x: 56, len: 40, rot: -0.06 },
-    { x: 72, len: 42, rot: 0.05 },
-    { x: 86, len: 34, rot: 0.18 },
-  ].forEach(f => {
-    ctx.save();
-    ctx.translate(f.x, 48);
-    ctx.rotate(f.rot);
-    ctx.beginPath();
-    ctx.ellipse(0, -f.len / 2, 6.5, f.len / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  });
-  // うっすらとした滲み(見た目に生々しさを足す)
-  ctx.filter = 'none';
-  for (let i = 0; i < 40; i++) {
-    ctx.fillStyle = `rgba(179,136,255,${Math.random() * 0.12})`;
-    ctx.beginPath();
-    ctx.arc(20 + Math.random() * 88, 30 + Math.random() * 80, Math.random() * 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
 const fingerprintMat = new THREE.MeshBasicMaterial({ map: makeFingerprintTexture(), transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
 const fingerprintSpot = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.2), fingerprintMat);
 
@@ -1057,19 +340,6 @@ function playerInHauntedRoom(x, z) {
   const sameFloor = hauntedFloor > 0 ? currentUpperFloor === hauntedFloor : (currentUpperFloor === 0 && onGroundFloor);
   return sameFloor && x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
 }
-
-// ==== 難易度 ====
-// ロビーのボードで選ぶ(オンラインのときは、ホストが選んだものが全員に適用される)。main.js が、マップを組み立てる前に setDifficulty() で渡す。
-//   普通 = これまでのゲーム(+ ブレーカーが、ポルターガイストのように落とされることがある)
-//   canRaiseBreaker : false だと、ブレーカーを上げられない(ずっと停電)
-//   breakerTrips    : 幽霊が、上がっているブレーカーを落とすことがあるか。tripMin〜tripMax 秒ごとに(ブレーカーを上げるたびに、時間は数え直す)
-//   hayato          : false だと、ハヤト(襲ってこないテスト用の幽霊)が出ない(抽選・調査書の一覧・隠しコマンドのすべてから外れる)
-const DIFFICULTIES = {
-  easy:      { label: '易しい',     canRaiseBreaker: true,  breakerTrips: false, tripMin: 0,  tripMax: 0,   hayato: true },
-  normal:    { label: '普通',       canRaiseBreaker: true,  breakerTrips: true,  tripMin: 150, tripMax: 300, hayato: true },
-  hard:      { label: '難しい',     canRaiseBreaker: true,  breakerTrips: true,  tripMin: 60,  tripMax: 150, hayato: true },
-  nightmare: { label: 'ナイトメア', canRaiseBreaker: false, breakerTrips: false, tripMin: 0,  tripMax: 0,   hayato: false },
-};
 let difficultyId = 'normal';
 let difficulty = DIFFICULTIES.normal;
 let breakerTripTimer = -1; // 上がっているブレーカーが落とされるまでの残り秒数(-1 は「まだ決めていない/いまは数えない」)
@@ -1177,22 +447,6 @@ function updateOrb(delta) {
 
 // 照明(部屋ごとに管理して、スイッチでON/OFFできるようにする)
 scene.add(new THREE.AmbientLight(0x222233, 0.55));
-
-// 天井の照明。実際に計算コストのかかるPointLightは一切使わず、
-// 「照明器具の発光」+「床に落ちる光だまり(半透明の丸いテクスチャ)」を明るくするだけの、見た目だけの仕掛けにする。
-// この方式なら、プレイヤーがどれだけ動いてもライトの数・位置は一切変わらないので、移動によるカクつきが原理的に発生しない。
-function makeGlowTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, 'rgba(255,244,214,0.9)');
-  g.addColorStop(0.6, 'rgba(255,244,214,0.35)');
-  g.addColorStop(1, 'rgba(255,244,214,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(canvas);
-}
 const glowTexture = makeGlowTexture(); // 全部屋で共有する(部屋ごとに用意する必要はない)
 function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
   const r = room(name);
@@ -1286,9 +540,6 @@ function setBreakerOn(v) { breakerOn = v; }
 // 地下室の深さなど、階をまたぐ演出(ハント中の幽霊の追跡など)に使うマップ固有の値。マップ側が設定する
 let basementFloorY = 0;
 function setBasementFloorY(y) { basementFloorY = y; }
-
-// ESモジュールではimportした変数に直接代入できないため、マップ側から書き換えたい状態はセッター経由にする
-function setOnGroundFloor(v) { onGroundFloor = v; }
 function setNotebookWorldMesh(m) { notebookWorldMesh = m; }
 
 // マップ固有の毎フレーム処理(階段の昇り降りの高さ補間など)を登録する。animateループから毎フレーム呼ばれる
@@ -1430,23 +681,23 @@ function requestPadStart() {
 const inControl = () => controls.isLocked || padPlay;
 
 const emfDisplay = document.createElement('div');
-emfDisplay.style.cssText = 'position:fixed;top:32px;left:8px;color:#0f0;font-family:monospace;font-size:14px;z-index:10;';
+emfDisplay.className = 'gh-emf-display';
 document.body.appendChild(emfDisplay);
 
 const thermoDisplay = document.createElement('div');
-thermoDisplay.style.cssText = 'position:fixed;top:52px;left:8px;color:#0ff;font-family:monospace;font-size:14px;z-index:10;';
+thermoDisplay.className = 'gh-thermo-display';
 document.body.appendChild(thermoDisplay);
 
 const notebookDisplay = document.createElement('div');
-notebookDisplay.style.cssText = 'position:fixed;top:72px;left:8px;color:#e8c060;font-family:monospace;font-size:14px;z-index:10;';
+notebookDisplay.className = 'gh-notebook-display';
 document.body.appendChild(notebookDisplay);
 
 const spiritBoxDisplay = document.createElement('div');
-spiritBoxDisplay.style.cssText = 'position:fixed;top:92px;left:8px;color:#ff66aa;font-family:monospace;font-size:14px;z-index:10;';
+spiritBoxDisplay.className = 'gh-spirit-box-display';
 document.body.appendChild(spiritBoxDisplay);
 
 const dotsDisplay = document.createElement('div');
-dotsDisplay.style.cssText = 'position:fixed;top:112px;left:8px;color:#33ff55;font-family:monospace;font-size:14px;z-index:10;';
+dotsDisplay.className = 'gh-dots-display';
 document.body.appendChild(dotsDisplay);
 
 // タブキーで開く調査書(見開き)。左ページ=証拠チェック、右ページ=絞り込まれたゴースト一覧+特定ボタン
@@ -1468,16 +719,16 @@ function returnToLobby() {
 }
 
 const journalOverlay = document.createElement('div');
-journalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:none;align-items:center;justify-content:center;z-index:50;';
+journalOverlay.className = 'gh-journal-overlay';
 document.body.appendChild(journalOverlay);
 
 const journalBook = document.createElement('div');
-journalBook.style.cssText = 'display:flex;width:min(860px,92vw);height:min(560px,82vh);box-shadow:0 10px 40px rgba(0,0,0,0.6);border-radius:4px;overflow:hidden;';
+journalBook.className = 'gh-journal-book';
 journalOverlay.appendChild(journalBook);
 
 function makeJournalPage(borderSide) {
   const page = document.createElement('div');
-  page.style.cssText = `flex:1;background:#ece3cf;color:#2a2419;font-family:Georgia,serif;padding:26px 24px;overflow-y:auto;border-${borderSide}:2px solid #b8a97e;box-sizing:border-box;`;
+  page.className = `gh-journal-page gh-journal-page--${borderSide}`; // borderSide は 'left' か 'right'(綴じ目の側の線)
   return page;
 }
 const journalLeftPage = makeJournalPage('right');
@@ -1488,16 +739,16 @@ journalBook.appendChild(journalRightPage);
 // 左ページ: 証拠チェックリスト
 const journalLeftTitle = document.createElement('h2');
 journalLeftTitle.textContent = '証拠';
-journalLeftTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:1px solid #b8a97e;padding-bottom:8px;';
+journalLeftTitle.className = 'gh-journal-left-title';
 journalLeftPage.appendChild(journalLeftTitle);
 
 const evidenceRows = []; // { ev, row, cb }(コントローラーで、カーソルを合わせたりチェックしたりするため)
 evidenceTypes.forEach(ev => {
   const row = document.createElement('label');
-  row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:16px;cursor:pointer;';
+  row.className = 'gh-evidence-row';
   const cb = document.createElement('input');
   cb.type = 'checkbox';
-  cb.style.cssText = 'width:16px;height:16px;cursor:pointer;';
+  cb.className = 'gh-evidence-checkbox';
   cb.addEventListener('change', () => {
     if (cb.checked) checkedEvidence.add(ev); else checkedEvidence.delete(ev);
     updateJournalGhostList();
@@ -1513,33 +764,33 @@ evidenceTypes.forEach(ev => {
 // 証拠リストの下に「ロビーに戻る」ボタンを置く(Pキーでも同じ動作)
 const journalLobbyBtn = document.createElement('button');
 journalLobbyBtn.textContent = '🚪 ロビーに戻る';
-journalLobbyBtn.style.cssText = 'display:block;margin-top:24px;padding:9px 18px;font-size:14px;font-family:Georgia,serif;background:#3a3428;color:#ece3cf;border:none;border-radius:3px;cursor:pointer;';
+journalLobbyBtn.className = 'gh-journal-lobby-btn';
 journalLobbyBtn.addEventListener('click', returnToLobby);
 journalLeftPage.appendChild(journalLobbyBtn);
 
 // 右ページ: 証拠に一致するゴーストの一覧(チェック無しなら全種類)+特定ボタン
 const journalRightTitle = document.createElement('h2');
 journalRightTitle.textContent = 'ゴーストの種類';
-journalRightTitle.style.cssText = 'margin:0 0 16px;font-size:20px;border-bottom:1px solid #b8a97e;padding-bottom:8px;';
+journalRightTitle.className = 'gh-journal-right-title';
 journalRightPage.appendChild(journalRightTitle);
 
 const journalGhostList = document.createElement('div');
-journalGhostList.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;column-gap:8px;max-height:calc(min(560px,82vh) - 200px);overflow-y:auto;';
+journalGhostList.className = 'gh-journal-ghost-list';
 journalRightPage.appendChild(journalGhostList);
 
 const journalIdentifyBtn = document.createElement('button');
 journalIdentifyBtn.textContent = '特定';
-journalIdentifyBtn.style.cssText = 'display:none;margin-top:20px;padding:10px 28px;font-size:16px;font-family:Georgia,serif;background:#6b1f1f;color:#f0e6d2;border:none;border-radius:3px;cursor:pointer;';
+journalIdentifyBtn.className = 'gh-journal-identify-btn';
 journalIdentifyBtn.addEventListener('click', () => submitIdentify());
 journalRightPage.appendChild(journalIdentifyBtn);
 
 // 特定したあとの表示(自分の回答と、何人が特定を終えたか)と、ホストだけが押せる「いまの票で決める」
 const journalVoteStatus = document.createElement('div');
-journalVoteStatus.style.cssText = 'display:none;margin-top:16px;font-size:14px;line-height:1.7;color:#4a3a1f;white-space:pre-line;';
+journalVoteStatus.className = 'gh-journal-vote-status';
 journalRightPage.appendChild(journalVoteStatus);
 const journalForceBtn = document.createElement('button');
 journalForceBtn.textContent = 'いまの票で決める';
-journalForceBtn.style.cssText = 'display:none;margin-top:10px;padding:7px 14px;font-size:13px;font-family:Georgia,serif;background:#3a3428;color:#ece3cf;border:none;border-radius:3px;cursor:pointer;';
+journalForceBtn.className = 'gh-journal-force-btn';
 journalForceBtn.addEventListener('click', () => { if (net && net.forceFinalize) net.forceFinalize(); });
 journalRightPage.appendChild(journalForceBtn);
 
@@ -1553,7 +804,7 @@ function updateJournalGhostList() {
     const row = document.createElement('div');
     const isSelected = g.name === (myVote || selectedGhostName);
     row.textContent = g.name;
-    row.style.cssText = `padding:10px 8px;font-size:17px;cursor:${myVote ? 'default' : 'pointer'};border-radius:3px;margin-bottom:4px;${isSelected ? 'background:#b8a97e;font-weight:bold;' : ''}`;
+    row.className = 'gh-journal-ghost-row' + (myVote ? ' is-locked' : '') + (isSelected ? ' is-selected' : '');
     row.addEventListener('click', () => {
       if (myVote) return; // 特定したあとは、変えられない
       selectedGhostName = g.name;
@@ -1566,7 +817,7 @@ function updateJournalGhostList() {
   if (matching.length === 0) {
     const none = document.createElement('div');
     none.textContent = '(条件に一致するゴーストがいません)';
-    none.style.cssText = 'color:#8a7a5a;font-style:italic;padding:10px 8px;';
+    none.className = 'gh-journal-empty';
     journalGhostList.appendChild(none);
   }
   refreshPadCursor(); // 一覧が作り直されても、コントローラーのカーソルは残す
@@ -1601,7 +852,7 @@ function toggleJournal() {
 // 調査書を開いている間は、動く・見回す・道具を使うなどのボタン操作は止める(閉じるときの押しっぱなしで誤作動しないよう、状態は読み続ける)
 const journalPadHint = document.createElement('div');
 journalPadHint.textContent = '🎮 十字キー/スティック: 移動   B・Y: 選ぶ・チェック   X: 特定   A・＋: 閉じる';
-journalPadHint.style.cssText = 'position:absolute;left:50%;bottom:16px;transform:translateX(-50%);color:#d8cfb8;font-family:Georgia,serif;font-size:13px;white-space:nowrap;text-shadow:0 1px 3px #000;pointer-events:none;';
+journalPadHint.className = 'gh-journal-pad-hint';
 journalOverlay.appendChild(journalPadHint);
 
 // カーソルのある行に枠を付ける(一覧が作り直されたときも呼ばれる)
@@ -1685,14 +936,14 @@ function updateJournalPad(pad, delta) {
 // マイクラ風のホットバー(3スロット固定。持ち物は最大3つまで。拾った順に左から並ぶ)
 let heldOrder = []; // 拾った道具名を、拾った順に積んでいく
 const hotbar = document.createElement('div');
-hotbar.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:10;';
+hotbar.className = 'gh-hotbar';
 document.body.appendChild(hotbar);
 const hotbarSlots = Array.from({ length: 3 }, (_, i) => {
   const slot = document.createElement('div');
-  slot.style.cssText = 'width:52px;height:52px;background:rgba(20,20,20,0.6);border:2px solid rgba(255,255,255,0.25);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:24px;position:relative;box-sizing:border-box;transition:border-color 0.1s;';
+  slot.className = 'gh-hotbar-slot';
   const num = document.createElement('div');
   num.textContent = i + 1;
-  num.style.cssText = 'position:absolute;top:1px;left:3px;font-size:10px;color:#ccc;font-family:monospace;';
+  num.className = 'gh-hotbar-num';
   const icon = document.createElement('span');
   slot.appendChild(num);
   slot.appendChild(icon);
@@ -1787,60 +1038,26 @@ function toggleCurrentTool() {
   }
 }
 // ハントに捕まったときの演出(血の画面)とリザルト画面
-function makeBloodSplatterDataURL() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, 512, 512);
-  for (let i = 0; i < 70; i++) {
-    const x = Math.random() * 512, y = Math.random() * 512;
-    const r = 8 + Math.random() * 42;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, `rgba(120,0,0,${0.45 + Math.random() * 0.4})`);
-    grad.addColorStop(1, 'rgba(120,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(x, y, r, r * (0.6 + Math.random() * 0.6), Math.random() * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // 画面の上端から垂れる血の筋
-  for (let i = 0; i < 12; i++) {
-    const x = Math.random() * 512;
-    const len = 70 + Math.random() * 170;
-    const grad = ctx.createLinearGradient(x, 0, x, len);
-    grad.addColorStop(0, 'rgba(100,0,0,0.85)');
-    grad.addColorStop(1, 'rgba(100,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(x - (4 + Math.random() * 6), 0, 8 + Math.random() * 10, len);
-  }
-  return canvas.toDataURL();
-}
 const bloodOverlay = document.createElement('div');
-bloodOverlay.style.cssText = `
-  position:fixed; inset:0; z-index:95; pointer-events:none; opacity:0;
-  transition: opacity 0.15s ease-in;
-  background:
-    radial-gradient(circle, rgba(90,0,0,0.05) 0%, rgba(60,0,0,0.55) 60%, rgba(15,0,0,0.92) 100%),
-    url(${makeBloodSplatterDataURL()});
-  background-size: cover;
-`;
+bloodOverlay.className = 'gh-blood-overlay';
+bloodOverlay.style.setProperty('--blood-splatter', `url(${makeBloodSplatterDataURL()})`); // 血のしぶきの絵は、コードで描くので、ここで渡す(並べ方は ui.css)
 document.body.appendChild(bloodOverlay);
 
 const resultOverlay = document.createElement('div');
-resultOverlay.style.cssText = 'position:fixed;inset:0;z-index:96;display:none;align-items:center;justify-content:center;flex-direction:column;color:#eee;font-family:monospace;background:rgba(0,0,0,0.55);';
+resultOverlay.className = 'gh-result-overlay';
 const resultTitle = document.createElement('div');
 resultTitle.textContent = 'あなたは死亡しました';
-resultTitle.style.cssText = 'font-size:34px;color:#ff4444;letter-spacing:4px;margin-bottom:18px;text-shadow:0 0 12px rgba(255,0,0,0.6);';
+resultTitle.className = 'gh-result-title';
 resultOverlay.appendChild(resultTitle);
 const resultGhostText = document.createElement('div');
-resultGhostText.style.cssText = 'font-size:16px;margin-bottom:6px;';
+resultGhostText.className = 'gh-result-ghost-text';
 resultOverlay.appendChild(resultGhostText);
 const resultTimeText = document.createElement('div');
-resultTimeText.style.cssText = 'font-size:14px;color:#aaa;margin-bottom:28px;';
+resultTimeText.className = 'gh-result-time-text';
 resultOverlay.appendChild(resultTimeText);
 const resultLobbyBtn = document.createElement('button');
 resultLobbyBtn.textContent = 'ロビーに戻る';
-resultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
+resultLobbyBtn.className = 'gh-result-lobby-btn';
 resultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; });
 resultOverlay.appendChild(resultLobbyBtn);
 document.body.appendChild(resultOverlay);
@@ -1911,35 +1128,26 @@ function triggerDeath() {
 
 // 特定(調査書の「特定」ボタン)を押したときのリザルト画面
 const identifyResultOverlay = document.createElement('div');
-identifyResultOverlay.style.cssText = 'position:fixed;inset:0;z-index:96;display:none;align-items:center;justify-content:center;flex-direction:column;color:#eee;font-family:monospace;background:rgba(0,0,0,0.75);';
+identifyResultOverlay.className = 'gh-identify-result-overlay';
 const identifyResultTitle = document.createElement('div');
-identifyResultTitle.style.cssText = 'font-size:30px;letter-spacing:3px;margin-bottom:18px;';
+identifyResultTitle.className = 'gh-identify-result-title';
 identifyResultOverlay.appendChild(identifyResultTitle);
 const identifyResultDetail = document.createElement('div');
-identifyResultDetail.style.cssText = 'font-size:15px;color:#ccc;margin-bottom:6px;line-height:1.8;white-space:pre-line;text-align:center;';
+identifyResultDetail.className = 'gh-identify-result-detail';
 identifyResultOverlay.appendChild(identifyResultDetail);
 const identifyResultReward = document.createElement('div');
-identifyResultReward.style.cssText = 'font-size:26px;color:#ffd54a;margin:18px 0 28px;';
+identifyResultReward.className = 'gh-identify-result-reward';
 identifyResultOverlay.appendChild(identifyResultReward);
 // 報酬を、Googleアカウントに保存したかどうか(ログインしているときだけ保存される)
 const identifyResultMoney = document.createElement('div');
-identifyResultMoney.style.cssText = 'font-size:14px;color:#cfe6ff;margin:-14px 20px 26px;min-height:18px;max-width:560px;text-align:center;line-height:1.7;';
+identifyResultMoney.className = 'gh-identify-result-money';
 identifyResultOverlay.appendChild(identifyResultMoney);
 const identifyResultLobbyBtn = document.createElement('button');
 identifyResultLobbyBtn.textContent = 'ロビーに戻る';
-identifyResultLobbyBtn.style.cssText = 'padding:12px 30px;font-size:15px;background:#3a7ad9;color:#fff;border:none;border-radius:6px;cursor:pointer;';
+identifyResultLobbyBtn.className = 'gh-identify-result-lobby-btn';
 identifyResultLobbyBtn.addEventListener('click', () => { window.location.href = 'lobby.html'; }); // オンラインのときは、ロビーで同じ部屋に戻れる
 identifyResultOverlay.appendChild(identifyResultLobbyBtn);
 document.body.appendChild(identifyResultOverlay);
-
-// 正解かどうかと、特定にかかった時間から報酬額を計算する。
-// 正解なら基本報酬(1000円)+速く特定できたほど増えるボーナス(10分以内なら最大+1200円、それ以降はボーナス無し)。
-// 不正解でも、調査した分の参加料としてわずかに支払う
-function calculateReward(correct, elapsedSeconds) {
-  if (!correct) return 100;
-  const speedBonus = Math.max(0, Math.round((600 - Math.min(elapsedSeconds, 600)) * 2));
-  return 1000 + speedBonus;
-}
 
 // ---- 特定(多数決) ----
 // 特定は一人ひとりが自分の調査書で行う(投票)。生きている人が全員特定し終えたら、多数決で幽霊の正体が決まる。同票なら、同票の中からランダムに決まる。
@@ -1947,13 +1155,9 @@ function calculateReward(correct, elapsedSeconds) {
 // 結果が出たら、ロビーのホワイトボードに表示できるよう、ブラウザに保存しておく
 const LAST_RESULT_KEY = 'ghost_last_result';
 const voteBanner = document.createElement('div');
-voteBanner.style.cssText = 'position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:12;display:none;color:#ffe9a8;background:rgba(0,0,0,0.6);border:1px solid #6a5a2a;border-radius:4px;padding:5px 14px;font-family:monospace;font-size:13px;pointer-events:none;';
+voteBanner.className = 'gh-vote-banner';
 document.body.appendChild(voteBanner);
 let groupResultShown = false;
-
-function formatTime(sec) {
-  return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
-}
 
 // 自分の特定の状態を、調査書と画面の上のほうに出す
 function refreshVoteUi() {
@@ -2114,15 +1318,6 @@ function pollGamepad() {
   for (const pad of pads) if (pad) return pad;
   return null;
 }
-function deadzone(v, dz = 0.15) {
-  return Math.abs(v) < dz ? 0 : v;
-}
-
-function emfLevelAt(distance, hasEMF5) {
-  let level = distance < 1 ? 5 : distance < 2 ? 4 : distance < 3.5 ? 3 : distance < 5 ? 2 : distance < 8 ? 1 : 0;
-  if (level === 5 && !hasEMF5) level = 4;
-  return level;
-}
 
 // 幽霊の部屋(hauntedRoom)の中だけ気温が下がる。「冷えた温度」を証拠に持つ幽霊のときだけ氷点下まで下がる
 function temperatureAt(x, z, t) {
@@ -2138,7 +1333,7 @@ function temperatureAt(x, z, t) {
 const mapCanvas = document.createElement('canvas');
 mapCanvas.width = 180;
 mapCanvas.height = 230;
-mapCanvas.style.cssText = 'position:fixed;top:8px;right:8px;background:rgba(0,0,0,0.6);border:1px solid #0f0;z-index:10;';
+mapCanvas.className = 'gh-minimap';
 document.body.appendChild(mapCanvas);
 const mapCtx = mapCanvas.getContext('2d');
 
@@ -2726,33 +1921,6 @@ function animate() {
 
   renderer.render(scene, camera);
 }
-// マップ選択画面。今は「一軒家」の1つだけだが、今後マップを追加してもここに並べていくだけで済むようにしてある
-const mapSelectOverlay = document.createElement('div');
-mapSelectOverlay.style.cssText = 'position:fixed;inset:0;background:radial-gradient(circle at center,#1a1a2a 0%,#000 100%);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:90;font-family:monospace;color:#eee;';
-document.body.appendChild(mapSelectOverlay);
-
-const mapSelectTitle = document.createElement('h1');
-mapSelectTitle.textContent = 'マップを選択';
-mapSelectTitle.style.cssText = 'font-size:20px;color:#9fd3ff;margin-bottom:20px;';
-mapSelectOverlay.appendChild(mapSelectTitle);
-
-const mapSelectGrid = document.createElement('div');
-mapSelectGrid.style.cssText = 'display:flex;gap:16px;flex-wrap:wrap;justify-content:center;max-width:720px;';
-mapSelectOverlay.appendChild(mapSelectGrid);
-
-function addMapCard(label, enabled, onSelect) {
-  const card = document.createElement('div');
-  card.style.cssText = `width:180px;height:130px;border-radius:6px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;box-sizing:border-box;font-size:14px;border:1px solid ${enabled ? '#3a7ad9' : '#333'};background:${enabled ? '#14141c' : '#0a0a0e'};color:${enabled ? '#eee' : '#555'};cursor:${enabled ? 'pointer' : 'default'};`;
-  card.textContent = label;
-  if (enabled) {
-    card.addEventListener('mouseenter', () => { card.style.background = '#1c2438'; });
-    card.addEventListener('mouseleave', () => { card.style.background = '#14141c'; });
-    card.addEventListener('click', onSelect);
-  }
-  mapSelectGrid.appendChild(card);
-}
-
-
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -2802,7 +1970,7 @@ function enterGame() {
 // ここでの「読み込み中」はページの初期化だけを指す。部屋を巡る本格的な温めはenterGame()側で行う
 function startEngine() {
   const loadingDiv = document.createElement('div');
-  loadingDiv.style.cssText = 'position:fixed;inset:0;background:#000;color:#0f0;font-family:monospace;font-size:20px;display:flex;align-items:center;justify-content:center;z-index:100;';
+  loadingDiv.className = 'gh-loading';
   loadingDiv.textContent = '読み込み中...';
   document.body.appendChild(loadingDiv);
   info.style.display = 'none';

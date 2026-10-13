@@ -40,7 +40,7 @@ export function startOnlineSession({ scene, camera }) {
 
   // ---- 画面の隅の表示 ----
   const badge = document.createElement('div');
-  badge.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:6;color:#9fd3ff;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.45);padding:3px 8px;border-radius:3px;pointer-events:none;';
+  badge.className = 'gh-online-badge';
   document.body.appendChild(badge);
   let myId = null, joined = false, hostId = null;
   const remotes = new Map(); // id -> { group, body, avatar, target(足元の位置), prev, rotY, color, name, hasPos, sanity, dead(死んだ), out(特定などでプレイを終えた) }

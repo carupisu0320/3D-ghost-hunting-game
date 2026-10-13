@@ -1,0 +1,99 @@
+/* ロビー(lobby.html)の画面の部品の見た目。色・文字・配置は、ここだけを直せばよい。
+ * 部品の中身(文字・ボタン)は lobby.html、動きは lobby.js。見た目の指定(style.cssText)をコードに書かない(npm test が検出する)。
+ * 動きの途中で変わる値(display・opacity・枠の色など)は、コードが直接書き換える。ここに書いた値は「最初の状態」。
+ * ホワイトボードの中身は、canvas に描くので lobby-board.js にある(CSS では変えられない)。
+ */
+
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif; }
+canvas { display: block; }
+
+/* 画面の中央の照準(ボードのボタンを狙うための点) */
+#crosshair {
+  position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%;
+  background: rgba(255,255,255,0.85); box-shadow: 0 0 0 1px rgba(0,0,0,0.5); z-index: 5; pointer-events: none; display: none;
+}
+/* 「クリックして始める」の案内(カーソルが出ている間だけ表示) */
+#hint {
+  position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(0,0,0,0.55); color: #eee; cursor: pointer; text-align: center;
+}
+#hint .title { font-size: 30px; letter-spacing: 3px; color: #9fd3ff; }
+#hint .sub { font-size: 15px; color: #ccc; line-height: 1.8; }
+/* 操作を始めたあと、最初の5秒だけ出る操作説明(画面は隠さない) */
+#helpPanel {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 8; display: none; box-sizing: border-box;
+  max-width: min(820px, 94vw); padding: 12px 22px; background: rgba(0,0,0,0.62); color: #eee; border-radius: 8px;
+  font-size: 13px; line-height: 1.8; text-align: center; pointer-events: none; opacity: 1; transition: opacity 0.7s ease;
+}
+/* Escやダイアログのあと、操作を再開するための案内(クリックか、WASDなどのキーで再開できる) */
+#resume {
+  position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.2); cursor: pointer;
+}
+#resume .box { background: rgba(18,20,26,0.88); color: #eee; border: 1px solid #3a3f4a; border-radius: 8px; padding: 16px 32px; text-align: center; line-height: 1.9; }
+#resume .big { font-size: 22px; letter-spacing: 2px; color: #9fd3ff; }
+#resume .small { font-size: 13px; color: #aaa; }
+#toast {
+  position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 30; display: none;
+  background: rgba(20,20,26,0.92); color: #ffd0d0; border: 1px solid #5a3a3a; border-radius: 6px; padding: 10px 20px; font-size: 15px;
+}
+#roomBadge {
+  position: fixed; top: 10px; left: 10px; z-index: 6; display: none; color: #cfe6ff; font-family: monospace; font-size: 14px;
+  background: rgba(0,0,0,0.45); padding: 6px 12px; border-radius: 4px; line-height: 1.6;
+}
+
+/* 名前・部屋コードの入力ダイアログ */
+#modal { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); }
+#modalBox { background: #16181d; border: 1px solid #3a3f4a; border-radius: 8px; padding: 24px 28px; width: 320px; color: #eee; }
+#modalTitle { font-size: 18px; margin: 0 0 14px; color: #9fd3ff; }
+#modalInput {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 8px; background: #23262d; border: 1px solid #444a55;
+  border-radius: 4px; color: #fff; font-size: 18px; letter-spacing: 2px;
+}
+#modalError { color: #ff8a8a; font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+.modalButtons { display: flex; gap: 10px; }
+.modalButtons button { flex: 1; padding: 10px; border: none; border-radius: 4px; font-size: 15px; cursor: pointer; }
+#modalOk { background: #3a7ad9; color: #fff; }
+#modalCancel { background: #2c2f38; color: #ddd; }
+
+/* ===== ロビーの本編風の表示(lobby.js が作る部品。道具を試すときの表示) ===== */
+/* 左上の道具の表示。--emf など、道具ごとに位置と色が違う */
+.gh-lobby-hud { position: fixed; left: 10px; font-family: monospace; font-size: 14px; z-index: 7; text-shadow: 0 0 3px #000; }
+.gh-lobby-hud--emf { top: 44px; color: #0f0; }
+.gh-lobby-hud--thermometer { top: 64px; color: #0ff; }
+.gh-lobby-hud--spiritbox { top: 84px; color: #ff66aa; }
+.gh-lobby-hud--dots { top: 104px; color: #33ff55; }
+
+/* 画面下のホットバー(持っている道具3つ)。持ち替えたときの枠の色・明るさは、コードが直接書き換える */
+.gh-lobby-hotbar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 7; }
+.gh-lobby-hotbar-slot {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border: 2px solid rgba(255,255,255,0.25);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  opacity: 0.35;
+}
+.gh-lobby-hotbar-num { position: absolute; top: 1px; left: 4px; font-size: 11px; color: #ccc; font-family: monospace; }
+
+/* 壁の道具を狙ったときに出る名前 */
+.gh-lobby-tool-hint {
+  position: fixed;
+  left: 50%;
+  top: 58%;
+  transform: translateX(-50%);
+  color: #fff;
+  background: rgba(0,0,0,0.55);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+  z-index: 7;
+  pointer-events: none;
+  display: none;
+}

@@ -8,21 +8,15 @@ import { build as buildSunny, mapLabel as sunnyLabel } from './sunny-meadows-map
 
 // ---- ロード画面 ----
 // マップの組み立てと描画の準備は重く、その間ブラウザが固まって見えるので、黒い画面と「読み込み中」を出しておく。
-// 点滅はCSSアニメーションなので、重い処理の最中でも止まらずに動き続ける。
-const loadingStyle = document.createElement('style');
-loadingStyle.textContent = `
-  @keyframes mapLoadingPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-  #mapLoadingText { animation: mapLoadingPulse 1.2s ease-in-out infinite; }
-`;
-document.head.appendChild(loadingStyle);
+// 点滅はCSSアニメーション(ui.css の .gh-map-loading-text)なので、重い処理の最中でも止まらずに動き続ける。
 
 function showLoadingScreen(mapName) {
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:#000;color:#ccc;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:200;';
+  overlay.className = 'gh-map-loading';
   overlay.innerHTML = `
-    <div style="font-size:14px;color:#777;">${mapName}</div>
-    <div id="mapLoadingText" style="font-size:22px;color:#9fe6a0;letter-spacing:2px;">読み込み中...</div>
-    <div style="font-size:12px;color:#555;">しばらくお待ちください</div>
+    <div class="gh-map-loading-name">${mapName}</div>
+    <div id="mapLoadingText" class="gh-map-loading-text">読み込み中...</div>
+    <div class="gh-map-loading-note">しばらくお待ちください</div>
   `;
   document.body.appendChild(overlay);
   return overlay;
@@ -84,8 +78,8 @@ const lobbyMaps = { house: [houseLabel, startHouse], grafton: [graftonLabel, sta
 if (lobbyMap && lobbyMaps[lobbyMap]) {
   const [label, start] = lobbyMaps[lobbyMap];
   const gate = document.createElement('div');
-  gate.style.cssText = 'position:fixed;inset:0;z-index:150;background:#000;color:#ccc;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;cursor:pointer;';
-  gate.innerHTML = `<div style="font-size:14px;color:#777;">${label}</div><div id="gateMain" style="font-size:24px;color:#9fe6a0;letter-spacing:2px;">${hasOnlineSession ? '部屋につなぎ直しています…' : 'クリックして開始'}</div><div id="gateSub" style="font-size:13px;color:#666;">(コントローラーのボタンでも始められます)</div>`;
+  gate.className = 'gh-start-gate';
+  gate.innerHTML = `<div class="gh-gate-map">${label}</div><div id="gateMain" class="gh-gate-main">${hasOnlineSession ? '部屋につなぎ直しています…' : 'クリックして開始'}</div><div id="gateSub" class="gh-gate-sub">(コントローラーのボタンでも始められます)</div>`;
   document.body.appendChild(gate);
   // オンラインのときは、部屋につなぎ直して乱数の種(全員で同じ幽霊にするため)を受け取るまで、開始できないようにする
   onlineReady.then((info) => {
