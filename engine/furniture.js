@@ -1,4 +1,4 @@
-// 家具の材質と、ベッド・ソファ・トイレなどの家具の作り方。engine.js から分けたファイル。　
+// 家具の材質と、ベッド・ソファ・トイレなどの家具の作り方。engine.js から分けたファイル。
 import * as THREE from 'three';
 import { scaled, makeWoodTexture } from './textures.js';
 import { buildingUpperFloor, upperFloorHeights, scene, room, upperFloorWallBoxes } from './scene.js';
