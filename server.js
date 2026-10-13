@@ -143,6 +143,7 @@ const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホスト�
 //            hostTimer(ホスト交代の待ち), pos(最後の位置), sanity(正気度。ゲームに入るまでundefined), alive(死んでいないか), out(特定の投票に数えない: 結果が出た・ロビーに戻った),
 //            vote(特定で選んだ幽霊の名前。まだならnull), gameBound(ゲームのページへ移動中・ゲーム中。切れても、すぐには部屋から外さない),
 //            inLobby(いまロビーのページにいるか。ロビーでは、ロビーにいる人だけをアバターで出す),
+//            skin(スキンの id。選んでいなければnull。形だけ確かめて覚え、部屋の全員に伝える),
 //            uid(Googleにログインしていて、サーバーがトークンを確認できた人だけ。報酬の保存先) }
 
 function generateRoomCode() {
@@ -154,10 +155,10 @@ function generateRoomCode() {
 }
 
 function roomPlayerList(room) {
-  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false }));
+  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false, skin: p.skin }));
 }
-function newPlayer(socket, name, host, color) {
-  return { id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true, uid: null };
+function newPlayer(socket, name, host, color, skin = null) {
+  return { skin, id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true, uid: null };
 }
 // 部屋の全員に送る。exceptIdがあれば、そのプレイヤー(の今の接続)には送らない
 function emitRoom(room, event, payload, exceptId) {
@@ -167,6 +168,10 @@ function emitRoom(room, event, payload, exceptId) {
   to.emit(event, payload);
 }
 
+// スキン(見た目)の id。形だけ確かめて、どの id があるかは問わない(新しいスキンを足しても、サーバーは変えなくてよい)。形は skin-catalog.js の SKIN_ID_PATTERN と同じ
+function cleanSkin(value) {
+  return typeof value === 'string' && /^[a-z][a-z0-9_]{0,23}$/.test(value) ? value : null;
+}
 function cleanName(value) {
   return String(value || 'プレイヤー').trim().slice(0, 12) || 'プレイヤー';
 }
@@ -293,7 +298,7 @@ io.on('connection', (socket) => {
     if (socket.data.roomCode) return; // すでにどこかの部屋にいる
     const code = generateRoomCode();
     const map = MAPS.includes(msg.map) ? msg.map : DEFAULT_MAP;
-    const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0]);
+    const player = newPlayer(socket, cleanName(msg.name), true, PLAYER_COLORS[0], cleanSkin(msg.skin));
     player.uid = socket.data.uid || null; // 先にログインの確認が済んでいれば、ここで結びつく
     const difficulty = DIFFICULTIES.includes(msg.difficulty) ? msg.difficulty : DEFAULT_DIFFICULTY;
     const room = { code, map, difficulty, inGame: false, seed: 0, ghost: null, world: newWorld(), truth: null, elapsedMax: 0, result: null, players: new Map([[player.id, player]]) };
@@ -313,14 +318,14 @@ io.on('connection', (socket) => {
     if (room.players.size >= MAX_PLAYERS) { socket.emit('error', { message: 'この部屋は満員です(最大4人)' }); return; }
 
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
-    const player = newPlayer(socket, cleanName(msg.name), false, color);
+    const player = newPlayer(socket, cleanName(msg.name), false, color, cleanSkin(msg.skin));
     player.uid = socket.data.uid || null;
     room.players.set(player.id, player);
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
     socket.join(room.code);
     socket.emit('joined', { code: room.code, map: room.map, difficulty: room.difficulty, playerId: player.id, token: player.token, players: roomPlayerList(room) });
-    socket.to(room.code).emit('playerJoined', { id: player.id, name: player.name, color: player.color, host: player.host });
+    socket.to(room.code).emit('playerJoined', { id: player.id, name: player.name, color: player.color, host: player.host, skin: player.skin });
   });
 
   // 自分の位置を伝える(ほかの人にだけ中継する)
@@ -340,6 +345,16 @@ io.on('connection', (socket) => {
   });
 
   // マップを変える(ホストだけ。存在するマップにだけ変えられる)
+  // 自分のスキン(見た目)を変える。部屋の中なら、ほかの人に伝える(変えた本人は手元で反映済み)。知らない形の id は無視する
+  socket.on('setSkin', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    const p = room && room.players.get(socket.data.playerId);
+    const skin = cleanSkin(msg.skin);
+    if (!p || !skin) return;
+    p.skin = skin;
+    emitRoom(room, 'skinChanged', { id: p.id, skin }, p.id);
+  });
+
   socket.on('setMap', (msg = {}) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room) return;
@@ -493,7 +508,7 @@ io.on('connection', (socket) => {
       maybeFinalize(room); // 最後の一人が戻ったなら、ここで結果が出る(下の rejoined に、出たばかりの結果を入れるため、先に行う)
     }
     socket.emit('rejoined', { code: room.code, map: room.map, difficulty: room.difficulty, seed: room.seed, ghost: room.ghost, inGame: room.inGame, result: room.result, voteStatus: voteStatus(room).status, playerId: player.id, players: roomPlayerList(room) });
-    socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, pos: player.pos || null, sanity: player.sanity, alive: player.alive !== false, out: !!player.out, inLobby: player.inLobby });
+    socket.to(room.code).emit('playerRejoined', { id: player.id, name: player.name, color: player.color, host: player.host, skin: player.skin, pos: player.pos || null, sanity: player.sanity, alive: player.alive !== false, out: !!player.out, inLobby: player.inLobby });
   });
 
   socket.on('disconnect', () => {
