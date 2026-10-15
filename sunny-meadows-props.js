@@ -8,6 +8,9 @@ import {
 import { planProps, footprintOf, itemBoxes } from './sunny-meadows-furniture-plan.js';
 
 const CHUNK = 16; // まとめる場所の大きさ(m)
+// 新しい家具が影を落とすか。落とすと、懐中電灯の影の描画(1フレームに6方向)で、近くの家具もすべて描き直すので重くなる。
+// 軽さを優先して、落とさない(影を「受ける」ことは、これまで通り)。もとからある家具は、これまで通り影を落とす
+const PROPS_CAST_SHADOW = false;
 const WOOD_LIGHTEN = 0.45; // 木目の模様に色を掛けるので、色を白に近づけて、暗くなりすぎないようにする
 
 // 頂点の色を付ける(色は、材質の色と同じく、見た目の色(sRGB)で渡す)
@@ -35,8 +38,8 @@ export function buildProps(floorY, layoutPlan = planProps()) {
       const g = p.kind === 'c' ? new THREE.CylinderGeometry(p.w / 2, p.w / 2, p.h, 10) : new THREE.BoxGeometry(p.w, p.h, p.d);
       g.translate(p.x, y0 + p.y, p.z);
       paint(g, p.color, wood ? WOOD_LIGHTEN : 0);
-      const key = `${it.floor}|${cx}|${cz}|${wood ? 'w' : 'c'}|${it.solid ? 's' : 'n'}`;
-      if (!groups.has(key)) groups.set(key, { wood, shadow: it.solid, list: [] });
+      const key = `${it.floor}|${cx}|${cz}|${wood ? 'w' : 'c'}`;
+      if (!groups.has(key)) groups.set(key, { wood, shadow: it.solid && PROPS_CAST_SHADOW, list: [] });
       groups.get(key).list.push(g);
       boxes++;
     });
@@ -88,4 +91,26 @@ export function batchSceneMeshes(startIndex) {
     after++;
   });
   return { before, after };
+}
+
+// 壁やドア枠のように、全体を1つにまとめていた形を、場所(16m四方)と階ごとに分けて、メッシュにする。見た目は同じ。
+// 1つの巨大なメッシュだと、カメラの外にある部分も毎回すべて描かれる(懐中電灯の影の6方向の描画も含む)が、
+// 分けると、カメラや影の範囲の外にある場所は、描画されなくなる。
+export function addMergedByChunk(geometries, material, { cast = true, receive = true } = {}) {
+  const groups = new Map();
+  geometries.forEach((g) => {
+    g.computeBoundingBox();
+    const c = g.boundingBox.getCenter(new THREE.Vector3());
+    const key = `${Math.floor(c.y / 3)}|${Math.floor(c.x / CHUNK)}|${Math.floor(c.z / CHUNK)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(g);
+  });
+  groups.forEach((list) => {
+    const merged = mergeGeometries(list);
+    if (!merged) { console.warn('まとめに失敗した場所があります'); return; }
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.castShadow = cast; mesh.receiveShadow = receive;
+    scene.add(mesh);
+  });
+  return groups.size;
 }
