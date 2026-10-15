@@ -62,7 +62,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x03030a);
 scene.fog = new THREE.Fog(0x03030a, 6, 24);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+// 描画する距離(far)は、霧の終わり(上の Fog の 24m)より少し先まで。霧の終わりより遠くは、霧の色(背景と同じ色)に
+// 完全に染まって見えないので、描いても見た目は変わらず、広いマップで遠くの部屋まで描く無駄だけが減る。
+// 霧を遠くまで伸ばしたら、この far も、それより大きくすること(test/loading.test.js が確かめる)
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 28);
 // 回転の順番は「左右の向き → 上下の向き」(YXZ)にする(ロビーのカメラと同じ)。
 // 初期設定(XYZ)のままだと、上や下を向いたままコントローラーのスティックで左右に振り向くと、画面が傾いてしまう。
 // また、オンラインで他のプレイヤーへ送る「向き」(camera.rotation.y)が、上下を向いているときにずれてしまうのも、これで直る
