@@ -7,7 +7,7 @@
 // ブレーカー(ヒューズボックス): Utility Room(1階、中庭の東)
 import {
   THREE, mergeGeometries, scene, camera, rooms, room,
-  wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, wallMaterial, doorFrameMaterial,
+  wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, doorFrameMaterial,
   addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
   addSurveillanceCamera, videoCams, addToolPegboard, registerFlickerLight,
   addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBreakerOn,
@@ -18,9 +18,15 @@ import {
   onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addFurniture,
   addDetailMesh, addLeg, addLegsUnder, fabricMaterial, handleMaterial, ceramicMaterial,
-  makeTileTexture, makeConcreteTexture, makeGrassTexture,
+  makeGrassTexture,
 } from './engine.js';
 import * as Layout from './sunny-meadows-layout.js';
+import { buildProps, batchSceneMeshes } from './sunny-meadows-props.js';
+import { planDecals } from './sunny-meadows-decal-plan.js';
+import {
+  makeAsylumWallTexture, makeAsylumTileTexture, makeAsylumWoodTexture, makeAsylumConcreteTexture, makeAsylumCeilingTexture,
+  remapWallUVs, makeDecalAtlas, buildDecalMesh,
+} from './sunny-meadows-decor.js';
 
 export const mapLabel = 'Sunny Meadows Mental Institution';
 
@@ -48,7 +54,9 @@ function piecesAround(outer, hole) {
   return p;
 }
 
-export function build() {
+// progress(割合0〜1, 文字) は、ロード画面の表示を更新して、ブラウザに描画の時間を渡す関数(main.js が渡す)。なくても動く。
+// 段階のあいだ以外では await しない(家具をまとめる処理が、別の処理の追加を巻き込まないため)
+export async function build(progress = async () => {}) {
   const FLOOR_1F = Layout.FLOOR_1F, FLOOR_B1F = Layout.FLOOR_B1F;
   const yB1F = -Layout.B1F_DEPTH;
   const px2x = Layout.px2x, px2z = Layout.px2z;
@@ -95,6 +103,9 @@ export function build() {
   setBuildingUpperFloor(FLOOR_1F);
 
   // ---- 壁・ドア枠をまとめて描画(全階ぶん、すべての addWall のあとに1回だけ) ----
+  await progress(0.10, '壁を作っています');
+  remapWallUVs(wallGeometries, wallHeight); // 壁の模様の縮尺を、壁の長さにかかわらずそろえる
+  const wallMaterial = new THREE.MeshLambertMaterial({ map: makeAsylumWallTexture() });
   const mergedWall = new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial);
   mergedWall.castShadow = true; mergedWall.receiveShadow = true;
   scene.add(mergedWall);
@@ -103,12 +114,14 @@ export function build() {
   scene.add(mergedFrame);
 
   // ---- 床・天井・屋根 ----
+  await progress(0.20, '床と天井を作っています');
+  const ceilingTexture = makeAsylumCeilingTexture();
   const mats = {
-    wood: new THREE.MeshLambertMaterial({ map: scaled(makeWoodTexture('#5a4632'), 1, 1) }),
-    tile: new THREE.MeshLambertMaterial({ map: scaled(makeTileTexture(), 1, 1) }),
-    concrete: new THREE.MeshLambertMaterial({ map: scaled(makeConcreteTexture('#6c6e6c'), 1, 1) }),
-    ceiling: new THREE.MeshLambertMaterial({ color: 0xbdbab0, side: THREE.DoubleSide }), // 天井(下から)と屋根(上から)を兼ねる
-    ceilingB: new THREE.MeshLambertMaterial({ color: 0x8e8c86 }),                          // 地下の天井(1階の床の裏)
+    wood: new THREE.MeshLambertMaterial({ map: makeAsylumWoodTexture() }),
+    tile: new THREE.MeshLambertMaterial({ map: makeAsylumTileTexture() }),
+    concrete: new THREE.MeshLambertMaterial({ map: makeAsylumConcreteTexture() }),
+    ceiling: new THREE.MeshLambertMaterial({ map: ceilingTexture, side: THREE.DoubleSide }), // 天井(下から)と屋根(上から)を兼ねる
+    ceilingB: new THREE.MeshLambertMaterial({ map: ceilingTexture, color: 0x9a9892 }),         // 地下の天井(1階の床の裏)
     grass: new THREE.MeshLambertMaterial({ map: scaled(makeGrassTexture(), 1, 1) }),
   };
   Object.values(mats).forEach((m) => { if (m.map) { m.map.wrapS = m.map.wrapT = THREE.RepeatWrapping; } });
@@ -188,7 +201,12 @@ export function build() {
     }
   });
 
-  // ---- 家具(最低限。入口から遠い奥の壁際に置いて、ドアから部屋の中への通り道をふさがない) ----
+  // ---- 家具 ----
+  // 1) もとからある家具(個室のベッド・浴室・礼拝堂・教室など): 見た目はそのまま、描画だけまとめる(下の batchSceneMeshes)
+  // 2) 空だった部屋・廊下の家具: sunny-meadows-furniture-plan.js の配置計画を、まとめて3Dにする(buildProps)
+  await progress(0.35, '家具を置いています');
+  const furnitureStart = scene.children.length;
+  // もとからある家具(最低限。入口から遠い奥の壁際に置いて、ドアから部屋の中への通り道をふさがない)
   // 個室・談話室などの出入口は、どれも「手前(玄関側)の壁」か「脇の壁」にあるので、家具は、奥の壁と、ドアのない壁に寄せている
   {
     const dims = (id) => { const b = room(id); return { w: b.maxX - b.minX, d: b.maxZ - b.minZ }; };
@@ -228,7 +246,18 @@ export function build() {
     { const b = room('Morgue'); [1.2, 3.3, 5.4].forEach((dz) => counterAt(b.minX + 0.9, b.minZ + dz, 0.8, 1.9, 0.85)); }
     setBuildingUpperFloor(FLOOR_1F);
   }
+  const batched = batchSceneMeshes(furnitureStart); // (ここまで、await なし)
+  const props = buildProps((f) => (f === FLOOR_B1F ? yB1F : 0));
+  console.info(`Sunny Meadows: 既存の家具 ${batched.before} 個を ${batched.after} 個にまとめ、新しい家具 ${props.items} 点(部品 ${props.boxes})を ${props.meshes} 個にまとめました`);
 
+  // ---- 汚れ・血痕・ひっかき傷(壁と床に貼る板。全部で1つのメッシュ) ----
+  await progress(0.45, '壁と床の汚れを描いています');
+  {
+    const decalMesh = buildDecalMesh(planDecals(layout), (f) => (f === FLOOR_B1F ? yB1F : 0), makeDecalAtlas());
+    if (decalMesh) scene.add(decalMesh);
+  }
+
+  await progress(0.55, '照明を付けています');
   // ---- 照明(Grafton Farmhouse と同じ作り: 部屋ごとに天井灯+スイッチ+全体照明。ブレーカーはUtility Room) ----
   const HEMI_ON = 0.9;   // ブレーカーが入っている間の全体照明の強さ
   const HEMI_OFF = 0;    // ブレーカーが落ちている間の全体照明の強さ(0=なし。暗くしたいほど0に近づける)
@@ -276,6 +305,7 @@ export function build() {
   const frontDoor = doors.find((d) => !d.upperFloor && Math.abs(d.center.x - frontDoorX) < 0.05 && Math.abs(d.center.z) < 0.3);
   if (frontDoor) setExteriorDoor(frontDoor);
 
+  await progress(0.72, 'テントを作っています');
   // ---- 拠点のテント(建物の南側、玄関と同じXに正面を合わせて設置。Grafton Farmhouse と同じテント) ----
   const tentX = frontDoorX, tentZ = -15;
   {
@@ -439,6 +469,7 @@ export function build() {
     pathStands.forEach(p => addWorkLight(p.x, p.z, pathFacing));
   }
 
+  await progress(0.85, '幽霊の準備をしています');
   // ---- 幽霊の出没部屋(廊下・階段室・入れない部屋・中庭は除外) ----
   const hauntableRooms = layout.rooms.filter((r) => r.kind === 'room').map((r) => rooms.find((x) => x.name === r.id));
   initHaunting(hauntableRooms);
