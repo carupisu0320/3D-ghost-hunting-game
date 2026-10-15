@@ -85,3 +85,13 @@ test('壁・ドア枠は、全体で1つのメッシュにせず、場所ごと�
 test('新しい家具は、影を落とさない設定(懐中電灯の影の描画を重くしないため)', () => {
   assert.match(read('sunny-meadows-props.js'), /const PROPS_CAST_SHADOW = false;/);
 });
+
+test('見える距離: setViewDistance は霧と描く距離をいっしょに変え、Sunny Meadows は、遠すぎない値で呼んでいる', () => {
+  const e = read('engine.js');
+  assert.match(e, /function setViewDistance\(fogNear, fogEnd\) \{[\s\S]*scene\.fog\.far = fogEnd;[\s\S]*camera\.far = fogEnd \+ 4;[\s\S]*camera\.updateProjectionMatrix\(\);/, '霧の終わりと camera.far の関係が壊れています(遠くの壁が欠けるか、無駄に描きます)');
+  const m = read('sunny-meadows-map.js');
+  const v = /const VIEW_FOG_NEAR = ([\d.]+), VIEW_FOG_END = ([\d.]+);/.exec(m);
+  assert.ok(v, 'VIEW_FOG_NEAR / VIEW_FOG_END が見つかりません');
+  assert.ok(Number(v[1]) < Number(v[2]) && Number(v[2]) >= 24 && Number(v[2]) <= 60, `霧の終わり(${v[2]})は 24〜60 にしてください(広げるほど重くなります)`);
+  assert.match(m, /setViewDistance\(VIEW_FOG_NEAR, VIEW_FOG_END\);/);
+});
