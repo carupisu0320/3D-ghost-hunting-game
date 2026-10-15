@@ -17,6 +17,9 @@ npm run test:selfcheck   # 検査そのものの確認(約1分)。わざと壊�
 | `money.test.js` | 二重受け取りの防止・壊れたデータ・報酬の式がサーバーと本編(engine.js)で一致 |
 | `skins.test.js` | スキン: 一覧(skin-catalog.js)・作り方(skins.js)・サーバーの id の形が食い違わないこと / 知らない id は既定になること / ロビーとゲーム本編がスキンを受け取ること |
 | `css.test.js` | 見た目(ui.css / lobby.css): コードが付けるクラス名が CSS にある・使われていないクラスがない・.html が CSS を読む・style.cssText を増やさない |
+| `furniture.test.js` | Sunny Meadows の家具の配置計画(sunny-meadows-furniture-plan.js): 部屋の中に収まる・重ならない・ドア/スイッチ/ブレーカー/階段の前をふさがない・部屋の中を歩ける(すべての出入り口がつながる)・廊下は広い所だけ・毎回同じ配置 |
+| `decor.test.js` | 汚れ(sunny-meadows-decal-plan.js): ドア・スイッチの上に貼らない・壁の高さに収まる・血の部屋に血だまりがある・毎回同じ配置 |
+| `loading.test.js` | ロード: 読み込み中の印(loadingMap)を必ず戻す・main.js が build/enterGame の完了を待つ・家具をまとめる処理の途中に await がない・家具/汚れ/質感がマップに組み込まれている |
 | `board.test.js` | ロビーのボードのボタン出し分け・当たり判定・マップ/難易度の一覧がボード・サーバー・本編・main.js で一致 |
 
 ## 確かめていないこと(目で確認が必要)
@@ -24,7 +27,8 @@ npm run test:selfcheck   # 検査そのものの確認(約1分)。わざと壊�
 - 実際の画面の見た目・操作感・ラグ(ブラウザで動かさないと分からない)
 - 本物の socket.io の通信路。サーバーの試験は `lib/fake-socketio.js`(メモリ上の偽物)で動かしている。サーバーのルールは確かめられるが、WebSocket そのものは確かめていない
 - Firebase(Googleログイン・Firestore)。お金の保存は、動作確認用の `MONEY_DEV=1` の保存先で確かめている
-- engine.js の中身(幽霊の動き・ハント・調査書など)。import / export の整合と、報酬の式、難易度の一覧だけを見ている
+- engine.js の中身(幽霊の動き・ハント・調査書など)。import / export の整合と、報酬の式、難易度の一覧、読み込み(enterGame)の書き方だけを見ている
+- 家具・壁・床の「見た目」そのもの(色・大きさ・汚れの具合)と、ロードにかかる時間・読み込み後のカクつき(ブラウザで動かさないと分からない)。計画(どこに置くか)だけを検査している
 - `robot/` フォルダ(ロボットのモデルと画像)の存在
 
 ## 検査を足すとき
