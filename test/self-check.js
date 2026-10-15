@@ -66,6 +66,19 @@ const MUTATIONS = [
   ['スキン: つなぎ直した人の一覧に、スキンが入らない', 'server.js', "inLobby: p.inLobby !== false, skin: p.skin }));", "inLobby: p.inLobby !== false }));"],
   ['スキン: ロビーが、部屋を作るときに、スキンを送らない', 'lobby.js', "type: 'create', name: board.name, skin: board.skin,", "type: 'create', name: board.name,"],
   ['スキン: ボードの部屋の中から「スキン」ボタンを消す', 'lobby-board.js', "button('skin', 'スキン', 2, true, skinLabel(state.skin));", ""],
+  ['家具: ドアの前に置かない判定を外す', 'sunny-meadows-furniture-plan.js', 'if (zones.some((z) => overlaps(r, z))) return null;', 'if (false) return null;'],
+  ['家具: 同じ部屋の家具どうしが重ならない判定を外す', 'sunny-meadows-furniture-plan.js', 'if (items.some((o) => o.solid && overlaps(r, footprintOf(o), ITEM_GAP))) return null;', 'if (false) return null;'],
+  ['家具: 型の大きさを壊す(ソファの幅が負)', 'sunny-meadows-furniture-plan.js', 'sofa: { w: 1.9, d: 0.85,', 'sofa: { w: -1.9, d: 0.85,'],
+  ['家具: 手順に書いた部屋の名前を間違える', 'sunny-meadows-furniture-plan.js', "['Kitchen', false, (c) => {", "['Kitchenn', false, (c) => {"],
+  ['家具: 狭い廊下にも置けるようにする', 'sunny-meadows-furniture-plan.js', 'export const CORRIDOR_MIN_WIDTH = 3.0;', 'export const CORRIDOR_MIN_WIDTH = 1.5;'],
+  ['家具: 照明スイッチの前をあけない', 'sunny-meadows-furniture-plan.js', 'if (sw) addZone(sw.x - SWITCH_CLEAR, sw.x + SWITCH_CLEAR, sw.z - SWITCH_CLEAR, sw.z + SWITCH_CLEAR);', ''],
+  ['家具: マップが新しい家具を置かなくなる', 'sunny-meadows-map.js', 'const props = buildProps((f) => (f === FLOOR_B1F ? yB1F : 0));', 'const props = { items: 0, boxes: 0, meshes: 0 };'],
+  ['汚れ: ドアの上にも貼る', 'sunny-meadows-decal-plan.js', 'if (o.doorAt !== undefined && Math.abs(t - o.doorAt) < 0.6 + size / 2 + 0.2) continue;', ''],
+  ['汚れ: 壁の高さをこえて貼る', 'sunny-meadows-decal-plan.js', 'y: size / 2 + 0.1 + rnd() * Math.max(0.1, 2.85 - size), size', 'y: size / 2 + 0.1 + rnd() * 4, size'],
+  ['質感: マップが、壁の模様の縮尺をそろえなくなる', 'sunny-meadows-map.js', 'remapWallUVs(wallGeometries, wallHeight);', ''],
+  ['ロード: 読み込み中の印を、最後に戻さない', 'engine.js', '    loadingMap = false;\n    clock.getDelta();\n  }\n\n  mapSelectOverlay', '    clock.getDelta();\n  }\n\n  mapSelectOverlay'],
+  ['ロード: main.js が build の完了を待たない', 'main.js', 'await buildFn(progressTo(0, 0.45));', 'buildFn(progressTo(0, 0.45));'],
+  ['ロード: もとからある家具を作っている最中に await を入れる', 'sunny-meadows-map.js', 'const furnitureStart = scene.children.length;', "const furnitureStart = scene.children.length; await progress(0.4, 'x');"],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
