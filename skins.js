@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { DEFAULT_SKIN_ID, normalizeSkinId } from './skin-catalog.js';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
+import { loadMcQueenTemplate, createMcQueenAvatar } from './mcqueen-avatar.js';
 
 // 足元の識別色のリング(スキン共通で使える)
 function makeRing(color, ringOpacity = 0.85) {
@@ -32,6 +33,7 @@ function createCapsuleAvatar(template, color, { ringOpacity = 0.4 } = {}) {
 const IMPLS = {
   robot: { load: () => loadRobotTemplate('./robot/'), create: createRobotAvatar },
   capsule: { load: () => Promise.resolve({}), create: createCapsuleAvatar },
+  mcqueen: { load: () => loadMcQueenTemplate('./mcqueen/'), create: createMcQueenAvatar },
 };
 
 const templates = new Map(); // id -> ひな形(読み込めたもの)
