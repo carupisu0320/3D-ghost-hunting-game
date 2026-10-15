@@ -217,12 +217,12 @@ export async function build(progress = async () => {}) {
       setBuildingUpperFloor(FLOOR_1F);
       [1.2, 3.3, 5.4].forEach((dz) => bedIn(id, dx, dz, 0.9, 1.9));
     });
-    // 浴室: 奥の壁に、トイレ3つと洗面台
+    // 浴室: 奥(北)の壁に、トイレ3つと洗面台。タンクと蛇口を壁側(北)にするため、向きを反転(flip = true)する
     ['Male Bath', 'Female Bath'].forEach((id) => {
       setBuildingUpperFloor(FLOOR_1F);
       const { d } = dims(id);
-      [0.7, 1.7, 2.7].forEach((dx) => toiletIn(id, dx, d - 0.45));
-      washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85);
+      [0.7, 1.7, 2.7].forEach((dx) => toiletIn(id, dx, d - 0.45, true));
+      washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85, true);
     });
     // 礼拝堂: 長椅子を、中央の通路をあけて、左右に3列ずつ(ドアが、通路の延長にある)
     {
