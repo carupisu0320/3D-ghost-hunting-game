@@ -79,6 +79,12 @@ const MUTATIONS = [
   ['ロード: 読み込み中の印を、最後に戻さない', 'engine.js', '    loadingMap = false;\n    clock.getDelta();\n  }\n\n  mapSelectOverlay', '    clock.getDelta();\n  }\n\n  mapSelectOverlay'],
   ['ロード: main.js が build の完了を待たない', 'main.js', 'await buildFn(progressTo(0, 0.45));', 'buildFn(progressTo(0, 0.45));'],
   ['ロード: もとからある家具を作っている最中に await を入れる', 'sunny-meadows-map.js', 'const furnitureStart = scene.children.length;', "const furnitureStart = scene.children.length; await progress(0.4, 'x');"],
+  ['軽さ: カメラの描く距離を、霧よりずっと遠くに戻す(広いマップで無駄に描く)', 'engine/scene.js', 'window.innerWidth / window.innerHeight, 0.1, 28);', 'window.innerWidth / window.innerHeight, 0.1, 100);'],
+  ['軽さ: カメラの描く距離を、霧の終わりより近くにする(遠くの壁が欠ける)', 'engine/scene.js', 'window.innerWidth / window.innerHeight, 0.1, 28);', 'window.innerWidth / window.innerHeight, 0.1, 12);'],
+  ['軽さ: 影の自動更新に戻す(監視カメラの描画のたびに、影を6方向描き直す)', 'engine.js', 'renderer.shadowMap.autoUpdate = false;', 'renderer.shadowMap.autoUpdate = true;'],
+  ['軽さ: メインの描画で、影の更新を立てない(懐中電灯の影が出なくなる)', 'engine.js', 'renderer.shadowMap.needsUpdate = flashlight.intensity > 0;', ''],
+  ['軽さ: 壁を、また1つの巨大なメッシュにする', 'sunny-meadows-map.js', 'addMergedByChunk(wallGeometries, wallMaterial);', 'scene.add(new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial));'],
+  ['軽さ: 新しい家具が影を落とすようにする', 'sunny-meadows-props.js', 'const PROPS_CAST_SHADOW = false;', 'const PROPS_CAST_SHADOW = true;'],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
