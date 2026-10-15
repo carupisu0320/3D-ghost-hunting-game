@@ -20,6 +20,7 @@ npm run test:selfcheck   # 検査そのものの確認(約1分)。わざと壊�
 | `furniture.test.js` | Sunny Meadows の家具の配置計画(sunny-meadows-furniture-plan.js): 部屋の中に収まる・重ならない・ドア/スイッチ/ブレーカー/階段の前をふさがない・部屋の中を歩ける(すべての出入り口がつながる)・廊下は広い所だけ・毎回同じ配置 |
 | `decor.test.js` | 汚れ(sunny-meadows-decal-plan.js): ドア・スイッチの上に貼らない・壁の高さに収まる・血の部屋に血だまりがある・毎回同じ配置 |
 | `loading.test.js` | ロード: 読み込み中の印(loadingMap)を必ず戻す・main.js が build/enterGame の完了を待つ・家具をまとめる処理の途中に await がない・家具/汚れ/質感がマップに組み込まれている |
+| `haunting.test.js` | 幽霊の出没部屋に地下の部屋が入っていること(階で絞っていない)・地下の部屋の登録・浴室のトイレと洗面台の向き(北の壁側) |
 | `board.test.js` | ロビーのボードのボタン出し分け・当たり判定・マップ/難易度の一覧がボード・サーバー・本編・main.js で一致 |
 
 ## 確かめていないこと(目で確認が必要)
