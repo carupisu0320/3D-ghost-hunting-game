@@ -1665,6 +1665,16 @@ function reportPerf() {
   perfFrames = 0; perfLast = now;
 }
 
+// 見える距離(霧の始まりと終わり)と、描く距離(camera.far)を、いっしょに変える。マップの build から呼ぶ(呼ばなければ、scene.js の初期値: 6〜24m)。
+// 霧の終わりより遠くは、霧の色に染まりきって見えないので、描く距離は、霧の終わりより少しだけ先にする(それ以上は、描いても見えない無駄になる)。
+// 遠くまで見せるほど、描くものが増えて重くなる
+function setViewDistance(fogNear, fogEnd) {
+  scene.fog.near = fogNear;
+  scene.fog.far = fogEnd;
+  camera.far = fogEnd + 4;
+  camera.updateProjectionMatrix();
+}
+
 // マップの読み込み中(build と enterGame の間)は、時間も進めず、描画もしない。
 // 読み込みのための描画(カメラをあちこちに動かして描く)と、ふだんの更新(階段の判定など)が、ぶつからないようにするため
 let loadingMap = false;
@@ -2109,7 +2119,7 @@ export {
   breakerOn, registerBreaker, setBreakerOn, setBasementFloorY,
   ghostTypes, initHaunting, setExteriorDoor, setOrbRoom, currentGhost, hauntedRoom, ghost,
   onFrame,
-  addMapCard, startEngine, enterGame, setMapLoading,
+  addMapCard, startEngine, enterGame, setMapLoading, setViewDistance,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
   applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate,
