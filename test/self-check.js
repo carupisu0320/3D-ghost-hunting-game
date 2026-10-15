@@ -85,6 +85,11 @@ const MUTATIONS = [
   ['軽さ: メインの描画で、影の更新を立てない(懐中電灯の影が出なくなる)', 'engine.js', 'renderer.shadowMap.needsUpdate = flashlight.intensity > 0;', ''],
   ['軽さ: 壁を、また1つの巨大なメッシュにする', 'sunny-meadows-map.js', 'addMergedByChunk(wallGeometries, wallMaterial);', 'scene.add(new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial));'],
   ['軽さ: 新しい家具が影を落とすようにする', 'sunny-meadows-props.js', 'const PROPS_CAST_SHADOW = false;', 'const PROPS_CAST_SHADOW = true;'],
+  ['幽霊: 出没部屋を、1階の部屋だけにする(地下に出なくなる)', 'sunny-meadows-map.js', "layout.rooms.filter((r) => r.kind === 'room').map((r) => rooms.find", "layout.rooms.filter((r) => r.kind === 'room' && r.floor === FLOOR_1F).map((r) => rooms.find"],
+  ['浴室: トイレの向きの反転をやめる(タンクが部屋の中を向く)', 'sunny-meadows-map.js', 'toiletIn(id, dx, d - 0.45, true)', 'toiletIn(id, dx, d - 0.45)'],
+  ['浴室: 洗面台の向きの反転をやめる(蛇口が部屋の中を向く)', 'sunny-meadows-map.js', 'washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85, true)', 'washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85)'],
+  ['見える距離: 描く距離を、霧の終わりより近くにする(遠くの壁が欠ける)', 'engine.js', 'camera.far = fogEnd + 4;', 'camera.far = fogEnd - 6;'],
+  ['見える距離: マップが、見える距離を設定しなくなる', 'sunny-meadows-map.js', 'setViewDistance(VIEW_FOG_NEAR, VIEW_FOG_END);', ''],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
