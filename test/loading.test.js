@@ -55,3 +55,33 @@ test('家具・汚れ・質感が、マップに組み込まれている(作っ�
   ['buildProps(', 'batchSceneMeshes(', 'planDecals(', 'buildDecalMesh(', 'remapWallUVs(', 'makeAsylumWallTexture()', 'makeAsylumTileTexture()', 'makeAsylumWoodTexture()', 'makeAsylumConcreteTexture()', 'makeAsylumCeilingTexture()']
     .forEach((s) => assert.ok(src.includes(s), `sunny-meadows-map.js が ${s} を使っていません`));
 });
+
+// ---- 実行中の軽さ(見た目を変えずに、描画の無駄を減らす仕組みが、消えていないか) ----
+test('描く距離(camera の far)は、霧の終わりより少し先まで。近すぎると遠くが欠け、遠すぎると広いマップで無駄に描く', () => {
+  const src = read('engine/scene.js');
+  const fog = /new THREE\.Fog\(0x[0-9a-f]+,\s*([\d.]+),\s*([\d.]+)\)/.exec(src);
+  const cam = /new THREE\.PerspectiveCamera\(\s*[\d.]+,[^,]+,\s*[\d.]+,\s*([\d.]+)\)/.exec(src);
+  assert.ok(fog && cam, 'scene.js の霧かカメラの書き方が変わりました(この検査も直してください)');
+  const fogEnd = Number(fog[2]), far = Number(cam[1]);
+  assert.ok(far >= fogEnd, `far(${far}) が霧の終わり(${fogEnd})より近いと、霧の途中で、遠くの壁が欠けて見えます`);
+  assert.ok(far <= fogEnd + 12, `far(${far}) が霧の終わり(${fogEnd})よりずっと遠いと、霧に隠れて見えない遠くの部屋まで描いてしまい、広いマップで重くなります`);
+});
+
+test('影の描き直しは、懐中電灯が点いているメインの描画だけ(監視カメラや読み込みの描画では、毎回6方向を描き直さない)', () => {
+  const src = read('engine.js');
+  assert.match(src, /renderer\.shadowMap\.autoUpdate = false;/);
+  assert.match(src, /renderer\.shadowMap\.needsUpdate = flashlight\.intensity > 0;\s*renderer\.render\(scene, camera\);/, 'animate のメインの描画の直前で、影の更新を立てていません(影が出なくなります)');
+  const enter = src.slice(src.indexOf('async function enterGame'), src.indexOf('function startEngine'));
+  assert.ok((enter.match(/renderer\.shadowMap\.needsUpdate = true;/g) || []).length >= 3, '読み込みの描画で、影の準備をしていません(遊び始めに、影のシェーダーの組み立てでカクつきます)');
+});
+
+test('壁・ドア枠は、全体で1つのメッシュにせず、場所ごとに分けている(カメラや影の外を描かないため)', () => {
+  const src = read('sunny-meadows-map.js');
+  assert.match(src, /addMergedByChunk\(wallGeometries,/);
+  assert.match(src, /addMergedByChunk\(doorFrameGeometries,/);
+  assert.doesNotMatch(src, /new THREE\.Mesh\(mergeGeometries\(wallGeometries\)/, '壁が、また1つの巨大なメッシュになっています');
+});
+
+test('新しい家具は、影を落とさない設定(懐中電灯の影の描画を重くしないため)', () => {
+  assert.match(read('sunny-meadows-props.js'), /const PROPS_CAST_SHADOW = false;/);
+});
