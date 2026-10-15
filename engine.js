@@ -246,11 +246,16 @@ let ghostUsesModel = false;     // このゲームでモデル版になるか(in
 let ghostModel = null;
 let ghostMixer = null;
 let ghostModelMaterials = [];
-new FBXLoader().load('./ghost-model.fbx', (fbx) => {
-  ghostModel = fbx;
-  applyGhostModel();
-}, undefined, () => {
-  console.warn('幽霊モデル(ghost-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+// 読み込みが終わった(成功でも失敗でも)ら解決する約束。enterGame() が、これを待ってから、モデルの描画の準備もする
+const ghostModelReady = new Promise((resolve) => {
+  new FBXLoader().load('./ghost-model.fbx', (fbx) => {
+    ghostModel = fbx;
+    applyGhostModel();
+    resolve();
+  }, undefined, () => {
+    console.warn('幽霊モデル(ghost-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+    resolve();
+  });
 });
 
 // 隠しコマンド: マップを選んだあとに「hayato」とキーボードで打つと、その回の幽霊が確定でハヤトになる
@@ -1072,11 +1077,15 @@ const fbxLoader = new FBXLoader();
 let deathModel = null;
 let deathClips = [];
 let deathMixer = null;
-fbxLoader.load('./death-model.fbx', (fbx) => {
-  deathModel = fbx;
-  deathClips = fbx.animations;
-}, undefined, () => {
-  console.warn('死亡演出モデル(death-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+const deathModelReady = new Promise((resolve) => {
+  fbxLoader.load('./death-model.fbx', (fbx) => {
+    deathModel = fbx;
+    deathClips = fbx.animations;
+    resolve();
+  }, undefined, () => {
+    console.warn('死亡演出モデル(death-model.fbx)の読み込みに失敗しました。engine.jsと同じフォルダに置かれているか確認してください');
+    resolve();
+  });
 });
 
 // 幽霊がこの距離(m)まで近づいたら死亡演出が始まる
@@ -1640,8 +1649,14 @@ let monitorCycleIndex = 0; // 監視カメラは毎回1台ずつ順番に描画�
 const speed = 4;
 const clock = new THREE.Clock();
 
+// マップの読み込み中(build と enterGame の間)は、時間も進めず、描画もしない。
+// 読み込みのための描画(カメラをあちこちに動かして描く)と、ふだんの更新(階段の判定など)が、ぶつからないようにするため
+let loadingMap = false;
+function setMapLoading(v) { loadingMap = !!v; if (!loadingMap) clock.getDelta(); }
+
 function animate() {
   requestAnimationFrame(animate);
+  if (loadingMap) { clock.getDelta(); return; }
   const delta = clock.getDelta();
   if (deathMixer) deathMixer.update(delta);
   if (ghostMixer) ghostMixer.update(delta);
@@ -1930,39 +1945,104 @@ window.addEventListener('resize', () => {
 // マップ選択画面でマップが選ばれたときに main.js から呼ぶ。マップの構築(build())は既にこの時点で終わっている前提。
 // このクリックがそのままポインターロック開始の合図になる(別途「クリックで開始」は挟まない)ので、
 // 部屋を巡回してシェーダー・影を温める処理もここで行う(選ばれなかった方のマップのぶんまで温める必要が無い)
-function enterGame() {
+// 部屋を巡って描画しておく間隔(m)。細長い廊下は、この間隔ごとに1か所ずつ立ち止まって、四方を向く
+const WARMUP_SPACING = 12;
+
+// マップに入る前の「読み込み」。最初に時間をかけて、遊び始めてからのカクつきを減らす:
+//   1) 幽霊・死亡演出のモデル(FBX)の読み込みを待つ
+//   2) ふだんは隠れているもの(幽霊・オーブ・手に持つ道具・死亡演出のモデル)を、一度だけ画面に出して、シェーダーと画像を準備する
+//   3) すべての部屋(広い部屋・長い廊下は複数の場所)で、四方を向いて描画して、壁・床・家具の形を、GPU に送っておく(階の高さも合わせる)
+//   4) 監視カメラの映像を、一度描く
+// 時間を区切って進める(1回に約40ミリ秒まで)ので、読み込み中も画面は固まらず、進み具合が出せる。
+// opts.onProgress(割合0〜1, 文字): ロード画面の表示を更新して、ブラウザに描画の時間を渡す関数(main.js が渡す。なくても動く)
+async function enterGame(opts = {}) {
+  const report = opts.onProgress || (async () => {});
   const savedX = camera.position.x, savedY = camera.position.y, savedZ = camera.position.z;
   const savedRotY = camera.rotation.y;
   const savedFlashIntensity = flashlight.intensity;
-  flashlight.intensity = 1.2; // 影のシェーダーも温めるため、巡回中だけ点灯させておく
+  loadingMap = true;
+  try {
+    flashlight.intensity = 1.2; // 影のシェーダーも温めるため、読み込み中だけ点灯させておく
 
-  rooms.forEach(r => {
-    const b = r.bounds;
-    camera.position.set((b.minX + b.maxX) / 2, savedY, (b.minZ + b.maxZ) / 2);
-    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(ry => {
-      camera.rotation.y = ry;
-      renderer.render(scene, camera);
+    // 1) モデルの読み込みを待つ(つながりが悪くても、20秒で諦めて進む)
+    await report(0.0, 'モデルを読み込んでいます');
+    await Promise.race([Promise.all([ghostModelReady, deathModelReady]), new Promise((r) => setTimeout(r, 20000))]);
+
+    // 2) 隠れているものを一度だけ出して、シェーダーを準備する(カメラの前 2.5m に置く)
+    await report(0.08, '描画の準備をしています');
+    const fx = -Math.sin(savedRotY) * 2.5, fz = -Math.cos(savedRotY) * 2.5;
+    const savedGhostPos = ghost.position.clone(), savedGhostVisible = ghost.visible;
+    const savedOrbPos = orb.position.clone(), savedOrbVisible = orb.visible;
+    const savedViewVisible = Object.fromEntries(Object.entries(viewmodels).map(([k, v]) => [k, v.visible]));
+    ghost.position.set(savedX + fx, savedY - 0.6, savedZ + fz); ghost.visible = true;
+    orb.position.set(savedX + fx * 0.6, savedY - 0.3, savedZ + fz * 0.6); orb.visible = true;
+    Object.values(viewmodels).forEach((v) => { v.visible = true; });
+    let scare = null;
+    if (deathModel) { scare = SkeletonUtils.clone(deathModel); scare.position.set(savedX + fx, savedY - 1.6, savedZ + fz); scene.add(scare); }
+    if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera); // シェーダーの組み立ては、並列に(画面を止めずに)行う
+    renderer.render(scene, camera);
+    if (scare) scene.remove(scare);
+    ghost.position.copy(savedGhostPos); ghost.visible = savedGhostVisible;
+    orb.position.copy(savedOrbPos); orb.visible = savedOrbVisible;
+    Object.entries(viewmodels).forEach(([k, v]) => { v.visible = savedViewVisible[k]; });
+
+    // 3) 部屋を巡る。階が上・下にある部屋は、その階の目の高さで
+    const jobs = [];
+    rooms.forEach((r) => {
+      const b = r.bounds, up = r.upperFloor ? (upperFloorHeights[r.upperFloor] || 0) : 0;
+      const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
+      const n = Math.max(1, Math.round(Math.max(w, d) / WARMUP_SPACING));
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        const x = w >= d ? b.minX + w * t : (b.minX + b.maxX) / 2;
+        const z = w >= d ? (b.minZ + b.maxZ) / 2 : b.minZ + d * t;
+        [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach((ry) => jobs.push({ x, y: savedY + up, z, ry }));
+      }
     });
-  });
+    let sliceStart = performance.now();
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      camera.position.set(j.x, j.y, j.z);
+      camera.rotation.y = j.ry;
+      renderer.render(scene, camera);
+      if (performance.now() - sliceStart > 40) {
+        await report(0.15 + 0.75 * (i + 1) / jobs.length, 'マップ全体を読み込んでいます');
+        sliceStart = performance.now();
+      }
+    }
 
-  camera.position.set(savedX, savedY, savedZ);
-  camera.rotation.y = savedRotY;
-  flashlight.intensity = savedFlashIntensity;
+    camera.position.set(savedX, savedY, savedZ);
+    camera.rotation.y = savedRotY;
+    flashlight.intensity = savedFlashIntensity;
 
-  renderer.compile(scene, camera);
-  renderer.render(scene, camera);
-  videoCams.forEach(cam => {
-    renderer.setRenderTarget(cam.rt);
-    renderer.render(scene, cam.camera);
-  });
-  renderer.setRenderTarget(null);
+    // 4) 監視カメラの映像を、一度描く
+    await report(0.92, '監視カメラを準備しています');
+    renderer.render(scene, camera);
+    for (const cam of videoCams) {
+      renderer.setRenderTarget(cam.rt);
+      renderer.render(scene, cam.camera);
+    }
+    renderer.setRenderTarget(null);
+    await report(1.0, '準備ができました');
+  } finally {
+    camera.position.set(savedX, savedY, savedZ);
+    camera.rotation.y = savedRotY;
+    flashlight.intensity = savedFlashIntensity;
+    renderer.setRenderTarget(null);
+    loadingMap = false;
+    clock.getDelta();
+  }
 
   mapSelectOverlay.style.display = 'none';
   info.style.display = 'block';
   gameEntered = true; // オンライン: ここから、位置と正気度を送り、幽霊に狙われる対象になる
   pickupItems.forEach((it, i) => { if (!it.netId) it.netId = 's' + i; }); // 床や壁の道具に、全員で同じ目印を振る(マップの組み立て順は全員同じ)
   if (net && net.requestWorld) net.requestWorld(); // 先に入っていた人が開けたドアなどを、今の状態にそろえてもらう
-  if (!padPlay) controls.lock(); // コントローラー開始のときは、ポインターロックを始められない(クリックではないため)
+  if (!padPlay) { // コントローラー開始のときは、ポインターロックを始められない(クリックではないため)
+    // 読み込みに時間がかかると、クリックから何秒もたってしまい、ブラウザがポインターロックを断ることがある。その場合は「クリックして開始」を出す
+    try { controls.lock(); } catch (e) { /* 下で案内を出す */ }
+    setTimeout(() => { if (!controls.isLocked && !padPlay) info.textContent = 'クリックして開始'; }, 400);
+  }
 }
 
 // マップ(main.js側)が、マップ選択への登録を全部終えた後に呼ぶ。
@@ -2008,7 +2088,7 @@ export {
   breakerOn, registerBreaker, setBreakerOn, setBasementFloorY,
   ghostTypes, initHaunting, setExteriorDoor, setOrbRoom, currentGhost, hauntedRoom, ghost,
   onFrame,
-  addMapCard, startEngine, enterGame,
+  addMapCard, startEngine, enterGame, setMapLoading,
   setOnGroundFloor, setNotebookWorldMesh, requestPadStart,
   setHauntSeed, setNetHooks, applyNetGhost, applyPlayerDied, getSanity, isGameOver, hasEnteredGame,
   applyVoteUpdate, applyIdentifyResult, applyWorldEvent, applyWorldState, applyMoneyUpdate,
