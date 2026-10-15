@@ -649,6 +649,9 @@ flashlight.castShadow = true;
 flashlight.shadow.mapSize.set(256, 256);
 flashlight.shadow.camera.near = 0.1;
 flashlight.shadow.camera.far = 8;
+// 影の描き直しは、「懐中電灯が点いているときの、メインの描画」だけにする(animate で、毎フレーム needsUpdate を立てる)。
+// 初期設定の自動更新だと、render() を呼ぶたびに(監視カメラの映像の描画でも)、影を6方向ぶん描き直してしまう
+renderer.shadowMap.autoUpdate = false;
 camera.add(flashlight);
 scene.add(camera);
 
@@ -1649,6 +1652,19 @@ let monitorCycleIndex = 0; // 監視カメラは毎回1台ずつ順番に描画�
 const speed = 4;
 const clock = new THREE.Clock();
 
+// 性能の確認用: URLに ?perf=1 を付けて開くと、タブの名前に「FPS・描画回数(影の分も含む)・三角形の数」が出る(0.5秒ごと)。
+// 遊んでいる最中の重さの原因を探すときに使う。付けなければ、何もしない
+const PERF_DEBUG = new URLSearchParams(location.search).get('perf') === '1';
+let perfFrames = 0, perfLast = performance.now();
+function reportPerf() {
+  perfFrames++;
+  const now = performance.now();
+  if (now - perfLast < 500) return;
+  const r = renderer.info.render;
+  document.title = `FPS ${Math.round(perfFrames * 1000 / (now - perfLast))} | 描画 ${r.calls}回 | 三角形 ${r.triangles}`;
+  perfFrames = 0; perfLast = now;
+}
+
 // マップの読み込み中(build と enterGame の間)は、時間も進めず、描画もしない。
 // 読み込みのための描画(カメラをあちこちに動かして描く)と、ふだんの更新(階段の判定など)が、ぶつからないようにするため
 let loadingMap = false;
@@ -1934,7 +1950,9 @@ function animate() {
   updateGazeHint();
   updateHuntFlicker(delta);
 
+  renderer.shadowMap.needsUpdate = flashlight.intensity > 0; // 懐中電灯が消えている間は、影を描かない(影が見えないので、見た目は同じ)
   renderer.render(scene, camera);
+  if (PERF_DEBUG) reportPerf();
 }
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -1980,6 +1998,7 @@ async function enterGame(opts = {}) {
     let scare = null;
     if (deathModel) { scare = SkeletonUtils.clone(deathModel); scare.position.set(savedX + fx, savedY - 1.6, savedZ + fz); scene.add(scare); }
     if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera); // シェーダーの組み立ては、並列に(画面を止めずに)行う
+    renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, camera);
     if (scare) scene.remove(scare);
     ghost.position.copy(savedGhostPos); ghost.visible = savedGhostVisible;
@@ -2004,6 +2023,7 @@ async function enterGame(opts = {}) {
       const j = jobs[i];
       camera.position.set(j.x, j.y, j.z);
       camera.rotation.y = j.ry;
+      renderer.shadowMap.needsUpdate = true; // 影の描画の準備も、部屋ごとに行う
       renderer.render(scene, camera);
       if (performance.now() - sliceStart > 40) {
         await report(0.15 + 0.75 * (i + 1) / jobs.length, 'マップ全体を読み込んでいます');
@@ -2017,6 +2037,7 @@ async function enterGame(opts = {}) {
 
     // 4) 監視カメラの映像を、一度描く
     await report(0.92, '監視カメラを準備しています');
+    renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, camera);
     for (const cam of videoCams) {
       renderer.setRenderTarget(cam.rt);
