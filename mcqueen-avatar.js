@@ -8,9 +8,12 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 export const MCQUEEN_HEIGHT = 1.7;  // 背の高さ(m)。ロボットと同じ。変えたいときはここ
 const FBX_FILE = 'mejiro_rigged.fbx';
-const WALK_SPEED = 2.0;   // walk のアニメーションが、ちょうど合う移動の速さ(m/秒)。足が滑って見えたら調整する
-const RUN_SPEED = 4.5;    // run の同じ値
-const RUN_THRESHOLD = 3.5; // これより速く動いているとき run にする(本編の歩く速さ・走る速さに合わせて調整する)
+// 各アニメーションが、足が滑らずにちょうど合う移動の速さ(m/秒)。クリップの脚の振り幅と脚の長さから計算した値
+//   walk: 1周期(1秒)で約1.2m / run: 1周期(0.67秒)で約2.3m。このモデルは脚が短い(腰の高さ約0.87m)ので、歩幅が小さい
+// 本編の歩く速さは 4m/秒 なので、ふだんは run が使われる
+const WALK_SPEED = 1.2;
+const RUN_SPEED = 3.4;
+const RUN_THRESHOLD = 2.3; // これより速く動いているとき run にする(walk と run の足の回転の速さが同じになる速さ)
 const MOVE_THRESHOLD = 0.35; // これより遅いときは、立ち止まっている(idle)
 
 // ひな形を読み込む。失敗したら null を返す(落ちてはいけない)。ひな形は { root, clips }
@@ -80,8 +83,8 @@ export function createMcQueenAvatar(template, color, { ringOpacity = 0.85 } = {}
       weight[name] += ((name === state ? 1 : 0) - weight[name]) * Math.min(1, delta * 10);
       actions[name].setEffectiveWeight(weight[name]);
     });
-    if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / WALK_SPEED, 0.6, 1.5);
-    if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / RUN_SPEED, 0.7, 1.4);
+    if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / WALK_SPEED, 0.5, 1.8);
+    if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / RUN_SPEED, 0.6, 2.2);
     mixer.update(delta);
   }
   return { group, body, update, get walk() { return 1 - weight.idle; } };
