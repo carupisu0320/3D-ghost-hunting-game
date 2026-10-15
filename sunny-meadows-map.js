@@ -21,7 +21,7 @@ import {
   makeGrassTexture,
 } from './engine.js';
 import * as Layout from './sunny-meadows-layout.js';
-import { buildProps, batchSceneMeshes } from './sunny-meadows-props.js';
+import { buildProps, batchSceneMeshes, addMergedByChunk } from './sunny-meadows-props.js';
 import { planDecals } from './sunny-meadows-decal-plan.js';
 import {
   makeAsylumWallTexture, makeAsylumTileTexture, makeAsylumWoodTexture, makeAsylumConcreteTexture, makeAsylumCeilingTexture,
@@ -106,12 +106,9 @@ export async function build(progress = async () => {}) {
   await progress(0.10, '壁を作っています');
   remapWallUVs(wallGeometries, wallHeight); // 壁の模様の縮尺を、壁の長さにかかわらずそろえる
   const wallMaterial = new THREE.MeshLambertMaterial({ map: makeAsylumWallTexture() });
-  const mergedWall = new THREE.Mesh(mergeGeometries(wallGeometries), wallMaterial);
-  mergedWall.castShadow = true; mergedWall.receiveShadow = true;
-  scene.add(mergedWall);
-  const mergedFrame = new THREE.Mesh(mergeGeometries(doorFrameGeometries), doorFrameMaterial);
-  mergedFrame.castShadow = true; mergedFrame.receiveShadow = true;
-  scene.add(mergedFrame);
+  // 壁とドア枠は、全体を1つにせず、場所(16m四方)と階ごとに分ける(見た目は同じ。カメラや影の範囲の外は、描画されなくなる)
+  addMergedByChunk(wallGeometries, wallMaterial);
+  addMergedByChunk(doorFrameGeometries, doorFrameMaterial);
 
   // ---- 床・天井・屋根 ----
   await progress(0.20, '床と天井を作っています');
