@@ -1,4 +1,4 @@
-// Sunny Meadows の汚れ(血痕・カビ・ひっかき傷)の貼り場所(sunny-meadows-decal-plan.js)の検査。
+// Sunny Meadows の汚れ(血痕・カビ・ひっかき傷)の貼り場所(sunny-meadows-decal-plan.js)の検査。 
 // ドアの上・照明スイッチの上に貼っていないこと、壁の高さや部屋からはみ出していないこと、毎回同じ配置になることを確かめる。
 const test = require('node:test');
 const assert = require('node:assert/strict');
