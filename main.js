@@ -1,7 +1,7 @@
 // このファイルはマップを増やしても書き換えなくて済むよう、薄いブートストラップだけにしてある。
 // 実際のゲームの仕組みは engine.js、各マップの中身はそれぞれの map ファイルに分かれている。
 // マップの実体(build())は、選ばれるまでは呼ばない(2つ以上のマップを同時に組み立ててしまわないようにするため)
-import { addMapCard, startEngine, enterGame, requestPadStart, setHauntSeed, setDifficulty, scene, camera } from './engine.js';
+import { addMapCard, startEngine, enterGame, setMapLoading, requestPadStart, setHauntSeed, setDifficulty, scene, camera } from './engine.js';
 import { build as buildHouse, mapLabel as houseLabel } from './house-map.js';
 import { build as buildGrafton, mapLabel as graftonLabel } from './grafton-map.js';
 import { build as buildSunny, mapLabel as sunnyLabel } from './sunny-meadows-map.js';
@@ -16,7 +16,7 @@ function showLoadingScreen(mapName) {
   overlay.innerHTML = `
     <div class="gh-map-loading-name">${mapName}</div>
     <div id="mapLoadingText" class="gh-map-loading-text">読み込み中...</div>
-    <div class="gh-map-loading-note">しばらくお待ちください</div>
+    <div class="gh-map-loading-note">しばらくお待ちください(最初にマップ全体を読み込んでおくと、遊んでいる間のカクつきが減ります)</div>
   `;
   document.body.appendChild(overlay);
   return overlay;
@@ -29,17 +29,28 @@ const urlDifficulty = new URLSearchParams(location.search).get('difficulty');
 
 // マップが選ばれたら、先にロード画面を出し、それが実際に画面に描かれてから重い処理(build + enterGame)を始める。
 // (先に始めてしまうと、ロード画面が描かれる前にブラウザが固まって、意味がなくなる)
+// 広いマップは、build も enterGame も時間がかかるので、段階ごとに「進み具合」を文字で出す(割合は、build が 0〜45%、enterGame が 45〜100%)。
+// マップの build(progress) と enterGame({ onProgress }) は、progress(割合0〜1, 文字) を呼ぶと、表示を更新して、ブラウザに描画の時間を渡す。
+// (progress を使わない古い build でも、そのまま動く)
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 function selectMap(label, buildFn) {
   return () => {
     const overlay = showLoadingScreen(label);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    const textEl = overlay.querySelector('#mapLoadingText');
+    const progressTo = (from, to) => async (p, text) => {
+      textEl.textContent = `${text}… ${Math.round((from + (to - from) * p) * 100)}%`;
+      await nextFrame();
+    };
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
+      setMapLoading(true); // 読み込みの間は、ふだんの更新と描画を止める(読み込みのための描画とぶつからないように)
       try {
         if (onlineInfo && onlineInfo.seed != null) setHauntSeed(onlineInfo.seed); // 全員で同じ幽霊・同じ出没部屋にする(マップを組み立てる前に渡す)
         setDifficulty((onlineInfo && onlineInfo.difficulty) || urlDifficulty || 'normal'); // 難易度も、マップを組み立てる前に渡す(ハヤトを抽選から外すかどうかが、組み立て中に決まるため)
-        buildFn();
-        enterGame();
+        await buildFn(progressTo(0, 0.45));
+        await enterGame({ onProgress: progressTo(0.45, 1) });
       } catch (err) {
         console.error('マップの読み込みに失敗しました', err);
+        setMapLoading(false);
       } finally {
         overlay.remove();
       }
