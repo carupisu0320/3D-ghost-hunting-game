@@ -140,7 +140,9 @@ function furnitureIn(name, dx, dz, w, d, h, material) {
   addFurniture(r.minX + dx, r.minZ + dz, w, d, h, material);
 }
 // 洗面台 = 支柱 + 台座 + くぼんだ洗面ボウル(円柱をくぼみに見立てて縁取り)+ 蛇口
-function washstandIn(name, dx, dz, w, d, h) {
+// flip = true: 蛇口を、+Z側(北)に向ける。ふつう(false)は、蛇口が -Z側(南)の壁にある。北の壁に付けるときは true
+function washstandIn(name, dx, dz, w, d, h, flip = false) {
+  const s = flip ? -1 : 1;
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
   const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
@@ -156,12 +158,14 @@ function washstandIn(name, dx, dz, w, d, h) {
   basinWell.position.set(x, floorY + h + 0.025, z);
   basinWell.receiveShadow = true;
   scene.add(basinWell);
-  addDetailMesh(x, h + 0.18, z - d / 2 + 0.06, 0.03, 0.22, 0.03, metalMaterial); // 蛇口の柱
-  addDetailMesh(x, h + 0.27, z - d / 2 + 0.14, 0.03, 0.03, 0.14, metalMaterial); // 蛇口の口
+  addDetailMesh(x, h + 0.18, z - s * (d / 2 - 0.06), 0.03, 0.22, 0.03, metalMaterial); // 蛇口の柱
+  addDetailMesh(x, h + 0.27, z - s * (d / 2 - 0.14), 0.03, 0.03, 0.14, metalMaterial); // 蛇口の口
 }
 
 // トイレ = ボウル(当たり判定あり) + 座面リング + 蓋 + 背面のタンク + 洗浄レバー(見た目のみ)
-function toiletIn(name, dx, dz) {
+// flip = true: 背中(タンク)を +Z側(北)の壁に付ける向きにする。ふつう(false)は、タンクが -Z側(南)の壁。北の壁に付けるときは true
+function toiletIn(name, dx, dz, flip = false) {
+  const s = flip ? -1 : 1;
   const r = room(name);
   const x = r.minX + dx, z = r.minZ + dz;
   const floorY = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
@@ -169,14 +173,14 @@ function toiletIn(name, dx, dz) {
   addFurniture(x, z, bowlW, bowlD, bowlH, ceramicMaterial);
   // 座面リング(楕円に近づけるため薄い円柱)+ 蓋(少し立て掛けた板)
   const seatRing = new THREE.Mesh(new THREE.CylinderGeometry(bowlW * 0.52, bowlW * 0.5, 0.03, 16), ceramicMaterial);
-  seatRing.position.set(x, floorY + bowlH + 0.02, z + bowlD * 0.05);
+  seatRing.position.set(x, floorY + bowlH + 0.02, z + s * bowlD * 0.05);
   seatRing.scale.z = bowlD / bowlW * 1.05;
   seatRing.receiveShadow = true;
   scene.add(seatRing);
-  addDetailMesh(x, bowlH + 0.045, z - bowlD * 0.32, bowlW * 0.9, 0.025, bowlD * 0.55, ceramicMaterial); // 蓋
+  addDetailMesh(x, bowlH + 0.045, z - s * bowlD * 0.32, bowlW * 0.9, 0.025, bowlD * 0.55, ceramicMaterial); // 蓋
   const tankH = 0.32;
-  addDetailMesh(x, bowlH + tankH / 2, z - bowlD / 2 + 0.09, bowlW + 0.02, tankH, 0.16, ceramicMaterial);
-  addDetailMesh(x + bowlW * 0.3, bowlH + tankH - 0.05, z - bowlD / 2 + 0.02, 0.05, 0.02, 0.03, metalMaterial); // 洗浄レバー
+  addDetailMesh(x, bowlH + tankH / 2, z - s * (bowlD / 2 - 0.09), bowlW + 0.02, tankH, 0.16, ceramicMaterial);
+  addDetailMesh(x + bowlW * 0.3, bowlH + tankH - 0.05, z - s * (bowlD / 2 - 0.02), 0.05, 0.02, 0.03, metalMaterial); // 洗浄レバー
 }
 
 export { addFurniture, addDetailMesh, addLeg, addLegsUnder, pushWallBox, woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn };
