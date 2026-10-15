@@ -18,7 +18,7 @@ import {
   onFrame, setCurrentUpperFloor, currentUpperFloor, defineUpperFloor, setBuildingUpperFloor,
   bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn, addFurniture,
   addDetailMesh, addLeg, addLegsUnder, fabricMaterial, handleMaterial, ceramicMaterial,
-  makeGrassTexture,
+  makeGrassTexture, setViewDistance,
 } from './engine.js';
 import * as Layout from './sunny-meadows-layout.js';
 import { buildProps, batchSceneMeshes, addMergedByChunk } from './sunny-meadows-props.js';
@@ -61,6 +61,10 @@ export async function build(progress = async () => {}) {
   const yB1F = -Layout.B1F_DEPTH;
   const px2x = Layout.px2x, px2z = Layout.px2z;
   defineUpperFloor(FLOOR_B1F, yB1F);
+  // 見える距離(m)。霧が始まる距離と、完全に見えなくなる距離。広い建物なので、初期値(6〜24m)より遠くまで見せる。
+  // 大きくするほど遠くの部屋まで描くので重くなる。重いときは、この2つの数字を小さくする(霧の終わり ≤ 60 にすること)
+  const VIEW_FOG_NEAR = 8, VIEW_FOG_END = 36;
+  setViewDistance(VIEW_FOG_NEAR, VIEW_FOG_END);
 
   // ---- 間取りを計算する ----
   const layout = Layout.computeLayout();
