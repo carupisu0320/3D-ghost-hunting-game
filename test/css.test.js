@@ -17,6 +17,7 @@ const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
 const SETS = [
   { name: 'ゲーム本編', css: 'ui.css', html: 'game.html',
     sources: ['engine.js', 'main.js', 'online-game.js', ...fs.readdirSync(path.join(ROOT, 'engine')).filter((f) => f.endsWith('.js')).map((f) => 'engine/' + f)] },
+  { name: '操作説明', css: 'help.css', html: ['game.html', 'lobby.html'], sources: ['controls-help.js'] },
   { name: 'ロビー', css: 'lobby.css', html: 'lobby.html',
     sources: fs.readdirSync(ROOT).filter((f) => /^lobby[\w-]*\.js$/.test(f)) },
 ];
@@ -32,8 +33,8 @@ for (const set of SETS) {
     for (const m of text.matchAll(/['"` ](is-[a-z0-9-]+)\b/g)) if (!used.has(m[1])) used.set(m[1], f);
   });
 
-  test(`${set.name}: ${set.html} が ${set.css} を読み込み、${set.css} がある`, () => {
-    assert.match(read(set.html), new RegExp(`<link[^>]+rel="stylesheet"[^>]+href="${set.css.replace('.', '\\.')}"`));
+  test(`${set.name}: ${[].concat(set.html).join('・')} が ${set.css} を読み込み、${set.css} がある`, () => {
+    [].concat(set.html).forEach((h) => assert.match(read(h), new RegExp(`<link[^>]+rel="stylesheet"[^>]+href="${set.css.replace('.', '\\.')}"`), `${h} が ${set.css} を読み込んでいません`));
   });
 
   test(`${set.name}: コードが付けているクラス名は、すべて ${set.css} に定義がある`, () => {
