@@ -173,7 +173,7 @@ function dropCurrentTool() {
   if (!currentTool) return;
   const tool = currentTool;
   if (tool === 'flashlight') { hasFlashlight = false; flashlight.intensity = 0; }
-  else if (tool === 'emf') { hasEMF = false; emfActive = false; emfDisplay.textContent = ''; }
+  else if (tool === 'emf') { hasEMF = false; emfActive = false; }
   else if (tool === 'thermometer') { hasThermometer = false; thermometerActive = false; thermoDisplay.textContent = ''; }
   else if (tool === 'notebook') { hasNotebook = false; notebookActive = false; notebookDisplay.textContent = ''; }
   else if (tool === 'spiritbox') { hasSpiritBox = false; spiritBoxActive = false; spiritBoxDisplay.textContent = ''; }
@@ -206,15 +206,9 @@ function dropCurrentTool() {
 }
 
 
-// 道具入手時の通知
-const pickupNotice = document.createElement('div');
-pickupNotice.className = 'gh-pickup-notice';
-document.body.appendChild(pickupNotice);
-let pickupNoticeTimer = 0;
-function showPickupNotice(text) {
-  pickupNotice.textContent = text;
-  pickupNoticeTimer = 2.5;
-}
+// 左上の黄色い通知(道具を入手した・ブレーカーが落ちた など)は、画面をすっきりさせるため、出さないことにした。
+// 呼び出しは残してあるので、必要になったら、ここで別の見せ方(中央に小さく出す、など)に戻せる
+function showPickupNotice() {}
 
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
 let notebookWritten = false;
@@ -690,9 +684,6 @@ function requestPadStart() {
 }
 const inControl = () => controls.isLocked || padPlay;
 
-const emfDisplay = document.createElement('div');
-emfDisplay.className = 'gh-emf-display';
-document.body.appendChild(emfDisplay);
 
 const thermoDisplay = document.createElement('div');
 thermoDisplay.className = 'gh-thermo-display';
@@ -981,7 +972,6 @@ let currentTool = null; // 'flashlight' / 'emf' / 'thermometer' / ...。持ち�
 function toggleEMF() {
   if (!hasEMF) return;
   emfActive = !emfActive;
-  if (!emfActive) emfDisplay.textContent = '';
 }
 function toggleThermometer() {
   if (!hasThermometer) return;
@@ -1017,7 +1007,6 @@ function selectTool(tool) {
   spiritBoxActive = (tool === 'spiritbox');
   uvActive = (tool === 'uv');
   dotsActive = (tool === 'dots');
-  if (!emfActive) emfDisplay.textContent = '';
   if (!thermometerActive) thermoDisplay.textContent = '';
   if (!notebookActive) notebookDisplay.textContent = '';
   if (!spiritBoxActive) spiritBoxDisplay.textContent = '';
@@ -1856,15 +1845,10 @@ function animate() {
     ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
     ghostModelMaterials.forEach((m) => { m.opacity = ghostMaterial.opacity; }); // モデル版のときも同じ透明度にそろえる
 
-    if (pickupNoticeTimer > 0) {
-      pickupNoticeTimer -= delta;
-      if (pickupNoticeTimer <= 0) pickupNotice.textContent = '';
-    }
 
     // EMFリーダー(Eキーでオン/オフ、入手済みの場合のみ)
     if (emfActive) {
       const level = emfLevelAt(ghostDist, currentGhost.evidence.includes("EMF5"));
-      emfDisplay.textContent = `EMF: ${'★'.repeat(level)}${'・'.repeat(5 - level)} (Lv.${level})`;
       if (viewmodels.emf && viewmodels.emf.userData.leds) {
         viewmodels.emf.userData.leds.forEach((led, i) => led.material.color.set(i < level ? 0x44ff44 : 0x2a1010));
       }
