@@ -13,18 +13,12 @@ canvas { display: block; }
   background: rgba(255,255,255,0.85); box-shadow: 0 0 0 1px rgba(0,0,0,0.5); z-index: 5; pointer-events: none; display: none;
 }
 /* 「クリックして始める」の案内(カーソルが出ている間だけ表示) */
+/* 最初の画面: クリックで始める(視点の固定は、クリックがないと始められないため)。説明は出さず、小さな案内だけ。操作説明は H キー(help.css) */
 #hint {
-  position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-  background: rgba(0,0,0,0.55); color: #eee; cursor: pointer; text-align: center;
+  position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.12); cursor: pointer; text-align: center;
 }
-#hint .title { font-size: 30px; letter-spacing: 3px; color: #9fd3ff; }
-#hint .sub { font-size: 15px; color: #ccc; line-height: 1.8; }
-/* 操作を始めたあと、最初の5秒だけ出る操作説明(画面は隠さない) */
-#helpPanel {
-  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 8; display: none; box-sizing: border-box;
-  max-width: min(820px, 94vw); padding: 12px 22px; background: rgba(0,0,0,0.62); color: #eee; border-radius: 8px;
-  font-size: 13px; line-height: 1.8; text-align: center; pointer-events: none; opacity: 1; transition: opacity 0.7s ease;
-}
+#hint .sub { padding: 10px 26px; font-size: 18px; letter-spacing: 2px; color: #ddd; background: rgba(18,20,26,0.7); border-radius: 8px; }
 /* Escやダイアログのあと、操作を再開するための案内(クリックか、WASDなどのキーで再開できる) */
 #resume {
   position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
