@@ -337,27 +337,62 @@ export function wallToWorld(w) {
   return { axis: 'z', fixed: px2x(w.fixed), from: Math.min(a, b), to: Math.max(a, b), doorAt: w.doorAt === null ? undefined : px2z(w.doorAt) };
 }
 
-// 照明スイッチの位置(世界の座標)。部屋のドアのすぐ脇の、壁の内側。ドアがない部屋は、東の壁の北寄り
+// 照明スイッチの位置(世界の座標)。部屋のドアのすぐ脇の、壁の内側。
+// ドアがない部屋や、ドアの脇に壁がない部屋(開口のそば)は、その部屋の一番長い壁の端に付ける(壁のない所には付けない)。
+// 戻り値: { x, z, axis } axis = スイッチが付いている壁が延びる向き('x' = x方向の壁(z が一定)、'z' = z方向の壁(x が一定))。スイッチの箱の向きを、壁に合わせるために使う
+export const SWITCH_OFFSET = 0.12; // 壁の中心から、スイッチの中心まで(壁の厚み0.2の半分 + スイッチの厚み0.04の半分 = ぴったり壁に付く)
+const SWITCH_DOOR_GAP = 0.6;       // ドアの穴の半分の幅(ドア幅1.2の半分)
+
+// 部屋の壁(階と部屋が合うもの)を、世界の座標で返す。壁のうち、ドアの穴を除いた「壁のある範囲」の一覧付き
+function wallSpansOf(layout, r) {
+  return layout.walls.filter((w) => w.floor === r.floor && w.between.includes(r.id)).map((w) => {
+    const o = wallToWorld(w);
+    const spans = o.doorAt === undefined ? [[o.from, o.to]] : [[o.from, o.doorAt - SWITCH_DOOR_GAP], [o.doorAt + SWITCH_DOOR_GAP, o.to]];
+    return { o, spans: spans.filter(([a, e]) => e - a > 0.05) };
+  });
+}
+// 部屋の中心がある側(壁から見て、部屋の側)の向き: +1 / -1
+function sideOf(o, b) { return ((o.axis === 'x' ? (b.minZ + b.maxZ) / 2 : (b.minX + b.maxX) / 2) > o.fixed) ? +1 : -1; }
+
+// スイッチが、その部屋の本物の壁(ドアの穴ではない所)のすぐ内側にあるか
+export function isSwitchOnWall(layout, r, p) {
+  const b = roomBounds(r), eps = 0.02;
+  return wallSpansOf(layout, r).some(({ o, spans }) => {
+    const perp = (o.axis === 'x' ? p.z : p.x) - o.fixed, along = o.axis === 'x' ? p.x : p.z;
+    return Math.abs(perp - sideOf(o, b) * SWITCH_OFFSET) < eps && spans.some(([a, e]) => along >= a + 0.05 && along <= e - 0.05);
+  });
+}
+
+function switchOnLongestWall(layout, r) {
+  const b = roomBounds(r);
+  let best = null;
+  wallSpansOf(layout, r).forEach(({ o, spans }) => spans.forEach(([a, e]) => { if (e - a >= 0.9 && (!best || e - a > best.len)) best = { o, a, len: e - a }; }));
+  if (!best) return null;
+  const { o } = best, along = best.a + 0.4, perp = o.fixed + sideOf(o, b) * SWITCH_OFFSET;
+  return o.axis === 'x' ? { x: along, z: perp, axis: 'x' } : { x: perp, z: along, axis: 'z' };
+}
+
 export function switchPositions(layout) {
   const out = new Map();
-  const WALL_OFFSET = 0.16; // 壁の面から、少し部屋側へ
   layout.rooms.forEach((r) => {
     if (r.kind === 'courtyard' || r.kind === 'sealed') return;
     const b = roomBounds(r);
     const cand = layout.doors.filter((d) => d.floor === r.floor && d.between[0] === r.id); // 部屋どうしのドア(この部屋が a 側)
     const cand2 = layout.doors.filter((d) => d.floor === r.floor && d.between[1] === r.id);
     const mine = [...cand, ...cand2][0];
-    if (!mine) { out.set(r.id, { x: b.maxX - 0.15, z: b.maxZ - 0.6 }); return; }
-    const w = wallToWorld({ axis: mine.axis, fixed: mine.fixed, from: 0, to: 0, doorAt: mine.at });
-    if (mine.axis === 'x') { // 横の壁(z が一定): 部屋のどちら側か
-      const dir = (b.minZ + b.maxZ) / 2 > w.fixed ? +1 : -1;
-      const x = w.doorAt + 0.9 + 0.3 <= b.maxX ? w.doorAt + 0.9 : Math.max(b.minX + 0.3, w.doorAt - 0.9);
-      out.set(r.id, { x, z: w.fixed + dir * WALL_OFFSET });
-    } else { // 縦の壁(x が一定)
-      const dir = (b.minX + b.maxX) / 2 > w.fixed ? +1 : -1;
-      const z = w.doorAt + 0.9 + 0.3 <= b.maxZ ? w.doorAt + 0.9 : Math.max(b.minZ + 0.3, w.doorAt - 0.9);
-      out.set(r.id, { x: w.fixed + dir * WALL_OFFSET, z });
+    let pos = null;
+    if (mine) { // ドアのすぐ脇(ドアの中心から0.9m)
+      const w = wallToWorld({ axis: mine.axis, fixed: mine.fixed, from: 0, to: 0, doorAt: mine.at });
+      if (mine.axis === 'x') { // 横の壁(z が一定)
+        const x = w.doorAt + 0.9 + 0.3 <= b.maxX ? w.doorAt + 0.9 : Math.max(b.minX + 0.3, w.doorAt - 0.9);
+        pos = { x, z: w.fixed + sideOf(w, b) * SWITCH_OFFSET, axis: 'x' };
+      } else { // 縦の壁(x が一定)
+        const z = w.doorAt + 0.9 + 0.3 <= b.maxZ ? w.doorAt + 0.9 : Math.max(b.minZ + 0.3, w.doorAt - 0.9);
+        pos = { x: w.fixed + sideOf(w, b) * SWITCH_OFFSET, z, axis: 'z' };
+      }
     }
+    if (!pos || !isSwitchOnWall(layout, r, pos)) pos = switchOnLongestWall(layout, r) || pos || { x: b.maxX - 0.15, z: b.maxZ - 0.6, axis: 'x' };
+    out.set(r.id, pos);
   });
   return out;
 }
