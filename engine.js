@@ -678,7 +678,7 @@ Object.keys(toolMeshMakers).forEach(tool => {
 const controls = new PointerLockControls(camera, document.body);
 const info = document.getElementById('info');
 info.addEventListener('click', () => controls.lock()); // ESCで一時的に外れたときの再開クリック用
-controls.addEventListener('unlock', () => { info.textContent = 'クリックで再開'; });
+controls.addEventListener('unlock', () => { info.textContent = 'クリックで再開(H: 操作説明)'; });
 
 // コントローラーだけで遊ぶ状態(マウスの視点固定=ポインターロックなし)。
 // ボタン押下はブラウザにとって「クリック」ではないので、ポインターロックを始められない。そのため、このフラグで「操作中」とみなす。
