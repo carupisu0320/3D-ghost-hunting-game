@@ -199,3 +199,44 @@ export function buildDecalMesh(decals, floorY, atlas) {
   mesh.receiveShadow = true; mesh.renderOrder = 1;
   return mesh;
 }
+
+// ---- ドア: 病院らしい、緑がかった鉄のドア(覗き窓・蹴り板・番号札・はがれと錆)。一軒家の茶色い木のドアと区別する ----
+// 模様は、ドアの板1枚ぶん(128×256)。覗き窓は、目の高さ(ドアの上から0.4〜0.9m)。表と裏で左右が反転しても同じに見えるよう、左右対称に描く
+export function makeAsylumDoorTexture() {
+  const W = 128, H = 256, [canvas, ctx] = makeCanvas(W, H), rnd = mulberry32(8008);
+  ctx.fillStyle = '#4f6155'; ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 70; i++) { ctx.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.07)'; ctx.fillRect(rnd() * W, 0, 1 + rnd() * 2, H); } // 刷毛目
+  for (let i = 0; i < 1400; i++) { const v = (rnd() - 0.5) * 26; ctx.fillStyle = v > 0 ? `rgba(255,255,255,${v / 255})` : `rgba(0,0,0,${-v / 255})`; ctx.fillRect(rnd() * W, rnd() * H, 2, 2); }
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 3; ctx.strokeRect(5, 5, W - 10, H - 10); // 縁の段
+  ctx.strokeStyle = 'rgba(190,205,190,0.18)'; ctx.lineWidth = 1; ctx.strokeRect(8, 8, W - 16, H - 16);
+  for (let i = 0; i < 16; i++) { // ペンキのはがれ(下は、さびた鉄)
+    const x = rnd() < 0.5 ? 4 + rnd() * 22 : W - 26 + rnd() * 22, y = 8 + rnd() * 200, w = 6 + rnd() * 16, h = 5 + rnd() * 14;
+    ctx.fillStyle = rnd() > 0.35 ? '#6e4a34' : '#8a8c80';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + w, y + rnd() * 4); ctx.lineTo(x + w * 0.8, y + h); ctx.lineTo(x + rnd() * 3, y + h * 0.8); ctx.closePath(); ctx.fill();
+  }
+  for (let i = 0; i < 6; i++) { const x = 14 + rnd() * 100, h = 40 + rnd() * 70, g = ctx.createLinearGradient(0, 214 - h, 0, 214); g.addColorStop(0, 'rgba(120,60,24,0)'); g.addColorStop(1, 'rgba(120,60,24,0.5)'); ctx.fillStyle = g; ctx.fillRect(x, 214 - h, 3 + rnd() * 5, h); } // さびの筋
+  ctx.fillStyle = '#707876'; ctx.fillRect(7, 214, W - 14, 35);                       // 蹴り板
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2; ctx.strokeRect(7, 214, W - 14, 35);
+  ctx.fillStyle = '#3a3f3e'; [[14, 221], [W - 14, 221], [14, 242], [W - 14, 242]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); });
+  ctx.fillStyle = '#262e2c'; ctx.fillRect(33, 44, 62, 74);                          // 覗き窓(枠)
+  ctx.fillStyle = '#0f1719'; ctx.fillRect(39, 50, 50, 62);                          // ガラス
+  ctx.strokeStyle = 'rgba(150,170,165,0.5)'; ctx.lineWidth = 1;                     // 網入りガラスの格子
+  for (let k = -70; k < 70; k += 9) { ctx.beginPath(); ctx.moveTo(39, 50 + k + 62); ctx.lineTo(89, 50 + k + 12); ctx.stroke(); ctx.beginPath(); ctx.moveTo(39, 50 + k); ctx.lineTo(89, 50 + k + 50); ctx.stroke(); }
+  ctx.save(); ctx.beginPath(); ctx.rect(39, 50, 50, 62); ctx.clip(); ctx.fillStyle = 'rgba(180,200,200,0.08)'; ctx.beginPath(); ctx.moveTo(39, 50); ctx.lineTo(70, 50); ctx.lineTo(39, 100); ctx.closePath(); ctx.fill(); ctx.restore(); // 光の反射
+  ctx.fillStyle = '#c9c5b0'; ctx.fillRect(48, 20, 32, 14);                          // 番号札
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.strokeRect(48, 20, 32, 14);
+  ctx.fillStyle = '#2a2a2a'; ctx.fillRect(54, 24, 4, 6); ctx.fillRect(62, 24, 4, 6); ctx.fillRect(70, 24, 4, 6);
+  for (let i = 0; i < 5; i++) blot(ctx, W, rnd() * W, rnd() * H, 12 + rnd() * 22, (a) => `rgba(20,16,10,${0.3 * a})`, 0.8); // 汚れ
+  for (let i = 0; i < 2; i++) blot(ctx, W, rnd() * W, 100 + rnd() * 100, 8 + rnd() * 12, (a) => `rgba(70,8,6,${0.3 * a})`, 0.9);   // 血のしみ
+  return finish(canvas, false);
+}
+
+// doors(エンジンの、ドアの一覧)のドアの板と取っ手の材質を、病院のドアに替える。壁を組み立てたあと(ドアが作られたあと)に呼ぶ。
+// 板 = hinge の最初の子、取っ手 = 残りの子(engine/walls.js の addDoor の作り)。ドア枠は、別の材質(マップ側で渡す)
+export function applyAsylumDoors(doors) {
+  const panel = new THREE.MeshLambertMaterial({ map: makeAsylumDoorTexture() });
+  const handle = new THREE.MeshLambertMaterial({ color: 0xaab0ad }); // 明るい鉄のレバー
+  let n = 0;
+  doors.forEach((d) => d.hinge.children.forEach((c, i) => { if (c.isMesh) { c.material = i === 0 ? panel : handle; n++; } }));
+  return n;
+}
