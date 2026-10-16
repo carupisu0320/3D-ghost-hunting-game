@@ -2,10 +2,36 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="refresh" content="0; url=lobby.html" />
-    <title>3D Ghost Hunting Game</title>
+    <title>ロビー - 3D Ghost Hunting Game</title>
+    <link rel="stylesheet" href="lobby.css" />
+    <link rel="stylesheet" href="help.css" />
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+        "socket.io-client": "https://cdn.socket.io/4.7.5/socket.io.esm.min.js"
+      }
+    }
+    </script>
   </head>
   <body>
-    <p>読み込み中… 自動で移動しない場合は <a href="lobby.html">こちら</a> をクリックしてください。</p>
+    <div id="crosshair"></div>
+    <div id="roomBadge"></div>
+    <div id="hint">
+      <div class="sub">クリックして開始 (H: 操作説明)</div>
+    </div>
+    <div id="resume"><div class="box"><div class="big">クリックで操作を再開</div><div class="small">(WASDなどのキーでも再開できます / Esc: 一時停止 / H: 操作説明)</div></div></div>
+    <div id="toast"></div>
+    <div id="modal">
+      <div id="modalBox">
+        <h2 id="modalTitle"></h2>
+        <input id="modalInput" type="text" autocomplete="off" />
+        <div id="modalError"></div>
+        <div class="modalButtons"><button id="modalCancel">やめる</button><button id="modalOk">決定</button></div>
+      </div>
+    </div>
+
+    <script type="module" src="lobby.js"></script>
   </body>
 </html>
