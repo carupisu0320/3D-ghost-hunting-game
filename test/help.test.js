@@ -50,3 +50,15 @@ test('H キーで開け閉めする処理があり、ロビーとゲーム本編
   // 他の機能が H を使っていない(ぶつからない)
   for (const f of ['lobby.js', 'engine.js']) assert.doesNotMatch(read(f), /'KeyH'/, `${f} が H キーを別の用途に使っています`);
 });
+
+test('ロビーの最初の画面に、長い操作説明を出さない(操作説明は H キー)。再開の案内は、再開しようとしている間は出さない', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'lobby.html'), 'utf8');
+  const hint = /<div id="hint">([\s\S]*?)<\/div>\s*(?=<div id="resume")/.exec(html);
+  assert.ok(hint, 'lobby.html の #hint が見つかりません');
+  assert.ok(hint[1].replace(/<[^>]+>/g, '').trim().length <= 40, '最初の画面の文字が長すぎます(説明は controls-help.js の HELP に書いてください)');
+  assert.doesNotMatch(html, /id="helpPanel"/);
+  const lobby = read('lobby.js');
+  assert.doesNotMatch(lobby, /helpPanel|showHelpPanel/);
+  assert.match(lobby, /idle && hasStarted && !wantLock/, '再開の案内が、再開の最中にも出てしまいます');
+  assert.match(lobby, /function closeModal\(\)[\s\S]*?requestLock\(\)/, 'ダイアログを閉じたあとに、自動で操作へ戻っていません');
+});
