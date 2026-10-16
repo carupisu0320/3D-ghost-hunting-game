@@ -2,9 +2,14 @@
 // 実際のゲームの仕組みは engine.js、各マップの中身はそれぞれの map ファイルに分かれている。
 // マップの実体(build())は、選ばれるまでは呼ばない(2つ以上のマップを同時に組み立ててしまわないようにするため)
 import { addMapCard, startEngine, enterGame, setMapLoading, requestPadStart, setHauntSeed, setDifficulty, scene, camera } from './engine.js';
+import { createControlsHelp } from './controls-help.js'; // H キーで開く操作説明
 import { build as buildHouse, mapLabel as houseLabel } from './house-map.js';
 import { build as buildGrafton, mapLabel as graftonLabel } from './grafton-map.js';
 import { build as buildSunny, mapLabel as sunnyLabel } from './sunny-meadows-map.js';
+
+// 操作説明(H キー)。開始前の画面でも開ける。ゲームが始まったら、数秒だけ「H: 操作説明」の案内を出す
+const controlsHelp = createControlsHelp('game');
+const startedTip = () => controlsHelp.showTip();
 
 // ---- ロード画面 ----
 // マップの組み立てと描画の準備は重く、その間ブラウザが固まって見えるので、黒い画面と「読み込み中」を出しておく。
@@ -90,7 +95,7 @@ if (lobbyMap && lobbyMaps[lobbyMap]) {
   const [label, start] = lobbyMaps[lobbyMap];
   const gate = document.createElement('div');
   gate.className = 'gh-start-gate';
-  gate.innerHTML = `<div class="gh-gate-map">${label}</div><div id="gateMain" class="gh-gate-main">${hasOnlineSession ? '部屋につなぎ直しています…' : 'クリックして開始'}</div><div id="gateSub" class="gh-gate-sub">(コントローラーのボタンでも始められます)</div>`;
+  gate.innerHTML = `<div class="gh-gate-map">${label}</div><div id="gateMain" class="gh-gate-main">${hasOnlineSession ? '部屋につなぎ直しています…' : 'クリックして開始'}</div><div id="gateSub" class="gh-gate-sub">(コントローラーのボタンでも始められます / H: 操作説明)</div>`;
   document.body.appendChild(gate);
   // オンラインのときは、部屋につなぎ直して乱数の種(全員で同じ幽霊にするため)を受け取るまで、開始できないようにする
   onlineReady.then((info) => {
@@ -101,6 +106,6 @@ if (lobbyMap && lobbyMaps[lobbyMap]) {
       const pad = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).find(p => p);
       if (pad && pad.buttons.some(b => b.pressed)) { requestPadStart(); gate.click(); }
     }, 100);
-    gate.addEventListener('click', () => { clearInterval(padWatch); gate.remove(); start(); }, { once: true });
+    gate.addEventListener('click', () => { clearInterval(padWatch); gate.remove(); start(); startedTip(); }, { once: true });
   });
 }
