@@ -103,6 +103,9 @@ const MUTATIONS = [
   ['ロビー: 再開しようとしている間も、「クリックで再開」の案内が出てしまう', 'lobby.js', 'idle && hasStarted && !wantLock', 'idle && hasStarted'],
   ['ロビー: ダイアログを閉じても、自動で操作に戻らない', 'lobby.js', 'if (hasStarted) requestLock(); else showHintIfNeeded();', 'showHintIfNeeded();'],
   ['ロビー: 最初の画面に、また長い説明を出す', 'lobby.html', '<div class="sub">クリックして開始 (H: 操作説明)</div>', '<div class="sub">クリックして開始 (H: 操作説明) WASD: 移動 / Shift: 走る / マウス: 見回す / Esc: 一時停止(クリックかWASDで再開)</div>'],
+  ['画面: 緑の EMF 表示をまた作る', 'engine.js', "function showPickupNotice() {}", "function showPickupNotice() {}\nconst emfDisplay = document.createElement('div'); emfDisplay.className = 'gh-emf-display'; document.body.appendChild(emfDisplay);"],
+  ['画面: 黄色の通知をまた作る', 'engine.js', "function showPickupNotice() {}", "const pickupNotice = document.createElement('div'); pickupNotice.className = 'gh-pickup-notice'; document.body.appendChild(pickupNotice);\nfunction showPickupNotice() {}"],
+  ['操作説明: 調査書の開き方(R)を、説明から消す', 'controls-help.js', "{ keys: ['R'], text: '調査書を開く・閉じる', codes: ['KeyR'] },", ""],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
