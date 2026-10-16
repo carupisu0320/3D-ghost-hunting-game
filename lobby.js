@@ -10,6 +10,7 @@ import {
 import { MAX_HELD, SPIRIT_WORD, emfLevelAt, demoTemperature, pickGazeItem } from './lobby-tools.js';
 import { loadSkin, createSkinAvatar, createPlaceholderAvatar } from './skins.js'; // プレイヤーの見た目(スキン)
 import { SKIN_CATALOG, normalizeSkinId } from './skin-catalog.js';
+import { createControlsHelp } from './controls-help.js'; // H キーで開く操作説明
 import { SERVER_URL } from './server-config.js';
 import { initAccount, onAccountChange, signIn, signOutAccount, getIdToken, fetchMe } from './account.js'; // Googleアカウントでのログインと、所持金
 
@@ -82,6 +83,7 @@ scene.add(camera); // 手に持つ道具とライトをカメラに付けるた�
 
 // ---------- 操作(移動・視点) ----------
 const controls = new PointerLockControls(camera, renderer.domElement);
+createControlsHelp('lobby');
 let modalOpen = false;
 let padActive = false; // コントローラーで操作中(マウスのクリックによる視点固定なしで、スティックだけで動かしている状態)
 const inControl = () => controls.isLocked || padActive;
