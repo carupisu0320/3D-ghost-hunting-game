@@ -1,4 +1,4 @@
-// Sunny Meadows の汚れ(血痕・カビ・ひっかき傷)の貼り場所(sunny-meadows-decal-plan.js)の検査。 
+// Sunny Meadows の汚れ(血痕・カビ・ひっかき傷)の貼り場所(sunny-meadows-decal-plan.js)の検査。
 // ドアの上・照明スイッチの上に貼っていないこと、壁の高さや部屋からはみ出していないこと、毎回同じ配置になることを確かめる。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -52,4 +52,18 @@ test('床の汚れは、部屋の中(壁から離れた所)にある。血の部
 
 test('同じ間取りなら、毎回同じ配置になる(オンラインで、全員が同じ汚れを見る)', () => {
   assert.deepEqual(D.planDecals(L.computeLayout()), decals);
+});
+
+// ---- ドア(一軒家と区別する) ----
+test('マップは、ドアの板・取っ手を病院のドアに替え、ドア枠も一軒家と別の材質にしている', () => {
+  const fs = require('fs'), path = require('path');
+  const { ROOT } = require('./helpers');
+  const { stripComments } = require('./lib/modgraph');
+  const src = stripComments(fs.readFileSync(path.join(ROOT, 'sunny-meadows-map.js'), 'utf8'));
+  assert.match(src, /applyAsylumDoors\(doors\);/, 'ドアを病院のドアに替えていません(一軒家と同じ見た目になります)');
+  assert.match(src, /addMergedByChunk\(doorFrameGeometries, asylumFrameMaterial\);/, 'ドア枠が、一軒家と同じ材質です');
+  assert.doesNotMatch(src, /\bdoorFrameMaterial\b/, '一軒家のドア枠の材質(doorFrameMaterial)を使っています');
+  const decor = stripComments(fs.readFileSync(path.join(ROOT, 'sunny-meadows-decor.js'), 'utf8'));
+  assert.match(decor, /export function applyAsylumDoors\(doors\)/);
+  assert.match(decor, /c\.material = i === 0 \? panel : handle;/, '板と取っ手の材質の振り分けが変わっています(engine/walls.js の addDoor の子の順: 板、取っ手2つ)');
 });
