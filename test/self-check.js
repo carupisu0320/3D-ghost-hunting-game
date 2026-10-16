@@ -90,6 +90,9 @@ const MUTATIONS = [
   ['浴室: 洗面台の向きの反転をやめる(蛇口が部屋の中を向く)', 'sunny-meadows-map.js', 'washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85, true)', 'washstandIn(id, 3.9, d - 0.4, 0.7, 0.5, 0.85)'],
   ['見える距離: 描く距離を、霧の終わりより近くにする(遠くの壁が欠ける)', 'engine.js', 'camera.far = fogEnd + 4;', 'camera.far = fogEnd - 6;'],
   ['見える距離: マップが、見える距離を設定しなくなる', 'sunny-meadows-map.js', 'setViewDistance(VIEW_FOG_NEAR, VIEW_FOG_END);', ''],
+  ['スイッチ: ドアのない部屋で、壁を探さず、昔の位置(開口のそばで、廊下の真ん中に浮く)に戻す', 'sunny-meadows-layout.js', 'pos = switchOnLongestWall(layout, r) || pos ||', 'pos = pos ||'],
+  ['スイッチ: 壁から離して置く', 'sunny-meadows-layout.js', 'export const SWITCH_OFFSET = 0.12;', 'export const SWITCH_OFFSET = 0.3;'],
+  ['スイッチ: マップが、壁の向きをエンジンに渡さない(箱が壁と直角になる)', 'sunny-meadows-map.js', 'addLightSwitch(r.id, rl, pos.x, pos.z, pos.axis);', 'addLightSwitch(r.id, rl, pos.x, pos.z);'],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
