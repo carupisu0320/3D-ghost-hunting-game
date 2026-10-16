@@ -18,7 +18,7 @@ npm run test:selfcheck   # 検査そのものの確認(約1分)。わざと壊�
 | `skins.test.js` | スキン: 一覧(skin-catalog.js)・作り方(skins.js)・サーバーの id の形が食い違わないこと / 知らない id は既定になること / ロビーとゲーム本編がスキンを受け取ること |
 | `css.test.js` | 見た目(ui.css / lobby.css): コードが付けるクラス名が CSS にある・使われていないクラスがない・.html が CSS を読む・style.cssText を増やさない |
 | `furniture.test.js` | Sunny Meadows の家具の配置計画(sunny-meadows-furniture-plan.js): 部屋の中に収まる・重ならない・ドア/スイッチ/ブレーカー/階段の前をふさがない・部屋の中を歩ける(すべての出入り口がつながる)・廊下は広い所だけ・毎回同じ配置 |
-| `decor.test.js` | 汚れ(sunny-meadows-decal-plan.js): ドア・スイッチの上に貼らない・壁の高さに収まる・血の部屋に血だまりがある・毎回同じ配置 |
+| `decor.test.js` | 汚れ(sunny-meadows-decal-plan.js): ドア・スイッチの上に貼らない・壁の高さに収まる・血の部屋に血だまりがある・毎回同じ配置 / ドア: 病院のドアに替えている・ドア枠が一軒家と別の材質 |
 | `loading.test.js` | ロード: 読み込み中の印(loadingMap)を必ず戻す・main.js が build/enterGame の完了を待つ・家具をまとめる処理の途中に await がない・家具/汚れ/質感がマップに組み込まれている |
 | `haunting.test.js` | 幽霊の出没部屋に地下の部屋が入っていること(階で絞っていない)・地下の部屋の登録・浴室のトイレと洗面台の向き(北の壁側) |
 | `switches.test.js` | 照明スイッチ: 本物の壁のすぐ内側にある(壁のない所・開口に浮かない)・壁にぴったり・ドアに近すぎない・箱の向きを壁に合わせる |
