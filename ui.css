@@ -24,24 +24,6 @@
   pointer-events:none;
   display:none;
 }
-.gh-pickup-notice {
-  position:fixed;
-  top:56px;
-  left:8px;
-  color:#ff0;
-  font-family:monospace;
-  font-size:14px;
-  z-index:10;
-}
-.gh-emf-display {
-  position:fixed;
-  top:32px;
-  left:8px;
-  color:#0f0;
-  font-family:monospace;
-  font-size:14px;
-  z-index:10;
-}
 .gh-thermo-display {
   position:fixed;
   top:52px;
