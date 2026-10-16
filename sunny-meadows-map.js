@@ -7,7 +7,7 @@
 // ブレーカー(ヒューズボックス): Utility Room(1階、中庭の東)
 import {
   THREE, mergeGeometries, scene, camera, rooms, room,
-  wallBoxes, doorFrameGeometries, wallGeometries, wallHeight, doorFrameMaterial,
+  wallBoxes, doorFrameGeometries, wallGeometries, wallHeight,
   addWall, makeWoodTexture, scaled, addFramedPlane, pushWallBox,
   addSurveillanceCamera, videoCams, addToolPegboard, registerFlickerLight,
   addRoomLight, addLightSwitch, updateRoomLightCulling, breakerOn, registerBreaker, setBreakerOn,
@@ -25,7 +25,7 @@ import { buildProps, batchSceneMeshes, addMergedByChunk } from './sunny-meadows-
 import { planDecals } from './sunny-meadows-decal-plan.js';
 import {
   makeAsylumWallTexture, makeAsylumTileTexture, makeAsylumWoodTexture, makeAsylumConcreteTexture, makeAsylumCeilingTexture,
-  remapWallUVs, makeDecalAtlas, buildDecalMesh,
+  remapWallUVs, makeDecalAtlas, buildDecalMesh, applyAsylumDoors,
 } from './sunny-meadows-decor.js';
 
 export const mapLabel = 'Sunny Meadows Mental Institution';
@@ -112,7 +112,10 @@ export async function build(progress = async () => {}) {
   const wallMaterial = new THREE.MeshLambertMaterial({ map: makeAsylumWallTexture() });
   // 壁とドア枠は、全体を1つにせず、場所(16m四方)と階ごとに分ける(見た目は同じ。カメラや影の範囲の外は、描画されなくなる)
   addMergedByChunk(wallGeometries, wallMaterial);
-  addMergedByChunk(doorFrameGeometries, doorFrameMaterial);
+  // ドア: 一軒家の茶色い木のドア・ドア枠と区別するため、緑がかった鉄のドア(覗き窓つき)と、暗い鉄のドア枠にする
+  const asylumFrameMaterial = new THREE.MeshLambertMaterial({ color: 0x2f3b36 });
+  addMergedByChunk(doorFrameGeometries, asylumFrameMaterial);
+  applyAsylumDoors(doors);
 
   // ---- 床・天井・屋根 ----
   await progress(0.20, '床と天井を作っています');
