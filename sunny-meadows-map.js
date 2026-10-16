@@ -273,7 +273,7 @@ export async function build(progress = async () => {}) {
     const color = r.cool ? 0xdcecff : 0xfff2cc;                 // 浴室・手術室・遺体安置所などは青白い光
     const rl = addRoomLight(r.id, r.kind === 'stairs' ? 12 : 16, color, r.kind === 'corridor' ? 22 : 18);
     const pos = switchPos.get(r.id);
-    addLightSwitch(r.id, rl, pos.x, pos.z);
+    addLightSwitch(r.id, rl, pos.x, pos.z, pos.axis);
   });
   setBuildingUpperFloor(FLOOR_1F);
 
