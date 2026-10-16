@@ -9,7 +9,7 @@
 |---|---|---|
 | **Sunny Meadows の改善** | `sunny-meadows-layout.js`(間取り) / `sunny-meadows-map.js`(見た目・照明・軽量化) | マップ専用の新しいファイル(`sunny-meadows-○○.js`) |
 | **スキン(プレイヤーの見た目)** | `skin-catalog.js`(名前と説明) / `skins.js`(作り方) / `lobby-avatar.js`(ロボット) / `robot/`(モデルと画像) | `skins/` フォルダ(スキンごとのファイル)・モデルや画像 |
-| **UI・デザイン** | `ui.css`(ゲーム本編の画面) / `lobby.css`(ロビー) / `lobby-board.js`(ホワイトボードの配置) | なし(新しいクラスは CSS に足す) |
+| **UI・デザイン** | `ui.css`(ゲーム本編の画面) / `lobby.css`(ロビー) / `help.css`(操作説明) / `lobby-board.js`(ホワイトボードの配置) | なし(新しいクラスは CSS に足す) |
 | **統合する人** | 上以外のすべて | |
 
 担当が重ならないので、3人が同時に作業しても、同じファイルを直して衝突することは基本的にありません。
