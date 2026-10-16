@@ -481,7 +481,8 @@ function addRoomLight(name, intensity, color = 0xfff2cc, distance = 10) {
 // 各部屋の壁際にスイッチを設置(部屋の入口寄りの角、床上1.1m)。位置を指定すればそこに設置する。
 // rlは addRoomLight() が返した「その部屋の照明の見た目一式」(マップ側が持っている)を渡してもらう
 const lightSwitches = [];
-function addLightSwitch(roomName, rl, customX, customZ) {
+// wallAxis: スイッチが付く壁が延びる向き('x' か 'z')。'z'(x が一定の壁)のときは、箱を90度回して、薄い面を壁に向ける。指定しなければ、これまで通り
+function addLightSwitch(roomName, rl, customX, customZ, wallAxis) {
   const r = room(roomName);
   const y = buildingUpperFloor > 0 ? upperFloorHeights[buildingUpperFloor] : 0;
   const x = customX !== undefined ? customX : r.maxX - 0.15;
@@ -489,6 +490,7 @@ function addLightSwitch(roomName, rl, customX, customZ) {
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffcc, emissive: 0x554400, emissiveIntensity: 0.5 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), mat);
   mesh.position.set(x, y + 1.1, z);
+  if (wallAxis === 'z') mesh.rotation.y = Math.PI / 2;
   mesh.castShadow = true;
   scene.add(mesh);
   lightSwitches.push({ x, z, roomName, rl, fixtureMat: rl.fixtureMat, switchMat: mat, on: true, upperFloor: buildingUpperFloor }); // 階も覚えておく(上下の階に同じ位置のスイッチがあっても、いまいる階のものだけを押せるように)
