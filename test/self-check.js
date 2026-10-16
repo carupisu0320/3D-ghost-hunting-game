@@ -93,6 +93,8 @@ const MUTATIONS = [
   ['スイッチ: ドアのない部屋で、壁を探さず、昔の位置(開口のそばで、廊下の真ん中に浮く)に戻す', 'sunny-meadows-layout.js', 'pos = switchOnLongestWall(layout, r) || pos ||', 'pos = pos ||'],
   ['スイッチ: 壁から離して置く', 'sunny-meadows-layout.js', 'export const SWITCH_OFFSET = 0.12;', 'export const SWITCH_OFFSET = 0.3;'],
   ['スイッチ: マップが、壁の向きをエンジンに渡さない(箱が壁と直角になる)', 'sunny-meadows-map.js', 'addLightSwitch(r.id, rl, pos.x, pos.z, pos.axis);', 'addLightSwitch(r.id, rl, pos.x, pos.z);'],
+  ['ドア: マップが、ドアを病院のドアに替えなくなる(一軒家と同じ見た目)', 'sunny-meadows-map.js', 'applyAsylumDoors(doors);', ''],
+  ['ドア: ドア枠が、一軒家と同じ材質に戻る', 'sunny-meadows-map.js', 'addMergedByChunk(doorFrameGeometries, asylumFrameMaterial);', 'addMergedByChunk(doorFrameGeometries, new THREE.MeshLambertMaterial({ color: 0x3d2b1a }));'],
 ];
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-selfcheck-'));
