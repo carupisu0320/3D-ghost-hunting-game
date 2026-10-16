@@ -40,9 +40,13 @@ export const HELP = {
       { keys: ['1', '2', '3'], text: '持っている道具を持ち替える', codes: ['Digit1', 'Digit2', 'Digit3'] },
       { keys: ['E'], text: '道具を使う(オン・オフ)', codes: ['KeyE'] },
       { keys: ['Q'], text: '道具を置く', codes: ['KeyQ'] },
-      { keys: ['R'], text: '調査書を開く・閉じる(幽霊の特定はここで)', codes: ['KeyR'] },
       { keys: ['P'], text: 'ロビーに戻る(確認が出ます)', codes: ['KeyP'] },
       { keys: ['H'], text: 'この説明を開く・閉じる', codes: ['KeyH'] },
+    ] },
+    { title: '調査書(幽霊の特定)', rows: [
+      { keys: ['R'], text: '調査書を開く・閉じる', codes: ['KeyR'] },
+      { keys: ['クリック'], text: '見つけた証拠にチェックを付ける(当てはまる幽霊が右に絞られる)' },
+      { keys: ['クリック'], text: '幽霊を選んで「特定」を押す' },
     ] },
     { title: 'コントローラー', pad: true, rows: [
       { keys: ['左スティック'], text: '移動' },
