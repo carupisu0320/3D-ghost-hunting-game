@@ -77,3 +77,10 @@ test('血の画面の --blood-splatter は、コードが渡し、ui.css が使�
   assert.match(read('ui.css'), /var\(--blood-splatter\)/);
   assert.match(read('engine.js'), /setProperty\('--blood-splatter'/);
 });
+
+test('左上に出していた、緑の EMF 表示と、黄色の通知は出さない(画面をすっきりさせるため)', () => {
+  const engine = stripComments(read('engine.js'));
+  assert.doesNotMatch(engine, /gh-emf-display|gh-pickup-notice|emfDisplay/, 'EMF の文字表示・黄色の通知が、また作られています');
+  assert.doesNotMatch(read('ui.css'), /gh-emf-display|gh-pickup-notice/);
+  assert.match(engine, /userData\.leds\.forEach/, 'EMF の数値は、手に持った道具のランプで見えるようにしてあります(消さないでください)');
+});
