@@ -83,44 +83,33 @@ scene.add(camera); // 手に持つ道具とライトをカメラに付けるた�
 
 // ---------- 操作(移動・視点) ----------
 const controls = new PointerLockControls(camera, renderer.domElement);
-createControlsHelp('lobby');
+const controlsHelp = createControlsHelp('lobby');
 let modalOpen = false;
 let padActive = false; // コントローラーで操作中(マウスのクリックによる視点固定なしで、スティックだけで動かしている状態)
 const inControl = () => controls.isLocked || padActive;
-// 最初の画面(hint)は、はじめて操作を始めるまで。始めたあとは、操作説明を最初の5秒だけ(画面は隠さずに)出して、消す。
-// Escやダイアログのあとは、長い説明ではなく、短い「再開」の案内(resume)を出す。クリックか、WASDなどのキーで操作を再開できる
+// 最初の画面(hint)は、はじめて操作を始めるまで(小さな「クリックして開始」だけ。操作説明は H キー)。始めたあとは、「H: 操作説明」の案内を数秒だけ出す。
+// Escやダイアログのあとは、短い「再開」の案内(resume)を出す。クリックか、WASDなどのキーで操作を再開できる。
+// 再開しようとしている間(視点の固定を待っている間)は、この案内を出さない(押したのに、また案内が出て見えないように)
 const resume = document.getElementById('resume');
-const helpPanel = document.getElementById('helpPanel');
-helpPanel.innerHTML = document.getElementById('hintText').innerHTML.split('<br>').slice(1).join('<br>'); // 最初の画面と同じ説明(1行目の「クリックして…」は除く)
-const HELP_SECONDS = 5;
 let hasStarted = false; // いちど操作を始めたか
-let helpTimer = null, helpFadeTimer = null;
-function showHelpPanel() {
-  clearTimeout(helpTimer); clearTimeout(helpFadeTimer);
-  helpPanel.style.display = 'block'; helpPanel.style.opacity = '1';
-  helpTimer = setTimeout(() => {
-    helpPanel.style.opacity = '0';
-    helpFadeTimer = setTimeout(() => { helpPanel.style.display = 'none'; }, 700);
-  }, HELP_SECONDS * 1000);
-}
 function showHintIfNeeded() {
   const playing = inControl();
   const idle = !playing && !modalOpen;
   hint.style.display = idle && !hasStarted ? 'flex' : 'none';
-  resume.style.display = idle && hasStarted ? 'flex' : 'none';
+  resume.style.display = idle && hasStarted && !wantLock ? 'flex' : 'none';
   crosshair.style.display = playing ? 'block' : 'none';
-  if (playing && !hasStarted) { hasStarted = true; showHelpPanel(); } // 操作を始めたときだけ、説明を5秒間出す
+  if (playing && !hasStarted) { hasStarted = true; controlsHelp.showTip(); } // 操作を始めたときだけ、「H: 操作説明」を数秒間出す
 }
 // 視点の固定(ポインターロック)を始める。Escで抜けた直後は、ブラウザが少しの間(1秒あまり)、固定し直しを断るので、
 // 断られたら、成功するまで少し待ってやり直す(クリックし直さなくても再開できる)
 let wantLock = false, lockAttempts = 0, lockRetryTimer = null;
 function attemptLock() {
   clearTimeout(lockRetryTimer);
-  if (!wantLock || inControl() || modalOpen) { wantLock = false; return; }
+  if (!wantLock || inControl() || modalOpen) { wantLock = false; showHintIfNeeded(); return; }
   try { const r = controls.lock(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch (e) { /* 断られたら、下でやり直す */ }
-  lockRetryTimer = setTimeout(() => { if (wantLock && !inControl() && lockAttempts++ < 10) attemptLock(); else wantLock = false; }, 350);
+  lockRetryTimer = setTimeout(() => { if (wantLock && !inControl() && lockAttempts++ < 10) attemptLock(); else { wantLock = false; showHintIfNeeded(); } }, 350); // あきらめたら、再開の案内をまた出す
 }
-function requestLock() { wantLock = true; lockAttempts = 0; attemptLock(); }
+function requestLock() { wantLock = true; lockAttempts = 0; attemptLock(); showHintIfNeeded(); }
 hint.addEventListener('click', requestLock);
 resume.addEventListener('click', requestLock);
 controls.addEventListener('lock', () => { wantLock = false; clearTimeout(lockRetryTimer); showHintIfNeeded(); });
@@ -290,7 +279,10 @@ function askText(title, placeholder, initial, maxLen, onOk) {
   modal.style.display = 'flex'; showHintIfNeeded();
   setTimeout(() => { modalInput.focus(); modalInput.select(); }, 0);
 }
-function closeModal() { modalOpen = false; modal.style.display = 'none'; modalCallback = null; showHintIfNeeded(); }
+function closeModal() { // 閉じたあと、すでに始めていれば、そのまま操作に戻る(クリックし直さなくてよい)。戻れなければ、再開の案内が出る
+  modalOpen = false; modal.style.display = 'none'; modalCallback = null;
+  if (hasStarted) requestLock(); else showHintIfNeeded();
+}
 modalOk.addEventListener('click', () => {
   const value = modalInput.value.trim();
   if (!value) { modalError.textContent = '入力してください'; return; }
