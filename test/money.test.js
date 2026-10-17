@@ -77,3 +77,14 @@ test('報酬の式: サーバーと本編が、すべての経過時間で同じ
   assert.equal(server(true, 600), 1000); // ボーナスなし
   assert.equal(server(false, 0), 100);   // 不正解でも参加料
 });
+
+test('報酬の内訳: 合計が calculateReward と同じ', () => {
+  const calc = extractFunction('engine/calc.js', 'calculateReward');
+  const breakdown = extractFunction('engine/calc.js', 'rewardBreakdown');
+  for (const correct of [true, false]) {
+    for (const elapsed of [0, 1, 59.5, 300, 599, 600, 601, 36000]) {
+      const sum = breakdown(correct, elapsed).reduce((a, r) => a + r.amount, 0);
+      assert.equal(sum, calc(correct, elapsed), `correct=${correct} elapsed=${elapsed}`);
+    }
+  }
+});
