@@ -1764,8 +1764,17 @@ function animate() {
     }
 
     if (collidesWithWalls(camera.position.x, camera.position.z)) {
-      camera.position.x = prevX;
-      camera.position.z = prevZ;
+      const nx = camera.position.x, nz = camera.position.z;
+      if (collidesWithWalls(prevX, prevZ)) {
+        // すでに壁にめり込んでいる(閉まるドアや、壁のそばで開始したときなど)。止めてしまうと動けなくなるので、そのまま動けるようにする
+      } else if (!collidesWithWalls(nx, prevZ)) { // 壁にそって、横にだけ動く(滑る)
+        camera.position.z = prevZ;
+      } else if (!collidesWithWalls(prevX, nz)) {
+        camera.position.x = prevX;
+      } else {
+        camera.position.x = prevX;
+        camera.position.z = prevZ;
+      }
     }
     onFrameCallbacks.forEach(fn => fn(delta)); // マップ固有の毎フレーム処理(階段の昇り降りなど)
     const currentRoomName = getRoomAt(camera.position.x, camera.position.z);
