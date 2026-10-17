@@ -16,7 +16,7 @@ const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '');
 
 const SETS = [
   { name: 'ゲーム本編', css: 'ui.css', html: 'game.html',
-    sources: ['engine.js', 'main.js', 'online-game.js', ...fs.readdirSync(path.join(ROOT, 'engine')).filter((f) => f.endsWith('.js')).map((f) => 'engine/' + f)] },
+    sources: ['engine.js', 'main.js', 'online-game.js', 'pause-menu.js', ...fs.readdirSync(path.join(ROOT, 'engine')).filter((f) => f.endsWith('.js')).map((f) => 'engine/' + f)] },
   { name: '操作説明', css: 'help.css', html: ['game.html', 'lobby.html'], sources: ['controls-help.js'] },
   { name: 'ロビー', css: 'lobby.css', html: 'lobby.html',
     sources: fs.readdirSync(ROOT).filter((f) => /^lobby[\w-]*\.js$/.test(f)) },
