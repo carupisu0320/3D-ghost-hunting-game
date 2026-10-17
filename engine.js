@@ -210,6 +210,26 @@ function dropCurrentTool() {
 // 呼び出しは残してあるので、必要になったら、ここで別の見せ方(中央に小さく出す、など)に戻せる
 function showPickupNotice() {}
 
+// 画面中央の通知(いまは「ドアが開かない」だけ)。一定時間で消える
+const centerNotice = document.createElement('div');
+centerNotice.className = 'gh-center-notice';
+document.body.appendChild(centerNotice);
+let centerNoticeTimer = null;
+function showCenterNotice(text) {
+  centerNotice.textContent = text;
+  centerNotice.classList.add('is-visible');
+  clearTimeout(centerNoticeTimer);
+  centerNoticeTimer = setTimeout(() => centerNotice.classList.remove('is-visible'), 1500);
+}
+
+// ハント中、視界の端が赤く点滅する
+const huntVignette = document.createElement('div');
+huntVignette.className = 'gh-hunt-vignette';
+document.body.appendChild(huntVignette);
+function updateHuntVignette() {
+  huntVignette.classList.toggle('is-active', huntActive && !gameOver);
+}
+
 // ノートへの書き込み(ゴーストライティングが証拠の幽霊だけ、幽霊のいる部屋に合計15〜45秒いると一度だけ書かれる)
 let notebookWritten = false;
 let notebookTimer = 15 + Math.random() * 30;
@@ -608,7 +628,7 @@ function tryInteract({ includePickup = true } = {}) {
     if (d < nearestDoorDist) { nearestDoor = door; nearestDoorDist = d; }
   }
   if (nearestDoor) {
-    if (nearestDoor.locked) { showPickupNotice('ドアが開かない…!'); return; }
+    if (nearestDoor.locked) { showCenterNotice('ドアが開かない…!'); return; }
     nearestDoor.isOpen = !nearestDoor.isOpen;
     nearestDoor.targetRotation = nearestDoor.isOpen ? Math.PI / 2 : 0;
     netWorld({ kind: 'door', id: doors.indexOf(nearestDoor), open: nearestDoor.isOpen }); // オンライン: ほかの人にも知らせる
@@ -1842,6 +1862,7 @@ function animate() {
     }
     }
 
+    updateHuntVignette();
     ghostMaterial.opacity = huntActive ? 0.9 : (lookingAtGhost ? 0.75 : 0.35);
     ghostModelMaterials.forEach((m) => { m.opacity = ghostMaterial.opacity; }); // モデル版のときも同じ透明度にそろえる
 
