@@ -9,11 +9,13 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 export const MCQUEEN_HEIGHT = 1.7;  // 背の高さ(m)。ロボットと同じ。変えたいときはここ
 const FBX_FILE = 'mejiro_rigged.fbx';
 // 各アニメーションが、足が滑らずにちょうど合う移動の速さ(m/秒)。クリップの脚の振り幅と脚の長さから計算した値
-//   walk: 1周期(1秒)で約1.2m / run: 1周期(0.67秒)で約2.3m。このモデルは脚が短い(腰の高さ約0.87m)ので、歩幅が小さい
-// 本編の歩く速さは 4m/秒 なので、ふだんは run が使われる
-const WALK_SPEED = 1.2;
+//   walk-casual: 1周期(1秒)で約1.6m / run: 1周期(0.67秒)で約2.3m。このモデルは脚が短い(腰の高さ約0.87m)ので、歩幅が小さい
+// 本編の歩く速さは 4m/秒(engine.js の speed)。walk-casual で歩かせるため、run に切り替える速さを、それより上(6m/秒)にしてある。
+// run を使いたいときは、RUN_THRESHOLD を 2.4 に下げる(4m/秒でも run になる)
+const WALK_SPEED = 1.6;
 const RUN_SPEED = 3.4;
-const RUN_THRESHOLD = 2.3; // これより速く動いているとき run にする(walk と run の足の回転の速さが同じになる速さ)
+const RUN_THRESHOLD = 6.0;       // これより速く動いているとき run にする
+const WALK_MAX_TIMESCALE = 2.0;  // walk-casual を、最大で何倍の速さで再生するか。大きいほど足が滑らないが、足の動きがせわしなくなる(本編の4m/秒で足が滑らないのは 2.5)
 const MOVE_THRESHOLD = 0.35; // これより遅いときは、立ち止まっている(idle)
 
 // ひな形を読み込む。失敗したら null を返す(落ちてはいけない)。ひな形は { root, clips }
@@ -69,9 +71,10 @@ export function createMcQueenAvatar(template, color, { ringOpacity = 0.85 } = {}
   // アニメーション: 3つを同時に再生しておき、速さに応じて重みだけを変える(切り替えがなめらかになる)
   const mixer = new THREE.AnimationMixer(body);
   const actions = {}, weight = { idle: 1, walk: 0, run: 0 };
+  const source = { idle: template.clips.idle, walk: template.clips['walk-casual'] || template.clips.walk, run: template.clips.run };
   Object.keys(weight).forEach((name) => {
-    if (!template.clips[name]) return;
-    const a = mixer.clipAction(template.clips[name]);
+    if (!source[name]) return;
+    const a = mixer.clipAction(source[name]);
     a.play(); a.setEffectiveWeight(weight[name]);
     actions[name] = a;
   });
@@ -83,7 +86,7 @@ export function createMcQueenAvatar(template, color, { ringOpacity = 0.85 } = {}
       weight[name] += ((name === state ? 1 : 0) - weight[name]) * Math.min(1, delta * 10);
       actions[name].setEffectiveWeight(weight[name]);
     });
-    if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / WALK_SPEED, 0.5, 1.8);
+    if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / WALK_SPEED, 0.5, WALK_MAX_TIMESCALE);
     if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / RUN_SPEED, 0.6, 2.2);
     mixer.update(delta);
   }
