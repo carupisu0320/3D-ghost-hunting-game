@@ -201,6 +201,11 @@ function handleButton(id) {
     case 'skin': board.screen = 'skins'; boardDirty = true; break;
     case 'back': board.screen = 'main'; boardDirty = true; break;
     case 'start': if (socket) send({ type: 'start' }); break;
+    case 'ready': { // 準備完了の切り替え(ホスト以外)
+      const me = board.room && board.room.players.find(p => p.id === board.room.myId);
+      if (me) { me.ready = !me.ready; send({ type: 'setReady', ready: me.ready }); boardDirty = true; }
+      break;
+    }
     case 'leave': leaveRoom(); break;
   }
 }
@@ -374,7 +379,7 @@ function handleServerMessage(msg) {
   } else if (msg.type === 'rejoined') {
     // ゲームから戻った(またはロビーを開き直した)ので、同じ部屋に戻る
     const me = msg.players.find(p => p.id === msg.playerId);
-    board.room = { code: msg.code, isHost: !!(me && me.host), myId: msg.playerId, map: msg.map, difficulty: msg.difficulty, players: msg.players.map(p => ({ id: p.id, name: p.name, host: p.host })) };
+    board.room = { code: msg.code, isHost: !!(me && me.host), myId: msg.playerId, map: msg.map, difficulty: msg.difficulty, players: msg.players.map(p => ({ id: p.id, name: p.name, host: p.host, ready: !!p.ready })) };
     board.selectedMap = msg.map; board.screen = 'main'; boardDirty = true;
     if (msg.difficulty) board.difficulty = msg.difficulty;
     msg.players.forEach(p => { if (p.id !== msg.playerId && p.online && p.inLobby) addRemotePlayer(p); }); // まだゲーム中の人は、ロビーのアバターとしては出さない
@@ -411,6 +416,9 @@ function handleServerMessage(msg) {
     room.map = msg.map; board.selectedMap = msg.map; boardDirty = true;
   } else if (msg.type === 'difficultyChanged') {
     room.difficulty = msg.difficulty; board.difficulty = msg.difficulty; boardDirty = true; // ホストが難易度を変えた
+  } else if (msg.type === 'readyChanged') {
+    const rp = room.players.find(p => p.id === msg.id);
+    if (rp) { rp.ready = !!msg.ready; boardDirty = true; }
   } else if (msg.type === 'skinChanged') {
     const rp = remotePlayers.get(msg.id);
     if (rp) { rp.skin = normalizeSkinId(msg.skin); loadSkin(rp.skin).then(() => attachBody(rp)); } // 読み込めるまでは、今の見た目のまま
