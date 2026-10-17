@@ -51,7 +51,7 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
+      hinge, axis: 'x', isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
       box: { minX: doorAt - doorWidth / 2, maxX: doorAt + doorWidth / 2, minZ: fixedPos - wallThickness / 2, maxZ: fixedPos + wallThickness / 2 },
       center: { x: doorAt, z: fixedPos },
     });
@@ -84,7 +84,7 @@ function addDoor(axis, fixedPos, doorAt) {
     hinge.add(panel);
     scene.add(hinge);
     doors.push({
-      hinge, isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
+      hinge, axis: 'z', isOpen: false, targetRotation: 0, locked: false, upperFloor: buildingUpperFloor,
       box: { minX: fixedPos - wallThickness / 2, maxX: fixedPos + wallThickness / 2, minZ: doorAt - doorWidth / 2, maxZ: doorAt + doorWidth / 2 },
       center: { x: fixedPos, z: doorAt },
     });
