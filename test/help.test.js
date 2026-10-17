@@ -62,3 +62,12 @@ test('ロビーの最初の画面に、長い操作説明を出さない(操作�
   assert.match(lobby, /idle && hasStarted && !wantLock/, '再開の案内が、再開の最中にも出てしまいます');
   assert.match(lobby, /function closeModal\(\)[\s\S]*?requestLock\(\)/, 'ダイアログを閉じたあとに、自動で操作へ戻っていません');
 });
+
+test('ドアが開かないは中央通知、ハント中は視界の端が点滅する', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'engine.js'), 'utf8');
+  assert.ok(src.includes("showCenterNotice('ドアが開かない"), 'ドアの通知が中央通知を使っていない');
+  assert.ok(/classList\.toggle\('is-active', huntActive && !gameOver\)/.test(src), 'ハント演出が huntActive と連動していない');
+  assert.ok(/updateHuntVignette\(\);/.test(src), 'updateHuntVignette が毎フレーム呼ばれていない');
+});
