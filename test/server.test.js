@@ -221,7 +221,7 @@ test('世界の操作: 検証して覚え、送った本人以外に中継する
   host.emit('world', { kind: 'take', id: 's2' });
   guest.clear(); guest.emit('worldSync');
   assert.deepEqual(guest.last('worldState'), {
-    doors: { 3: true }, switches: { 7: true }, breaker: true, taken: { s2: true }, drops: { d1: { tool: 'emf', x: 1, z: 2, y: 0.5 } }, notebook: true,
+    doors: { 3: true }, doorDirs: {}, switches: { 7: true }, breaker: true, taken: { s2: true }, drops: { d1: { tool: 'emf', x: 1, z: 2, y: 0.5 } }, notebook: true,
   });
   host.emit('world', { kind: 'take', id: 'd1' }); // 置かれた道具を拾うと、置かれた一覧から消える
   guest.emit('worldSync');
@@ -419,4 +419,14 @@ test('本人確認に失敗しても落ちない(でたらめなトークン)', 
   const c = io.connect(); c.emit('auth', { token: '偽物' });
   await waitFor(() => c.last('authed'), 1000, '応答');
   assert.equal(c.last('authed').error, true);
+});
+
+test('ドアが開く向き(dir)は、1か-1だけ覚えて中継する。後から入った人にも渡る', () => {
+  const room = makeRoom(2); const [host, guest] = room.clients; start(room);
+  host.emit('world', { kind: 'door', id: 2, open: true, dir: -1 });
+  assert.equal(guest.last('world').dir, -1);
+  host.emit('world', { kind: 'door', id: 4, open: true, dir: 7 }); // 変な値は捨てる
+  assert.equal(guest.last('world').dir, undefined);
+  guest.emit('worldSync');
+  assert.deepEqual(guest.last('worldState').doorDirs, { 2: -1 });
 });
