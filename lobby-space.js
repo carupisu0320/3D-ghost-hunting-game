@@ -3,6 +3,7 @@
 // 座標はメートル。X=東西、Z=南北、Y=高さ。ガレージ(ホール)は X -9〜9 / Z -5〜5、工房は その西側(X -15〜-9.3)。
 import * as THREE from 'three';
 import { createPegboard } from './tool-models.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // 車のモデル(GLB)の読み込み
 
 // ---------- 小道具 ----------
 function makeRng(seed) {
@@ -216,6 +217,42 @@ function makeSportsCar(bodyColor, withSpoiler) {
   return car;
 }
 
+// ---------- 車のモデル(メルセデス・マイバッハ。簡易モデルの代わりに使う) ----------
+// models/maybach.glb は、元の81MB(約240万三角形)を、約3MB(約16万三角形)に軽くしたもの。鼻先が -X(簡易モデルと同じ向き)。
+// 読み込みが終わるまでは簡易モデルを出しておき、終わったら入れ替える。読み込めなかったら、簡易モデルのまま(ロビーは止まらない)
+const CAR_MODEL_URL = './models/maybach.glb';
+const CAR_MODEL_LENGTH = 5.0; // 車の長さ(m)。実物は約5.5m。置き場所(あたり判定の箱)に収まるように、少し小さくしている
+let carModelPromise = null;
+function loadCarModel() {
+  if (!carModelPromise) {
+    carModelPromise = new Promise((resolve) => {
+      new GLTFLoader().load(CAR_MODEL_URL, (gltf) => {
+        try {
+          const holder = new THREE.Group();
+          const model = gltf.scene;
+          holder.add(model);
+          model.scale.setScalar(CAR_MODEL_LENGTH / new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).x);
+          holder.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(holder), c = box.getCenter(new THREE.Vector3());
+          model.position.set(-c.x, -box.min.y, -c.z); // 中心を原点(X・Z)に、タイヤを床(Y=0)に
+          resolve(holder);
+        } catch (e) { console.warn('車のモデルの準備に失敗しました', e); resolve(null); }
+      }, undefined, (e) => { console.warn(`車のモデル(${CAR_MODEL_URL})の読み込みに失敗しました。簡易モデルのままにします`, e); resolve(null); });
+    });
+  }
+  return carModelPromise;
+}
+// placeholder(簡易モデル)を、読み込めたモデルに入れ替える(位置と向きはそのまま)
+function swapInCarModel(scene, placeholder) {
+  loadCarModel().then((template) => {
+    if (!template) return;
+    const car = template.clone(true); // 形と材質は、2台で共有される
+    car.position.copy(placeholder.position); car.rotation.copy(placeholder.rotation);
+    scene.remove(placeholder);
+    scene.add(car);
+  });
+}
+
 // ---------- 空間全体 ----------
 export function buildLobbySpace(scene) {
   const colliders = [];
@@ -285,6 +322,7 @@ export function buildLobbySpace(scene) {
   red.position.set(5.0, 0, -2.1); red.rotation.y = -0.08; add(red);
   block(2.9, 8.4, 0.2, 3.3);       // オレンジの車
   block(2.3, 7.7, -3.4, -0.8);     // 赤い車
+  [orange, red].forEach((placeholder) => swapInCarModel(scene, placeholder)); // 実際のモデルに入れ替える(読み込めなければ、そのまま)
 
   // ホールの照明
   scene.add(new THREE.AmbientLight(0x9aa8b8, 1.1));
