@@ -88,24 +88,27 @@ if (hasOnlineSession) {
 
 // ロビーから ?map=house / ?map=grafton で来たときは、マップ選択を飛ばしてそのマップを始める。
 // ポインターロック(マウスで視点を動かす状態)は、ページを移動した直後はクリックがないと始められないので、
-// 「クリックして開始」の画面を一度はさむ。
+// 読み込み中の画面を出して、自動で始める。
 const lobbyMap = new URLSearchParams(location.search).get('map');
 const lobbyMaps = { house: [houseLabel, startHouse], grafton: [graftonLabel, startGrafton], sunny: [sunnyLabel, startSunny] };
 if (lobbyMap && lobbyMaps[lobbyMap]) {
   const [label, start] = lobbyMaps[lobbyMap];
   const gate = document.createElement('div');
   gate.className = 'gh-start-gate';
-  gate.innerHTML = `<div class="gh-gate-map">${label}</div><div id="gateMain" class="gh-gate-main">${hasOnlineSession ? '部屋につなぎ直しています…' : 'クリックして開始'}</div><div id="gateSub" class="gh-gate-sub">(コントローラーのボタンでも始められます / H: 操作説明)</div>`;
+  gate.innerHTML = `<div class="gh-gate-map">${label}</div><div id="gateMain" class="gh-gate-main">${hasOnlineSession ? '部屋につなぎ直しています…' : '準備しています…'}</div><div id="gateSub" class="gh-gate-sub"></div>`;
   document.body.appendChild(gate);
-  // オンラインのときは、部屋につなぎ直して乱数の種(全員で同じ幽霊にするため)を受け取るまで、開始できないようにする
+  // クリックを待たずに、自動で始める。オンラインのときだけ、部屋につなぎ直して乱数の種(全員で同じ幽霊にするため)を受け取るまで待つ。
+  // (ページを移動した直後は、ブラウザが視点固定を許さないので、始まったあと最初のクリックで視点固定になる。それまでは「クリックして開始」と出る)
   onlineReady.then((info) => {
-    gate.querySelector('#gateMain').textContent = 'クリックして開始';
-    if (hasOnlineSession && !info) gate.querySelector('#gateSub').textContent = '(オンラインにつながらなかったので、ひとりで始めます)';
+    if (hasOnlineSession && !info) console.warn('オンラインにつながらなかったので、ひとりで始めます');
+    gate.remove();
+    start();
+    startedTip();
     // コントローラーのボタンを押したときは、クリックの代わりにして、視点固定なし(コントローラーだけで遊ぶ状態)で始める
     const padWatch = setInterval(() => {
       const pad = Array.from(navigator.getGamepads ? navigator.getGamepads() : []).find(p => p);
-      if (pad && pad.buttons.some(b => b.pressed)) { requestPadStart(); gate.click(); }
+      if (pad && pad.buttons.some(b => b.pressed)) { clearInterval(padWatch); requestPadStart(); }
     }, 100);
-    gate.addEventListener('click', () => { clearInterval(padWatch); gate.remove(); start(); startedTip(); }, { once: true });
+    document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement) clearInterval(padWatch); });
   });
 }
