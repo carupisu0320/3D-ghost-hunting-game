@@ -136,7 +136,7 @@ const io = new Server(httpServer, {
 
 // 世界の状態(ドア・スイッチは、マップの組み立て順の番号。道具は 's'+番号(最初からある道具)か 'd…'(誰かが置いた道具))
 const WORLD_TOOLS = new Set(['flashlight', 'emf', 'thermometer', 'notebook', 'spiritbox', 'uv', 'dots']);
-function newWorld() { return { doors: {}, switches: {}, breaker: null, taken: {}, drops: {}, notebook: false }; }
+function newWorld() { return { doors: {}, doorDirs: {}, switches: {}, breaker: null, taken: {}, drops: {}, notebook: false }; }
 
 const rooms = new Map(); // code -> { code, map, inGame, seed, ghost(ホストが最後に送った幽霊の状態), truth(本当の幽霊の名前), elapsedMax(特定までの時間), result(最後の特定の結果), players: Map(playerId -> player) }
 // player = { id(ページを移動しても変わらない目印), token(つなぎ直すときの合言葉。本人にしか教えない), sockId(いまの接続。切れている間はnull), name, color, host, timer,
@@ -429,7 +429,7 @@ io.on('connection', (socket) => {
     const idOk = (v) => Number.isInteger(v) && v >= 0 && v < 1000;
     const out = { kind: ev.kind, name: me.name };
     switch (ev.kind) {
-      case 'door': if (!idOk(ev.id)) return; w.doors[ev.id] = !!ev.open; out.id = ev.id; out.open = !!ev.open; break;
+      case 'door': if (!idOk(ev.id)) return; w.doors[ev.id] = !!ev.open; out.id = ev.id; out.open = !!ev.open; if (ev.dir === 1 || ev.dir === -1) { w.doorDirs[ev.id] = ev.dir; out.dir = ev.dir; } break; // dir: 扉が開く向き(1か-1。プレイヤーの反対側へ開く)
       case 'switch': if (!idOk(ev.id)) return; w.switches[ev.id] = !!ev.on; out.id = ev.id; out.on = !!ev.on; break;
       case 'breaker': w.breaker = !!ev.on; out.on = !!ev.on; if (ev.ghost && me.host) out.ghost = true; break; // ghost: 幽霊(ポルターガイスト)が落とした。ホストだけが送れる
       case 'take': {
