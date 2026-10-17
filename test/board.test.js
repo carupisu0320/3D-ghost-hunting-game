@@ -54,14 +54,14 @@ test('ログイン機能: 設定なし→ボタンなし / 未ログイン→ロ
   assert.ok(inCtx.texts.includes('¥12,345'), '所持金が桁区切りで出ていません');
 });
 
-test('部屋の中: ホストは「ゲーム開始」、ホスト以外は押せない「ホストの開始待ち」', () => {
+test('部屋の中: ホストは「ゲーム開始」、ホスト以外は押せない「準備完了」', () => {
   const room = (isHost) => ({ code: 'AB3XQ', isHost, myId: 'p1', map: 'grafton', players: [{ id: 'p1', name: 'A', host: isHost }, { id: 'p2', name: 'B', host: !isHost }] });
   const host = B.drawBoard(fakeCtx(), baseState({ room: room(true) }));
   assert.equal(host.find((b) => b.id === 'start').enabled, true);
   assert.equal(host.find((b) => b.id === 'maps').enabled, true);
   const guest = B.drawBoard(fakeCtx(), baseState({ room: room(false) }));
   assert.ok(!ids(guest).includes('start'));
-  assert.equal(guest.find((b) => b.id === 'wait').enabled, false);
+  assert.equal(guest.find((b) => b.id === 'ready').enabled, true, 'ホスト以外は準備完了を押せます');
   assert.equal(guest.find((b) => b.id === 'maps').enabled, false, 'ホスト以外はマップ・難易度を変えられません');
   assert.ok(ids(guest).includes('leave'));
 });
