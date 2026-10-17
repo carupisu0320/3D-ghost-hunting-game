@@ -155,10 +155,10 @@ function generateRoomCode() {
 }
 
 function roomPlayerList(room) {
-  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false, skin: p.skin }));
+  return Array.from(room.players.values()).map(p => ({ id: p.id, name: p.name, color: p.color, host: p.host, online: p.sockId !== null, pos: p.pos || null, sanity: p.sanity, alive: p.alive !== false, out: !!p.out, inLobby: p.inLobby !== false, skin: p.skin, ready: !!p.ready }));
 }
 function newPlayer(socket, name, host, color, skin = null) {
-  return { skin, id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true, uid: null };
+  return { skin, ready: false, id: crypto.randomBytes(4).toString('hex'), token: crypto.randomBytes(12).toString('hex'), sockId: socket.id, name, color, host, timer: null, hostTimer: null, sanity: undefined, alive: true, out: false, vote: null, gameBound: false, inLobby: true, uid: null };
 }
 // 部屋の全員に送る。exceptIdがあれば、そのプレイヤー(の今の接続)には送らない
 function emitRoom(room, event, payload, exceptId) {
@@ -355,6 +355,15 @@ io.on('connection', (socket) => {
     emitRoom(room, 'skinChanged', { id: p.id, skin }, p.id);
   });
 
+  // 「準備完了」の切り替え(ホスト以外が押す。ロビーにいる間だけ)。部屋の全員に知らせる
+  socket.on('setReady', (msg = {}) => {
+    const room = rooms.get(socket.data.roomCode);
+    const p = room && room.players.get(socket.data.playerId);
+    if (!p || room.inGame) return;
+    p.ready = !!msg.ready;
+    emitRoom(room, 'readyChanged', { id: p.id, ready: p.ready });
+  });
+
   socket.on('setMap', (msg = {}) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room) return;
@@ -386,7 +395,7 @@ io.on('connection', (socket) => {
     room.seed = crypto.randomBytes(4).readUInt32BE(0); // 全員が同じ幽霊・同じ出没部屋になるための乱数の種
     room.ghost = null;
     room.world = newWorld(); // ドアやスイッチは、新しいゲームではまっさらから
-    room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; pl.vote = null; pl.gameBound = true; pl.inLobby = false; }); // ロビーでの位置などは持ち越さない
+    room.players.forEach((pl) => { pl.pos = null; pl.sanity = undefined; pl.alive = true; pl.out = false; pl.vote = null; pl.ready = false; pl.gameBound = true; pl.inLobby = false; }); // ロビーでの位置などは持ち越さない
     io.to(room.code).emit('gameStart', { map: room.map, difficulty: room.difficulty, seed: room.seed });
   });
 
