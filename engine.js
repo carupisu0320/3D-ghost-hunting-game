@@ -13,7 +13,8 @@ import { makeWoodTexture, makeTileTexture, makeWallTexture, makeConcreteTexture,
 import { wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometries, wallHeight, wallThickness, doorWidth, doorHeight, wallMaterial, doorMaterial, doorFrameMaterial, doorHandleMaterial, addWallSegment, addMergedMesh, addWall, addDoor, collidesWithWalls } from './engine/walls.js';
 import { addFurniture, addDetailMesh, addLeg, addLegsUnder, pushWallBox, woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn } from './engine/furniture.js';
 import { ghostTypes, DIFFICULTIES } from './engine/ghost-data.js';
-import { randomPointInRoom, calculateReward, formatTime, deadzone, emfLevelAt } from './engine/calc.js';
+import { createPauseMenu } from './pause-menu.js';
+import { randomPointInRoom, calculateReward, rewardBreakdown, formatTime, deadzone, emfLevelAt } from './engine/calc.js';
 import { makeNotebookItemMesh, drawNotebookPage, makeBloodSplatterDataURL } from './engine/art.js';
 import { mapSelectOverlay, addMapCard } from './engine/map-select.js';
 
@@ -56,6 +57,23 @@ function drawSanityScreen(value) {
   ctx.font = 'bold 22px monospace';
   ctx.fillText(`${Math.round(value)}%`, w / 2, h - 12);
   sanityTexture.needsUpdate = true;
+}
+// 画面の左下に出る正気度のバー(60%以下で橙、30%以下で赤く点滅)
+const sanityHud = document.createElement('div');
+sanityHud.className = 'gh-sanity-hud';
+const sanityHudFill = document.createElement('div');
+sanityHudFill.className = 'gh-sanity-fill';
+const sanityHudText = document.createElement('div');
+sanityHudText.className = 'gh-sanity-text';
+sanityHud.append(sanityHudFill, sanityHudText);
+document.body.appendChild(sanityHud);
+function updateSanityHud(value) {
+  const v = Math.max(0, Math.min(100, value));
+  sanityHudFill.style.width = `${v}%`;
+  sanityHudText.textContent = `正気度 ${Math.round(v)}%`;
+  sanityHud.classList.toggle('is-mid', v <= 60 && v > 30);
+  sanityHud.classList.toggle('is-low', v <= 30);
+  sanityHud.classList.toggle('is-visible', gameEntered && !gameOver);
 }
 const pickupItems = [];
 function addPickupItem(x, z, mesh, onCollect) {
@@ -747,6 +765,13 @@ function returnToLobby() {
   }
 }
 
+// Esc で視点固定が外れたときの一時停止の画面(再開・視点の感度・ロビーに戻る)
+createPauseMenu({
+  controls,
+  shouldShow: () => gameEntered && !gameOver && !journalOpen && !padPlay && !loadingMap,
+  onLobby: returnToLobby,
+});
+
 const journalOverlay = document.createElement('div');
 journalOverlay.className = 'gh-journal-overlay';
 document.body.appendChild(journalOverlay);
@@ -1166,6 +1191,9 @@ identifyResultOverlay.appendChild(identifyResultTitle);
 const identifyResultDetail = document.createElement('div');
 identifyResultDetail.className = 'gh-identify-result-detail';
 identifyResultOverlay.appendChild(identifyResultDetail);
+const identifyResultBreakdown = document.createElement('div'); // 報酬の内訳(行ごと)
+identifyResultBreakdown.className = 'gh-reward-breakdown';
+identifyResultOverlay.appendChild(identifyResultBreakdown);
 const identifyResultReward = document.createElement('div');
 identifyResultReward.className = 'gh-identify-result-reward';
 identifyResultOverlay.appendChild(identifyResultReward);
@@ -1281,7 +1309,23 @@ function showGroupResult(result) {
     lines.push(`特定にかかった時間: ${formatTime(result.elapsed || 0)}`);
   }
   identifyResultDetail.textContent = lines.join('\n');
-  identifyResultReward.textContent = `報酬: ¥${reward.toLocaleString()}`;
+  // 報酬の内訳。全滅は0円。サーバーの額が内訳の合計と違うときは、「その他」で合わせる
+  const rows = result.wipe ? [{ label: '全滅のため報酬なし', amount: 0 }] : rewardBreakdown(correct, result.elapsed || 0);
+  const rowsTotal = rows.reduce((a, r) => a + r.amount, 0);
+  if (rowsTotal !== reward) rows.push({ label: 'その他', amount: reward - rowsTotal });
+  identifyResultBreakdown.textContent = '';
+  rows.forEach((r) => {
+    const row = document.createElement('div');
+    row.className = 'gh-reward-row';
+    const label = document.createElement('span');
+    label.textContent = r.label;
+    const amount = document.createElement('span');
+    amount.className = 'gh-reward-amount';
+    amount.textContent = `${r.amount < 0 ? '-' : '+'}¥${Math.abs(r.amount).toLocaleString()}`;
+    row.appendChild(label); row.appendChild(amount);
+    identifyResultBreakdown.appendChild(row);
+  });
+  identifyResultReward.textContent = `合計: ¥${reward.toLocaleString()}`;
   identifyResultOverlay.style.display = 'flex';
   setupMoneyLine({ ...saved, reward });
   if (pendingMoney) { const m = pendingMoney; pendingMoney = null; applyMoneyUpdate(m); }
@@ -1797,6 +1841,7 @@ function animate() {
     if (sanityScreenTimer > 0.5) {
       sanityScreenTimer = 0;
       drawSanityScreen(sanity);
+      updateSanityHud(sanity);
     }
 
     // 扉を目標角度(開/閉)へ滑らかに近づける
