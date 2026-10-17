@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { DEFAULT_SKIN_ID, normalizeSkinId } from './skin-catalog.js';
 import { loadRobotTemplate, createRobotAvatar } from './lobby-avatar.js';
 import { loadMcQueenTemplate, createMcQueenAvatar } from './mcqueen-avatar.js';
+import { loadJosukeTemplate, createJosukeAvatar } from './josuke-avatar.js';
 
 // 足元の識別色のリング(スキン共通で使える)
 function makeRing(color, ringOpacity = 0.85) {
@@ -34,6 +35,7 @@ const IMPLS = {
   robot: { load: () => loadRobotTemplate('./robot/'), create: createRobotAvatar },
   capsule: { load: () => Promise.resolve({}), create: createCapsuleAvatar },
   mcqueen: { load: () => loadMcQueenTemplate('./mcqueen/'), create: createMcQueenAvatar },
+  josuke: { load: () => loadJosukeTemplate('./models/'), create: createJosukeAvatar },
 };
 
 const templates = new Map(); // id -> ひな形(読み込めたもの)
