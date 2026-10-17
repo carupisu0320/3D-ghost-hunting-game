@@ -71,3 +71,17 @@ test('ドアが開かないは中央通知、ハント中は視界の端が点�
   assert.ok(/classList\.toggle\('is-active', huntActive && !gameOver\)/.test(src), 'ハント演出が huntActive と連動していない');
   assert.ok(/updateHuntVignette\(\);/.test(src), 'updateHuntVignette が毎フレーム呼ばれていない');
 });
+
+test('扉は開けた人から遠ざかる向きに開く。向きはオンラインでも共有する', () => {
+  const eng = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+  const walls = fs.readFileSync(path.join(ROOT, 'engine', 'walls.js'), 'utf8');
+  assert.ok(/function doorOpenDir/.test(eng) && /openDir = doorOpenDir/.test(eng), '開く向きを決めていない');
+  assert.ok(/axis: 'x'/.test(walls) && /axis: 'z'/.test(walls), '扉に axis が無い');
+  assert.ok(/dir: nearestDoor\.openDir/.test(eng), '開く向きを送っていない');
+});
+
+test('マップから来たとき、クリックを待たずに自動で始める', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  assert.ok(!/gate\.addEventListener\('click'/.test(main), 'まだクリック待ちになっています');
+  assert.ok(/gate\.remove\(\);\s*start\(\);/.test(main), '自動で start() していません');
+});
