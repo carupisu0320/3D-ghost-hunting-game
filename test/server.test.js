@@ -430,3 +430,13 @@ test('ドアが開く向き(dir)は、1か-1だけ覚えて中継する。後か
   guest.emit('worldSync');
   assert.deepEqual(guest.last('worldState').doorDirs, { 2: -1 });
 });
+
+test('準備完了: 本人が切り替え、部屋の全員に届く。ゲームを始めると全員リセット。ゲーム中は変えられない', () => {
+  const room = makeRoom(2); const [host, guest] = room.clients;
+  guest.emit('setReady', { ready: true });
+  assert.deepEqual(host.last('readyChanged'), { id: guest.last('joined').playerId, ready: true });
+  assert.ok(guest.last('readyChanged'), '本人にも届きます');
+  start(room);
+  guest.emit('setReady', { ready: true }); // ゲーム中は無視
+  assert.equal(guest.all('readyChanged').length, 1);
+});
