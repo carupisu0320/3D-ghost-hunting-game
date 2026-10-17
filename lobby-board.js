@@ -170,9 +170,14 @@ export function drawBoard(ctx, state) {
   } else if (room) {
     // ---- 部屋の中(参加者の一覧・開始・マップ・退出) ----
     panel(40, 150, 340, 470, `プレイヤー ${room.players.length}/4`);
-    room.players.forEach((p, i) => line(`${p.host ? '★' : '・'} ${fit(p.name, 220)}${p.id === room.myId ? ' (自分)' : ''}`, 62, 252 + i * 42, 28));
+    room.players.forEach((p, i) => line(`${p.host ? '★' : p.ready ? '✓' : '・'} ${fit(p.name, 200)}${p.id === room.myId ? ' (自分)' : ''}`, 62, 252 + i * 42, 28));
     accountBlock(444, 556);
-    if (room.isHost) button('start', 'ゲーム開始', 0); else button('wait', 'ホストの開始待ち', 0, false);
+    const guests = room.players.filter(p => !p.host);
+    const readyCount = guests.filter(p => p.ready).length;
+    const me = room.players.find(p => p.id === room.myId);
+    const readyNote = guests.length === 0 ? '' : readyCount === guests.length ? '全員準備完了!' : `準備中 ${readyCount}/${guests.length}人`;
+    if (room.isHost) button('start', 'ゲーム開始', 0, true, readyNote);
+    else button('ready', me && me.ready ? '準備完了を取り消す' : '準備完了', 0, true, me && me.ready ? 'ホストの開始待ち' : '');
     button('maps', 'マップ・難易度', 1, room.isHost, mapAndDiff);
     button('skin', 'スキン', 2, true, skinLabel(state.skin));
     button('leave', '部屋を出る', 3);
