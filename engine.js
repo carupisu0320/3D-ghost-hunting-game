@@ -210,6 +210,13 @@ function dropCurrentTool() {
 // 呼び出しは残してあるので、必要になったら、ここで別の見せ方(中央に小さく出す、など)に戻せる
 function showPickupNotice() {}
 
+// 扉が開く向き。扉はプレイヤーから遠ざかる側へ開く(1 か -1。hinge.rotation.y の符号)。
+// x軸の扉(板がx方向): +回転は -z 側へ振れる → プレイヤーが +z 側なら 1。z軸の扉(板がz方向): +回転は +x 側へ振れる → プレイヤーが -x 側なら 1
+function doorOpenDir(door) {
+  if (door.axis === 'x') return camera.position.z >= door.center.z ? 1 : -1;
+  return camera.position.x <= door.center.x ? 1 : -1;
+}
+
 // 画面中央の通知(いまは「ドアが開かない」だけ)。一定時間で消える
 const centerNotice = document.createElement('div');
 centerNotice.className = 'gh-center-notice';
@@ -630,8 +637,9 @@ function tryInteract({ includePickup = true } = {}) {
   if (nearestDoor) {
     if (nearestDoor.locked) { showCenterNotice('ドアが開かない…!'); return; }
     nearestDoor.isOpen = !nearestDoor.isOpen;
-    nearestDoor.targetRotation = nearestDoor.isOpen ? Math.PI / 2 : 0;
-    netWorld({ kind: 'door', id: doors.indexOf(nearestDoor), open: nearestDoor.isOpen }); // オンライン: ほかの人にも知らせる
+    if (nearestDoor.isOpen) nearestDoor.openDir = doorOpenDir(nearestDoor); // 開けた人から遠ざかる向きに開く
+    nearestDoor.targetRotation = nearestDoor.isOpen ? (nearestDoor.openDir || 1) * Math.PI / 2 : 0;
+    netWorld({ kind: 'door', id: doors.indexOf(nearestDoor), open: nearestDoor.isOpen, dir: nearestDoor.openDir || 1 }); // オンライン: ほかの人にも知らせる
     return;
   }
 
@@ -1448,7 +1456,8 @@ function applyWorldEvent(ev, { instant = false } = {}) {
       const d = doors[ev.id];
       if (!d || (d === exteriorDoor && huntActive)) return; // ハント中の玄関は、全員で閉まってロックされている
       d.isOpen = !!ev.open;
-      d.targetRotation = d.isOpen ? Math.PI / 2 : 0;
+      if (ev.dir === 1 || ev.dir === -1) d.openDir = ev.dir;
+      d.targetRotation = d.isOpen ? (d.openDir || 1) * Math.PI / 2 : 0;
       if (instant) d.hinge.rotation.y = d.targetRotation;
       break;
     }
@@ -1480,7 +1489,7 @@ function applyWorldState(state) {
   if (!gameEntered || !state) return;
   const opt = { instant: true };
   if (state.breaker === true || state.breaker === false) applyWorldEvent({ kind: 'breaker', on: state.breaker }, opt);
-  Object.entries(state.doors || {}).forEach(([id, open]) => applyWorldEvent({ kind: 'door', id: Number(id), open }, opt));
+  Object.entries(state.doors || {}).forEach(([id, open]) => applyWorldEvent({ kind: 'door', id: Number(id), open, dir: (state.doorDirs || {})[id] }, opt));
   Object.entries(state.switches || {}).forEach(([id, on]) => applyWorldEvent({ kind: 'switch', id: Number(id), on }, opt));
   Object.keys(state.taken || {}).forEach((id) => applyWorldEvent({ kind: 'take', id }, opt));
   Object.entries(state.drops || {}).forEach(([id, d]) => applyWorldEvent({ kind: 'drop', id, ...d }, opt));
