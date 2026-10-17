@@ -1765,9 +1765,7 @@ function animate() {
 
     if (collidesWithWalls(camera.position.x, camera.position.z)) {
       const nx = camera.position.x, nz = camera.position.z;
-      if (collidesWithWalls(prevX, prevZ)) {
-        // すでに壁にめり込んでいる(閉まるドアや、壁のそばで開始したときなど)。止めてしまうと動けなくなるので、そのまま動けるようにする
-      } else if (!collidesWithWalls(nx, prevZ)) { // 壁にそって、横にだけ動く(滑る)
+      if (!collidesWithWalls(nx, prevZ)) { // 壁にそって、横にだけ動く(滑る)
         camera.position.z = prevZ;
       } else if (!collidesWithWalls(prevX, nz)) {
         camera.position.x = prevX;
