@@ -19,6 +19,13 @@ function calculateReward(correct, elapsedSeconds) {
   return 1000 + speedBonus;
 }
 
+// 報酬の内訳(結果の画面に出す)。合計は calculateReward と同じになる(テストで確かめている)
+function rewardBreakdown(correct, elapsedSeconds) {
+  if (!correct) return [{ label: '調査の参加料', amount: 100 }];
+  const speedBonus = Math.max(0, Math.round((600 - Math.min(elapsedSeconds, 600)) * 2));
+  return [{ label: '基本報酬(正解)', amount: 1000 }, { label: 'スピードボーナス', amount: speedBonus }];
+}
+
 function formatTime(sec) {
   return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
 }
@@ -32,4 +39,4 @@ function emfLevelAt(distance, hasEMF5) {
   return level;
 }
 
-export { randomPointInRoom, calculateReward, formatTime, deadzone, emfLevelAt };
+export { randomPointInRoom, calculateReward, rewardBreakdown, formatTime, deadzone, emfLevelAt };
