@@ -91,3 +91,14 @@ test('壁には入れない。壁にそっては滑る(めり込み中でも動�
   assert.ok(!/collidesWithWalls\(prevX, prevZ\)/.test(eng), '壁の中を動ける抜け道があります');
   assert.ok(/collidesWithWalls\(nx, prevZ\)/.test(eng) && /collidesWithWalls\(prevX, nz\)/.test(eng), '壁にそって滑る処理がありません');
 });
+
+test('正気度のバー・一時停止の画面・報酬の内訳・準備完了が、組み込まれている', () => {
+  const eng = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+  assert.ok(/updateSanityHud\(sanity\)/.test(eng), '正気度のバーを更新していません');
+  assert.ok(/createPauseMenu\(\{/.test(eng) && /from '\.\/pause-menu\.js'/.test(eng), '一時停止の画面が組み込まれていません');
+  assert.ok(/rewardBreakdown\(correct/.test(eng), '報酬の内訳を使っていません');
+  const lobby = fs.readFileSync(path.join(ROOT, 'lobby.js'), 'utf8');
+  assert.ok(/type: 'setReady'/.test(lobby) && /readyChanged/.test(lobby), 'ロビーが準備完了を扱っていません');
+  const pause = fs.readFileSync(path.join(ROOT, 'pause-menu.js'), 'utf8');
+  assert.ok(/pointerSpeed/.test(pause) && /controls\.addEventListener\('unlock'/.test(pause), '一時停止の画面の中身が足りません');
+});
