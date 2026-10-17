@@ -85,3 +85,9 @@ test('マップから来たとき、クリックを待たずに自動で始め�
   assert.ok(!/gate\.addEventListener\('click'/.test(main), 'まだクリック待ちになっています');
   assert.ok(/gate\.remove\(\);\s*start\(\);/.test(main), '自動で start() していません');
 });
+
+test('壁にめり込んでいても動ける(止まらない)。壁にそって滑る', () => {
+  const eng = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+  assert.ok(/collidesWithWalls\(prevX, prevZ\)/.test(eng), 'めり込み中の判定がありません');
+  assert.ok(/collidesWithWalls\(nx, prevZ\)/.test(eng) && /collidesWithWalls\(prevX, nz\)/.test(eng), '壁にそって滑る処理がありません');
+});
