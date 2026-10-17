@@ -14,6 +14,7 @@ export const SKIN_CATALOG = [
   { id: 'robot', label: 'ロボット', lines: ['黒いロボット(初期設定)', '歩くと手足を振ります'] },
   { id: 'capsule', label: 'カプセル', lines: ['色つきのカプセル', 'モデルを読み込めないときの、', '簡易の見た目と同じです'] },
   { id: 'mcqueen', label: 'マックイーン', lines: ['メジロマックイーン', '歩く・走るで動きが変わります'] },
+  { id: 'josuke', label: '仗助', lines: ['東方仗助', '歩くと手足を振ります'] },
 ];
 
 export function isSkinId(id) { return typeof id === 'string' && SKIN_CATALOG.some((s) => s.id === id); }
