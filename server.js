@@ -172,6 +172,10 @@ function emitRoom(room, event, payload, exceptId) {
 function cleanSkin(value) {
   return typeof value === 'string' && /^[a-z][a-z0-9_]{0,23}$/.test(value) ? value : null;
 }
+// 部屋コード: 小文字・全角・空白まじりでも、大文字の半角英数にそろえる(lobby.js の normalizeRoomCode と同じ)
+function cleanCode(value) {
+  return String(value || '').normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
 function cleanName(value) {
   return String(value || 'プレイヤー').trim().slice(0, 12) || 'プレイヤー';
 }
@@ -312,7 +316,7 @@ io.on('connection', (socket) => {
   // 部屋に参加する
   socket.on('join', (msg = {}) => {
     if (socket.data.roomCode) return;
-    const room = rooms.get(String(msg.code || '').toUpperCase());
+    const room = rooms.get(cleanCode(msg.code));
     if (!room) { socket.emit('error', { message: 'その部屋コードは見つかりませんでした' }); return; }
     if (room.inGame) { socket.emit('error', { message: 'この部屋はもうゲームが始まっています' }); return; }
     if (room.players.size >= MAX_PLAYERS) { socket.emit('error', { message: 'この部屋は満員です(最大4人)' }); return; }
@@ -507,7 +511,7 @@ io.on('connection', (socket) => {
 
   // ゲームのページで、ロビーのときと同じプレイヤーとしてつなぎ直す(codeと、ロビーで受け取ったtokenが合っていれば戻れる)
   socket.on('rejoin', (msg = {}) => {
-    const room = rooms.get(String(msg.code || '').toUpperCase());
+    const room = rooms.get(cleanCode(msg.code));
     const player = room && Array.from(room.players.values()).find(p => p.token === msg.token);
     if (!room || !player) { socket.emit('error', { message: '部屋に戻れませんでした', rejoin: true }); return; }
     clearTimeout(player.timer);
