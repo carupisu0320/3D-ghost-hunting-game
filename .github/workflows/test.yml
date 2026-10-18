@@ -24,9 +24,9 @@ jobs:
             {
               echo '## 落ちたテスト'
               echo '```'
-              grep -n -A30 -E '^\s*not ok' test-output.txt | head -150
+              grep -n -A14 -E '^\s*not ok' test-output.txt | cut -c1-170 | head -90
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            grep -n -A30 -E '^\s*not ok' test-output.txt | head -150
+            grep -n -A14 -E '^\s*not ok' test-output.txt | cut -c1-170 | head -90
           fi
           exit $code
