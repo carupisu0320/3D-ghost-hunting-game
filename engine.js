@@ -1380,6 +1380,7 @@ function tryJump() {
   if (now - lastJumpAt < JUMP_COOLDOWN_MS) return;
   lastJumpAt = now;
   if (ownAvatar && ownAvatar.jump) ownAvatar.jump(); // 三人称のとき、自分の体もジャンプの動きをする
+  ownHopT = 0; // ジャンプの動きがないスキン(ロボット・カプセル)は、体ごと跳ねる
   if (net && net.sendJump) net.sendJump();
 }
 
@@ -1768,6 +1769,7 @@ function setMapLoading(v) { loadingMap = !!v; if (!loadingMap) clock.getDelta();
 // 自分の体は、ロビーで選んだスキン(ghost_skin)。手に持つ道具の見た目は、三人称のときは隠す
 let thirdPerson = false;
 let ownAvatar = null, ownAvatarSkin = null, ownFeetPrev = null;
+let ownHopT = -1; // 体ごと跳ねる動き(0〜0.6秒)。-1: 跳んでいない
 function ownSkinId() { try { return normalizeSkinId(localStorage.getItem('ghost_skin') || ''); } catch (e) { return normalizeSkinId(''); } }
 function buildOwnAvatar() {
   const id = ownSkinId();
@@ -1792,7 +1794,12 @@ function renderMainView(delta) {
   // 実際に動いた速さから、歩きの動きを決める(止まっている間は歩かない)
   const speed = ownFeetPrev && delta > 0 ? Math.hypot(camera.position.x - ownFeetPrev.x, camera.position.z - ownFeetPrev.z) / delta : 0;
   ownFeetPrev = { x: camera.position.x, z: camera.position.z };
-  g.position.set(camera.position.x, feetY, camera.position.z);
+  let hop = 0;
+  if (ownHopT >= 0) { // ジャンプの動きがないスキンだけ、体ごと放物線で跳ねる(動きがあるスキンは、その動きに任せる)
+    ownHopT += delta;
+    if (ownHopT >= 0.6) ownHopT = -1; else if (!ownAvatar.jump) { const u = ownHopT / 0.6; hop = 0.5 * 4 * u * (1 - u); }
+  }
+  g.position.set(camera.position.x, feetY + hop, camera.position.z);
   g.rotation.y = camera.rotation.y; // 見ている向きに体を向ける(ほかの人に見える向きと同じ)
   g.visible = true;
   if (delta > 0) ownAvatar.update(delta, speed);
