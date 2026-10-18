@@ -194,7 +194,7 @@ function handleButton(id) {
   switch (id) {
     case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap, board.difficulty); break; // 部屋にいたなら、すぐ抜ける
     case 'create': createRoom(); break;
-    case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(normalizeRoomCode(code))); break;
+    case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(normalizeRoomCode(code)), { roomCode: true }); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
     case 'account': toggleAccount(); break;
     case 'maps': board.screen = 'maps'; boardDirty = true; break;
@@ -276,8 +276,9 @@ function goToGame(mapId, difficulty = 'normal') {
 
 // ---------- 入力ダイアログ(名前・部屋コード) ----------
 let modalCallback = null;
-function askText(title, placeholder, initial, maxLen, onOk) {
-  modalOpen = true; modalCallback = onOk;
+let modalIsRoomCode = false; // 部屋コードの入力中は、打った文字をその場で大文字の半角英数にそろえる
+function askText(title, placeholder, initial, maxLen, onOk, { roomCode = false } = {}) {
+  modalOpen = true; modalCallback = onOk; modalIsRoomCode = roomCode;
   padActive = false;
   controls.unlock();
   modalTitle.textContent = title; modalInput.placeholder = placeholder; modalInput.value = initial; modalInput.maxLength = maxLen; modalError.textContent = '';
@@ -294,6 +295,12 @@ modalOk.addEventListener('click', () => {
   const cb = modalCallback; closeModal(); if (cb) cb(value);
 });
 modalCancel.addEventListener('click', closeModal);
+modalInput.addEventListener('input', (e) => { // 日本語入力の変換中は、触らない(確定したときに、そろえる)
+  if (!modalIsRoomCode || e.isComposing) return;
+  const fixed = normalizeRoomCode(modalInput.value);
+  if (fixed !== modalInput.value) modalInput.value = fixed;
+});
+modalInput.addEventListener('compositionend', () => { if (modalIsRoomCode) modalInput.value = normalizeRoomCode(modalInput.value); });
 modalInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') modalOk.click(); if (e.key === 'Escape') closeModal(); });
 
 // ---------- 通信(Socket.IO) ----------
