@@ -1366,6 +1366,19 @@ async function setupMoneyLine(result) {
   }
 }
 
+// ジャンプ(見た目だけ): Space・コントローラーのBボタンで、ほかのプレイヤーの画面に、自分のアバターがジャンプする動きを出す。
+// 自分の高さ・当たり判定・階段は変えない(ひとりで遊ぶときや、ジャンプの動きがないスキン(ロボット・カプセル)では、何も起きない)。
+// 動き(約1.1秒)の途中で、次のジャンプはしない
+const JUMP_COOLDOWN_MS = 1100;
+let lastJumpAt = -Infinity;
+function tryJump() {
+  if (gameOver || journalOpen || !inControl()) return;
+  const now = performance.now();
+  if (now - lastJumpAt < JUMP_COOLDOWN_MS) return;
+  lastJumpAt = now;
+  if (net && net.sendJump) net.sendJump();
+}
+
 const keys = {};
 let debugKeyBuffer = ''; // デバッグ用: 「sinu」と連続で打つと、幽霊に捕まらなくても死亡画面を確認できる
 document.addEventListener('keydown', (e) => {
@@ -1375,6 +1388,7 @@ document.addEventListener('keydown', (e) => {
     if (debugKeyBuffer === 'sinu' && !net) triggerDeath(); // オンライン中は、ひとりだけ死んだことになってしまうので無効
   }
   if (gameOver) return; // 死亡後はリザルト画面の「ロビーに戻る」以外の操作を受け付けない
+  if (e.code === 'Space' && inControl()) { e.preventDefault(); if (!e.repeat) tryJump(); } // ジャンプ(見た目だけ)。押しっぱなしでは繰り返さない
   if (e.code === 'KeyE') toggleCurrentTool();
   if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
@@ -1546,7 +1560,7 @@ function applyWorldState(state) {
 //  - 正気度は一人ひとり別。ハントが始まりやすさは「生きている人の中で一番低い正気度」で決まり、幽霊は一番低い人を狙う。
 //  - 死亡は個人ごと。幽霊が誰かに近づいたらその人だけが死に、その時点でハントは全員分すぐ終わる。
 // online-game.js が setNetHooks() で通信の窓口を登録したときだけ動く。登録がなければ(ひとりで遊ぶとき)、これまで通りの処理になる。
-//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id), sendVote({ ghost, truth, elapsed }), forceFinalize(), sendWorld(event), requestWorld() }
+//   hooks = { isHost(), myId(), others() => [{ id, name, x, y, z, sanity, alive, out }], sendGhost(state), sendDeath(id), sendVote({ ghost, truth, elapsed }), forceFinalize(), sendWorld(event), requestWorld(), sendJump() }
 //   (x, y, z は足元の位置。out は特定などで、この回のプレイをすでに終えている人)
 let net = null;
 const PLAYER_EYE_HEIGHT = 1.6;       // 足元から目(カメラ)までの高さ
@@ -1778,8 +1792,8 @@ function animate() {
       camera.rotation.x = Math.max(-1.3, Math.min(1.3, camera.rotation.x - ry * 1.5 * delta));
 
       // Switchのコントローラーの配置(標準マッピング): [0]=下のボタン(B)、[2]=左のボタン(Y)、[3]=上のボタン(X)
-      const aPressed = !!(pad.buttons[0] && pad.buttons[0].pressed); // 下のボタン(B): Yと同じ(クリックと同じ操作)
-      if (aPressed && !gpPrevButtons[0]) tryInteract();
+      const aPressed = !!(pad.buttons[0] && pad.buttons[0].pressed); // 下のボタン(B): ジャンプ(見た目だけ)。ものを拾う・ドア・スイッチは、左のボタン(Y)
+      if (aPressed && !gpPrevButtons[0]) tryJump();
       gpPrevButtons[0] = aPressed;
 
       const yPressed = !!(pad.buttons[2] && pad.buttons[2].pressed); // 左のボタン(Y): ものを拾う・ドアを開け閉めする・照明のスイッチ・ブレーカー(クリックと同じ操作)
