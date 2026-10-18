@@ -9,6 +9,7 @@ export const HELP = {
       { keys: ['W', 'A', 'S', 'D'], text: '移動(矢印キーでも動けます)', codes: ['KeyW', 'KeyA', 'KeyS', 'KeyD'] },
       { keys: ['Shift'], text: '走る', codes: ['ShiftLeft'] },
       { keys: ['Space'], text: 'ジャンプ', codes: ['Space'] },
+      { keys: ['C'], text: '三人称視点の切り替え', codes: ['KeyC'] },
       { keys: ['マウス'], text: '見回す' },
       { keys: ['Esc'], text: '一時停止(クリックか WASD で再開)' },
     ] },
@@ -35,6 +36,7 @@ export const HELP = {
     { title: '移動・視点', rows: [
       { keys: ['W', 'A', 'S', 'D'], text: '移動', codes: ['KeyW', 'KeyA', 'KeyS', 'KeyD'] },
       { keys: ['Space'], text: 'ジャンプ(ほかの人の画面に出ます)', codes: ['Space'] },
+      { keys: ['C'], text: '三人称視点の切り替え', codes: ['KeyC'] },
       { keys: ['マウス'], text: '見回す' },
       { keys: ['Esc'], text: '一時停止(クリックで再開)' },
     ] },
