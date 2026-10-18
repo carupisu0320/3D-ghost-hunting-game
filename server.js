@@ -344,6 +344,16 @@ io.on('connection', (socket) => {
     socket.to(room.code).emit('playerMove', out);
   });
 
+  // ジャンプした(見た目だけ)。ほかの人にだけ中継する。位置・高さは move で届く。連打で中継が増えないように、間隔を空ける
+  socket.on('jump', () => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || !room.inGame || !socket.data.playerId) return;
+    const now = Date.now();
+    if (socket.data.lastJumpAt && now - socket.data.lastJumpAt < 800) return;
+    socket.data.lastJumpAt = now;
+    socket.to(room.code).emit('playerJump', { id: socket.data.playerId });
+  });
+
   // マップを変える(ホストだけ。存在するマップにだけ変えられる)
   // 自分のスキン(見た目)を変える。部屋の中なら、ほかの人に伝える(変えた本人は手元で反映済み)。知らない形の id は無視する
   socket.on('setSkin', (msg = {}) => {
