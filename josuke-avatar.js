@@ -51,6 +51,7 @@ export function loadJosukeTemplate(baseUrl = './models/') {
 
 // プレイヤー1人ぶんを作る。colorはそのプレイヤーの識別色(足元のリングと、ほんのりした発光に使う)
 //   update(delta, speed): 毎フレーム呼ぶ。speedは今の移動の速さ(m/秒)
+//   jump(): ジャンプの動きを1回流す(約1.1秒。体の高さは、動きの中で上がって戻る)
 export function createJosukeAvatar(template, color, { ringOpacity = 0.85 } = {}) {
   const group = new THREE.Group();
   const body = SkeletonUtils.clone(template.root);
@@ -74,17 +75,30 @@ export function createJosukeAvatar(template, color, { ringOpacity = 0.85 } = {})
     a.play(); a.setEffectiveWeight(weight[name]);
     actions[name] = a;
   });
+  // ジャンプ(1回だけ再生する)。再生中は、ほかの動きの重みを下げて、ジャンプを前に出す
+  const jumpClip = template.clips.jump;
+  const jumpAction = jumpClip ? mixer.clipAction(jumpClip) : null;
+  if (jumpAction) { jumpAction.setLoop(THREE.LoopOnce, 1); jumpAction.setEffectiveWeight(0); }
+  let jumping = false, jumpWeight = 0;
+  function jump() {
+    if (!jumpAction || jumping) return;
+    jumping = true;
+    jumpAction.reset(); jumpAction.setEffectiveWeight(jumpWeight); jumpAction.play();
+  }
   mixer.update(Math.random() * 2); // 腕を広げた姿勢(Tポーズ)で出ないように、すぐに1回進める。全員が同じ動きでそろわないよう、時間もずらす
 
   function update(delta, speed) {
     const state = speed <= MOVE_THRESHOLD ? 'idle' : speed < RUN_THRESHOLD ? 'walk' : 'run';
+    if (jumping && jumpAction.time >= jumpClip.duration - 0.15) jumping = false; // 終わりぎわで、ジャンプの重みを下げて、元の動きに戻る
+    jumpWeight += ((jumping ? 1 : 0) - jumpWeight) * Math.min(1, delta * 14);
+    if (jumpAction) { if (!jumping && jumpWeight < 0.01) { jumpWeight = 0; jumpAction.stop(); } else jumpAction.setEffectiveWeight(jumpWeight); }
     Object.keys(actions).forEach((name) => {
       weight[name] += ((name === state ? 1 : 0) - weight[name]) * Math.min(1, delta * 10);
-      actions[name].setEffectiveWeight(weight[name]);
+      actions[name].setEffectiveWeight(weight[name] * (1 - jumpWeight));
     });
     if (actions.walk) actions.walk.timeScale = THREE.MathUtils.clamp(speed / WALK_SPEED, 0.5, WALK_MAX_TIMESCALE);
     if (actions.run) actions.run.timeScale = THREE.MathUtils.clamp(speed / RUN_SPEED, 0.6, 2.2);
     mixer.update(delta);
   }
-  return { group, body, update, get walk() { return 1 - weight.idle; } };
+  return { group, body, update, jump, get walk() { return 1 - weight.idle; } };
 }
