@@ -101,6 +101,7 @@ export function startOnlineSession({ scene, camera }) {
     forceFinalize: () => socket.emit('forceFinalize'),      // ホストだけ: いまある票で結果を出す
     sendWorld: (ev) => socket.emit('world', ev),             // ドア・ブレーカー・スイッチ・道具・ノートの操作
     requestWorld: () => socket.emit('worldSync'),            // 今の世界の状態をもらう(マップに入ったとき・つなぎ直したとき)
+    sendJump: () => socket.emit('jump'),                     // ジャンプした(見た目だけ。ほかの人の画面で、ジャンプの動きが出る)
   };
 
   // ---- 通信 ----
@@ -149,6 +150,10 @@ export function startOnlineSession({ scene, camera }) {
     if (rp) { rp.skin = normalizeSkinId(msg.skin); loadSkin(rp.skin).then(() => attachBody(rp)); }
   });
   socket.on('playerLeft', (msg) => removeRemote(msg.id));
+  socket.on('playerJump', (msg) => { // ほかの人がジャンプした。ジャンプの動きがあるスキン(マックイーン・仗助)だけ、動きが出る
+    const rp = remotes.get(msg.id);
+    if (rp && rp.avatar && rp.avatar.jump) rp.avatar.jump();
+  });
   socket.on('hostChanged', (msg) => { hostId = msg.id; }); // ホストが交代したら、新しいホストのブラウザが幽霊の計算を引き継ぐ
   socket.on('playerMove', (msg) => {
     const rp = remotes.get(msg.id);
