@@ -194,7 +194,7 @@ function handleButton(id) {
   switch (id) {
     case 'solo': if (board.room) send({ type: 'leave' }); try { sessionStorage.removeItem('ghost_session'); } catch (e) { /* ignore */ } goToGame(board.selectedMap, board.difficulty); break; // 部屋にいたなら、すぐ抜ける
     case 'create': createRoom(); break;
-    case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(code.toUpperCase())); break;
+    case 'join': askText('部屋コードを入力', '5文字のコード(例: AB3XQ)', '', 5, (code) => joinRoom(normalizeRoomCode(code))); break;
     case 'rename': askText('名前を入力', '12文字まで', board.name, 12, (name) => { board.name = name; saveSetting('ghost_name', name); boardDirty = true; }); break;
     case 'account': toggleAccount(); break;
     case 'maps': board.screen = 'maps'; boardDirty = true; break;
@@ -331,6 +331,10 @@ function connectAndSend(msg) {
   s.onAny((event, payload) => handleServerMessage({ ...payload, type: event }));
 }
 function createRoom() { connectAndSend({ type: 'create', name: board.name, skin: board.skin, map: board.selectedMap, difficulty: board.difficulty }); }
+// 部屋コードは、小文字・全角・空白まじりで入力されても、大文字の半角英数にそろえる(server.js の cleanCode と同じ)
+function normalizeRoomCode(value) {
+  return String(value || '').normalize('NFKC').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
 function joinRoom(code) { connectAndSend({ type: 'join', name: board.name, skin: board.skin, code }); }
 function leaveRoom() {
   send({ type: 'leave' }); // 切れたときと違って、待たずにすぐ部屋から外してもらう
