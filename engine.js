@@ -213,6 +213,7 @@ function dropCurrentTool() {
   }
   addPickupItem(camera.position.x, camera.position.z, mesh, () => collectTool(tool));
   const dropped = pickupItems[pickupItems.length - 1];
+  dropped.floor = currentUpperFloor; // 置いた階(ノートが幽霊のいる部屋にあるかの判定に使う)
   dropped.netId = `d${net ? net.myId() : 'me'}-${++dropCounter}`; // 置いた道具の目印(ほかの人の画面でも、同じ道具として拾えるように)
   netWorld({ kind: 'drop', id: dropped.netId, tool, x: dropped.x, z: dropped.z, y: mesh.position.y });
 
@@ -386,6 +387,13 @@ function playerInHauntedRoom(x, z) {
   if (!hauntedRoom) return false;
   const sameFloor = hauntedFloor > 0 ? currentUpperFloor === hauntedFloor : (currentUpperFloor === 0 && onGroundFloor);
   return sameFloor && x >= hauntedRoom.minX && x <= hauntedRoom.maxX && z >= hauntedRoom.minZ && z <= hauntedRoom.maxZ;
+}
+// 床や机に置かれているノートが、幽霊のいる部屋の中にあるか(誰が置いたものでもよい。持ち物の中のノートは数えない)
+function notebookInHauntedRoom() {
+  if (!hauntedRoom) return false;
+  return pickupItems.some((it) => !it.collected && it.mesh && it.mesh.userData && it.mesh.userData.pageCanvas
+    && it.x >= hauntedRoom.minX && it.x <= hauntedRoom.maxX && it.z >= hauntedRoom.minZ && it.z <= hauntedRoom.maxZ
+    && (it.floor === undefined || (hauntedFloor > 0 ? it.floor === hauntedFloor : !(it.floor > 0)))); // 階が分かっているものは、階も合わせる
 }
 let difficultyId = 'normal';
 let difficulty = DIFFICULTIES.normal;
@@ -2029,9 +2037,9 @@ function animate() {
       }
     }
 
-    // ノート(ゴーストライティングが証拠の幽霊なら、幽霊のいる部屋に滞在した時間の合計で一度だけ書き込みが現れる)
+    // ノート(ゴーストライティングが証拠の幽霊なら、ノートが幽霊のいる部屋の床に置かれている時間の合計で、一度だけ書き込みが現れる。持っているだけ・ほかの部屋に置いただけでは、書かれない)
     if (!notebookWritten && notebookTimer > 0) {
-      const inHauntedRoomForNotebook = playerInHauntedRoom(camera.position.x, camera.position.z);
+      const inHauntedRoomForNotebook = notebookInHauntedRoom();
       if (inHauntedRoomForNotebook) {
         notebookTimer -= delta;
         if (notebookTimer <= 0 && currentGhost.evidence.includes("ゴーストライティング")) {
