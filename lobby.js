@@ -134,6 +134,7 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 
 // ジャンプ: Space・コントローラーのB。自分の視点が少し跳ねて(0.6秒)、同じ部屋のほかの人の画面でも、ジャンプの動きがあるスキンはジャンプする
 const JUMP_SECONDS = 0.6, JUMP_HEIGHT = 0.5;
+let jumpHop = 0; // いまのジャンプの高さ(m)。ジャンプの動きがないスキンは、三人称のとき、体ごとこの高さだけ上がる
 let jumpT = -1; // -1: 跳んでいない / 0〜JUMP_SECONDS: 跳んでいる途中
 function tryJump() {
   if (!inControl() || jumpT >= 0) return;
@@ -758,7 +759,7 @@ function renderMainView(delta) {
   const g = ownAvatar.group;
   const speed = ownFeetPrev && delta > 0 ? Math.hypot(camera.position.x - ownFeetPrev.x, camera.position.z - ownFeetPrev.z) / delta : 0;
   ownFeetPrev = { x: camera.position.x, z: camera.position.z };
-  g.position.set(camera.position.x, 0, camera.position.z);
+  g.position.set(camera.position.x, ownAvatar.jump ? 0 : jumpHop, camera.position.z); // ジャンプの動きがあるスキンは、その動きに任せる
   g.rotation.y = camera.rotation.y;
   g.visible = true;
   if (delta > 0) ownAvatar.update(delta, speed);
@@ -785,7 +786,9 @@ function animate() {
   const pad = pollPad();
   updatePad(delta, pad);
   updateMovement(delta, pad);
-  camera.position.y = 1.65 + jumpOffset(delta);
+  const hop = jumpOffset(delta);
+  camera.position.y = 1.65 + (thirdPerson ? 0 : hop); // 三人称のときは、カメラは跳ねない(自分の体のジャンプの動きを見るため)
+  jumpHop = hop;
   updateBoardHover();
   redrawBoardIfNeeded();
   updateTools(delta, clock.elapsedTime);
