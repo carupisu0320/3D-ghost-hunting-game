@@ -351,7 +351,7 @@ io.on('connection', (socket) => {
   // ジャンプした(見た目だけ)。ほかの人にだけ中継する。位置・高さは move で届く。連打で中継が増えないように、間隔を空ける
   socket.on('jump', () => {
     const room = rooms.get(socket.data.roomCode);
-    if (!room || !room.inGame || !socket.data.playerId) return;
+    if (!room || !socket.data.playerId) return; // ロビーでも、ゲーム中でも中継する
     const now = Date.now();
     if (socket.data.lastJumpAt && now - socket.data.lastJumpAt < 800) return;
     socket.data.lastJumpAt = now;
