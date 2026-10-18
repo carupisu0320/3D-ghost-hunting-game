@@ -8,6 +8,7 @@ export const HELP = {
     { title: '移動・視点', rows: [
       { keys: ['W', 'A', 'S', 'D'], text: '移動(矢印キーでも動けます)', codes: ['KeyW', 'KeyA', 'KeyS', 'KeyD'] },
       { keys: ['Shift'], text: '走る', codes: ['ShiftLeft'] },
+      { keys: ['Space'], text: 'ジャンプ', codes: ['Space'] },
       { keys: ['マウス'], text: '見回す' },
       { keys: ['Esc'], text: '一時停止(クリックか WASD で再開)' },
     ] },
@@ -23,6 +24,7 @@ export const HELP = {
       { keys: ['右スティック'], text: '見回す' },
       { keys: ['ZL'], text: '走る' },
       { keys: ['Y'], text: '選ぶ・取る' },
+      { keys: ['B'], text: 'ジャンプ' },
       { keys: ['X', 'ZR'], text: '道具を使う' },
       { keys: ['L', 'R'], text: '道具を持ち替える' },
       { keys: ['十字キー下'], text: '道具を戻す' },
@@ -32,6 +34,7 @@ export const HELP = {
   game: [
     { title: '移動・視点', rows: [
       { keys: ['W', 'A', 'S', 'D'], text: '移動', codes: ['KeyW', 'KeyA', 'KeyS', 'KeyD'] },
+      { keys: ['Space'], text: 'ジャンプ(ほかの人の画面に出ます)', codes: ['Space'] },
       { keys: ['マウス'], text: '見回す' },
       { keys: ['Esc'], text: '一時停止(クリックで再開)' },
     ] },
@@ -51,7 +54,8 @@ export const HELP = {
     { title: 'コントローラー', pad: true, rows: [
       { keys: ['左スティック'], text: '移動' },
       { keys: ['右スティック'], text: '見回す' },
-      { keys: ['B', 'Y'], text: 'ものを拾う・ドア・スイッチ・ブレーカー' },
+      { keys: ['Y'], text: 'ものを拾う・ドア・スイッチ・ブレーカー' },
+      { keys: ['B'], text: 'ジャンプ(ほかの人の画面に出ます)' },
       { keys: ['X', 'ZR'], text: '道具を使う' },
       { keys: ['L', 'R'], text: '道具を持ち替える' },
       { keys: ['十字キー下'], text: '道具を置く' },
