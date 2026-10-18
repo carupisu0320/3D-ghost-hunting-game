@@ -200,7 +200,7 @@ export function drawBoard(ctx, state) {
     line('難易度', 62, 366, 22, SUB); line(fit(diffName, 290), 62, 398, 28);
     accountBlock(444, 556);
     panel(900, 150, 340, 470, 'あそびかた');
-    ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人'].forEach((t, i) => line(t, 922, 244 + i * 30, 23));
+    ['WASD: 移動  Shift: 走る', 'マウス: 見回す', 'クリック/Y: 選ぶ・取る', 'Space / B: ジャンプ', 'E/X: 使う  Q: 戻す', '1〜3 / L・R: 持ち替え', 'Esc / +: 一時停止', '部屋は最大4人'].forEach((t, i) => line(t, 922, 244 + i * 30, 23));
     drawResultBlock(922, 506);
   }
 
