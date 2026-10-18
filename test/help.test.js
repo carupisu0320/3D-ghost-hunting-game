@@ -108,3 +108,9 @@ test('部屋コードの入力欄は、打った文字をその場で大文字�
   assert.ok(/\{ roomCode: true \}/.test(lobby), '部屋コードの入力が roomCode モードになっていません');
   assert.ok(/modalInput\.addEventListener\('input'/.test(lobby) && /normalizeRoomCode\(modalInput\.value\)/.test(lobby), '入力中にそろえていません');
 });
+
+test('ゴーストライティング: ノートが幽霊の部屋に置かれているときだけ数える(持っているだけでは書かれない)', () => {
+  const eng = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+  assert.ok(/function notebookInHauntedRoom\(\)/.test(eng), '置かれたノートの判定がありません');
+  assert.ok(/const inHauntedRoomForNotebook = notebookInHauntedRoom\(\);/.test(eng), '書き込みが、自分のいる部屋で数えられています');
+});
