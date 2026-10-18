@@ -122,12 +122,29 @@ window.addEventListener('keydown', (e) => {
   if (!inControl() && hasStarted && RESUME_KEYS.has(e.code)) requestLock(); // Escのあと、移動キーを押すだけでも再開できる
   keys[e.code] = true;
   if (e.repeat || !inControl()) return;
-  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
+  if (e.code === 'Space') { e.preventDefault(); tryJump(); }
+  else if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
   else if (e.code === 'KeyE') toggleCurrentTool();
   else if (e.code === 'KeyQ') returnCurrentTool();
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// ジャンプ: Space・コントローラーのB。自分の視点が少し跳ねて(0.6秒)、同じ部屋のほかの人の画面でも、ジャンプの動きがあるスキンはジャンプする
+const JUMP_SECONDS = 0.6, JUMP_HEIGHT = 0.5;
+let jumpT = -1; // -1: 跳んでいない / 0〜JUMP_SECONDS: 跳んでいる途中
+function tryJump() {
+  if (!inControl() || jumpT >= 0) return;
+  jumpT = 0;
+  if (board.room) send({ type: 'jump' });
+}
+function jumpOffset(delta) {
+  if (jumpT < 0) return 0;
+  jumpT += delta;
+  if (jumpT >= JUMP_SECONDS) { jumpT = -1; return 0; }
+  const u = jumpT / JUMP_SECONDS;
+  return JUMP_HEIGHT * 4 * u * (1 - u); // 放物線
+}
 
 const WALK = 3.2, RUN = 5.4;
 const forward = new THREE.Vector3(), rightV = new THREE.Vector3();
@@ -433,6 +450,9 @@ function handleServerMessage(msg) {
   } else if (msg.type === 'skinChanged') {
     const rp = remotePlayers.get(msg.id);
     if (rp) { rp.skin = normalizeSkinId(msg.skin); loadSkin(rp.skin).then(() => attachBody(rp)); } // 読み込めるまでは、今の見た目のまま
+  } else if (msg.type === 'playerJump') {
+    const rp = remotePlayers.get(msg.id);
+    if (rp && rp.avatar && rp.avatar.jump) rp.avatar.jump(); // ジャンプの動きがあるスキン(マックイーン・仗助)だけ
   } else if (msg.type === 'playerMove') {
     moveRemotePlayer(msg);
   } else if (msg.type === 'gameStart') {
@@ -659,7 +679,7 @@ refreshHotbar();
 
 // ---------- コントローラー(Switchのコントローラーの標準マッピング) ----------
 //   左スティック: 移動 / 右スティック: 見回す / ZL: 走る
-//   Y(左のボタン)・B(下のボタン): 狙っているものを使う(ボードのボタンを押す・壁の道具を取る。クリックと同じ)
+//   Y(左のボタン): 狙っているものを使う(ボードのボタンを押す・壁の道具を取る。クリックと同じ) / B(下のボタン): ジャンプ
 //   X(上のボタン)・ZR: 道具を使う(Eキーと同じ) / L・R: 道具の持ち替え / 十字キーの下: ボードに戻す(Qキーと同じ)
 //   +(9): 一時停止(案内の画面に戻る)。案内の画面で何かボタンを押すと、クリックしなくても操作を始められる
 const padPrev = {};
@@ -700,7 +720,8 @@ function updatePad(delta, pad) {
   const rx = deadzone(pad.axes[2] || 0), ry = deadzone(pad.axes[3] || 0);
   camera.rotation.y -= rx * 2.2 * delta;
   camera.rotation.x = Math.max(-1.3, Math.min(1.3, camera.rotation.x - ry * 1.6 * delta));
-  if (padPressed(pad, 2) || padPressed(pad, 0)) activateAim(); // Y・B
+  if (padPressed(pad, 2)) activateAim(); // Y
+  if (padPressed(pad, 0)) tryJump();     // B: ジャンプ
   if (padPressed(pad, 3) || padPressed(pad, 7)) toggleCurrentTool(); // X・ZR
   if (padPressed(pad, 4)) cycleTool(-1); // L
   if (padPressed(pad, 5)) cycleTool(1);  // R
@@ -715,6 +736,7 @@ function animate() {
   const pad = pollPad();
   updatePad(delta, pad);
   updateMovement(delta, pad);
+  camera.position.y = 1.65 + jumpOffset(delta);
   updateBoardHover();
   redrawBoardIfNeeded();
   updateTools(delta, clock.elapsedTime);
