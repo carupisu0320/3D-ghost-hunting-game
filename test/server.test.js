@@ -440,3 +440,13 @@ test('準備完了: 本人が切り替え、部屋の全員に届く。ゲーム
   guest.emit('setReady', { ready: true }); // ゲーム中は無視
   assert.equal(guest.all('readyChanged').length, 1);
 });
+
+test('部屋コード: 小文字・全角・空白まじりでも参加できる', () => {
+  const room = makeRoom(1);
+  const code = room.code;
+  const fw = [...code.toLowerCase()].map((c) => String.fromCharCode(c.charCodeAt(0) + 0xFEE0)).join('');
+  [code.toLowerCase(), ' ' + code.toLowerCase() + ' ', fw].forEach((typed, i) => {
+    const c = io.connect(); c.emit('join', { code: typed, name: 'G' + i });
+    assert.ok(c.last('joined'), `「${typed}」で参加できません`);
+  });
+});
