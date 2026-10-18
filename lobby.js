@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { io } from 'socket.io-client'; // 通信(Socket.IO)。読み込み先はlobby.htmlのimportmapに書いてある
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { buildLobbySpace, moveWithCollision } from './lobby-space.js';
+import { thirdPersonPosition } from './third-person.js';
 import { drawBoard, hitButton, BOARD_W, BOARD_H, MAPS, DIFFICULTIES } from './lobby-board.js';
 import {
   makeFlashlightItemMesh, makeEMFItemMesh, makeThermoItemMesh, makeSpiritBoxItemMesh, makeUVItemMesh, makeDotsItemMesh,
@@ -123,6 +124,7 @@ window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.repeat || !inControl()) return;
   if (e.code === 'Space') { e.preventDefault(); tryJump(); }
+  else if (e.code === 'KeyC') toggleThirdPerson();
   else if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') { const t = held[Number(e.code.slice(5)) - 1]; if (t) selectTool(t); }
   else if (e.code === 'KeyE') toggleCurrentTool();
   else if (e.code === 'KeyQ') returnCurrentTool();
@@ -136,6 +138,7 @@ let jumpT = -1; // -1: 跳んでいない / 0〜JUMP_SECONDS: 跳んでいる途
 function tryJump() {
   if (!inControl() || jumpT >= 0) return;
   jumpT = 0;
+  if (ownAvatar && ownAvatar.jump) ownAvatar.jump(); // 三人称のとき、自分の体もジャンプの動きをする
   if (board.room) send({ type: 'jump' });
 }
 function jumpOffset(delta) {
@@ -728,6 +731,52 @@ function updatePad(delta, pad) {
   if (padPressed(pad, 13)) returnCurrentTool(); // 十字キーの下
 }
 
+// ---------- 三人称視点(C キー) ----------
+// カメラを自分の後ろ上に下げて描く(操作・当たり判定は、いつもの目の位置のまま)。自分の体は、いま選んでいるスキン
+let thirdPerson = false;
+let ownAvatar = null, ownAvatarSkin = null, ownFeetPrev = null;
+function buildOwnAvatar() {
+  if (ownAvatar && ownAvatarSkin === board.skin) return;
+  if (ownAvatar) scene.remove(ownAvatar.group);
+  const id = board.skin;
+  ownAvatarSkin = id;
+  ownAvatar = createSkinAvatar(id, 0xffffff, { ringOpacity: 0 }) || createPlaceholderAvatar(0xffffff, { ringOpacity: 0 });
+  ownAvatar.group.visible = thirdPerson;
+  scene.add(ownAvatar.group);
+  loadSkin(id).then(() => { if (ownAvatarSkin === id && ownAvatar) { scene.remove(ownAvatar.group); ownAvatar = createSkinAvatar(id, 0xffffff, { ringOpacity: 0 }) || ownAvatar; ownAvatar.group.visible = thirdPerson; scene.add(ownAvatar.group); } }); // 読み込めたら差し替える
+}
+function toggleThirdPerson() {
+  if (!inControl()) return;
+  thirdPerson = !thirdPerson;
+  if (thirdPerson) buildOwnAvatar();
+  if (ownAvatar) ownAvatar.group.visible = thirdPerson;
+}
+const tpEye = new THREE.Vector3(), tpDir = new THREE.Vector3();
+function renderMainView(delta) {
+  if (!thirdPerson) { renderer.render(scene, camera); return; }
+  buildOwnAvatar(); // スキンを変えたあとでも、いまのスキンにそろえる
+  const g = ownAvatar.group;
+  const speed = ownFeetPrev && delta > 0 ? Math.hypot(camera.position.x - ownFeetPrev.x, camera.position.z - ownFeetPrev.z) / delta : 0;
+  ownFeetPrev = { x: camera.position.x, z: camera.position.z };
+  g.position.set(camera.position.x, 0, camera.position.z);
+  g.rotation.y = camera.rotation.y;
+  g.visible = true;
+  if (delta > 0) ownAvatar.update(delta, speed);
+  tpEye.copy(camera.position);
+  camera.getWorldDirection(tpDir);
+  // 壁(ロビーの部屋の壁)にぶつかる手前で止める。moveWithCollision が、動けなかった分だけ位置を戻す
+  const p = thirdPersonPosition(tpEye, tpDir, (x, z) => {
+    const [nx, nz] = moveWithCollision(space, x + tpDir.x * 0.2, z + tpDir.z * 0.2, -tpDir.x * 0.2, -tpDir.z * 0.2);
+    return Math.abs(nx - x) > 1e-6 || Math.abs(nz - z) > 1e-6;
+  }, { minY: 0.3 });
+  const vis = Object.keys(viewmodels).map((k) => [viewmodels[k], viewmodels[k].visible]);
+  vis.forEach(([v]) => { v.visible = false; });
+  camera.position.set(p.x, p.y, p.z);
+  renderer.render(scene, camera);
+  camera.position.copy(tpEye);
+  vis.forEach(([v, was]) => { v.visible = was; });
+}
+
 // ---------- メインループ ----------
 const clock = new THREE.Clock();
 function animate() {
@@ -751,7 +800,7 @@ function animate() {
   moveTimer += delta;
   if (moveTimer > 0.08) { moveTimer = 0; sendMove(); } // 秒間約12回まで
   space.clock.rotation.z = 0; // 時計は止まった絵(針は絵に含まれている)
-  renderer.render(scene, camera);
+  renderMainView(delta);
 }
 showHintIfNeeded();
 initAccount();                    // Googleログインの準備(設定されていなければ、何もしない)
