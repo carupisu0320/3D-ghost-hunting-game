@@ -14,6 +14,9 @@ import { wallBoxes, basementWallBoxes, doors, wallGeometries, doorFrameGeometrie
 import { addFurniture, addDetailMesh, addLeg, addLegsUnder, pushWallBox, woodFurnitureMaterial, ceramicMaterial, fabricMaterial, metalMaterial, mattressMaterial, handleMaterial, countertopMaterial, bedIn, sofaAt, wardrobeIn, counterAt, fridgeAt, washstandIn, toiletIn, furnitureIn } from './engine/furniture.js';
 import { ghostTypes, DIFFICULTIES } from './engine/ghost-data.js';
 import { createPauseMenu } from './pause-menu.js';
+import { thirdPersonPosition } from './third-person.js';
+import { loadSkin, createSkinAvatar, createPlaceholderAvatar } from './skins.js'; // 三人称のときに見せる、自分の体
+import { normalizeSkinId } from './skin-catalog.js';
 import { randomPointInRoom, calculateReward, rewardBreakdown, formatTime, deadzone, emfLevelAt } from './engine/calc.js';
 import { makeNotebookItemMesh, drawNotebookPage, makeBloodSplatterDataURL } from './engine/art.js';
 import { mapSelectOverlay, addMapCard } from './engine/map-select.js';
@@ -1376,6 +1379,7 @@ function tryJump() {
   const now = performance.now();
   if (now - lastJumpAt < JUMP_COOLDOWN_MS) return;
   lastJumpAt = now;
+  if (ownAvatar && ownAvatar.jump) ownAvatar.jump(); // 三人称のとき、自分の体もジャンプの動きをする
   if (net && net.sendJump) net.sendJump();
 }
 
@@ -1389,6 +1393,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (gameOver) return; // 死亡後はリザルト画面の「ロビーに戻る」以外の操作を受け付けない
   if (e.code === 'Space' && inControl()) { e.preventDefault(); if (!e.repeat) tryJump(); } // ジャンプ(見た目だけ)。押しっぱなしでは繰り返さない
+  if (e.code === 'KeyC' && inControl() && !e.repeat) toggleThirdPerson(); // 三人称視点の切り替え
   if (e.code === 'KeyE') toggleCurrentTool();
   if (e.code === 'Digit1' && heldOrder[0]) selectTool(heldOrder[0]);
   if (e.code === 'Digit2' && heldOrder[1]) selectTool(heldOrder[1]);
@@ -1758,6 +1763,50 @@ function setViewDistance(fogNear, fogEnd) {
 let loadingMap = false;
 function setMapLoading(v) { loadingMap = !!v; if (!loadingMap) clock.getDelta(); }
 
+// ---- 三人称視点(C キーで切り替え) ----
+// カメラを、自分の後ろ上に下げて描く。当たり判定・操作・幽霊の判定は、いつもの(目の)位置のまま。描くときだけ、カメラをずらして、すぐ戻す。
+// 自分の体は、ロビーで選んだスキン(ghost_skin)。手に持つ道具の見た目は、三人称のときは隠す
+let thirdPerson = false;
+let ownAvatar = null, ownAvatarSkin = null, ownFeetPrev = null;
+function ownSkinId() { try { return normalizeSkinId(localStorage.getItem('ghost_skin') || ''); } catch (e) { return normalizeSkinId(''); } }
+function buildOwnAvatar() {
+  const id = ownSkinId();
+  if (ownAvatar && ownAvatarSkin === id) return;
+  if (ownAvatar) scene.remove(ownAvatar.group);
+  ownAvatarSkin = id;
+  ownAvatar = createSkinAvatar(id, 0xffffff, { ringOpacity: 0 }) || createPlaceholderAvatar(0xffffff, { ringOpacity: 0 });
+  ownAvatar.group.visible = false;
+  scene.add(ownAvatar.group);
+  loadSkin(id).then(() => { if (ownAvatarSkin === id) { scene.remove(ownAvatar.group); ownAvatar = createSkinAvatar(id, 0xffffff, { ringOpacity: 0 }) || ownAvatar; ownAvatar.group.visible = thirdPerson; scene.add(ownAvatar.group); } }); // 読み込めたら、そのスキンに差し替える
+}
+function toggleThirdPerson() {
+  thirdPerson = !thirdPerson;
+  if (thirdPerson) buildOwnAvatar();
+  if (ownAvatar) ownAvatar.group.visible = thirdPerson;
+}
+const tpEye = new THREE.Vector3(), tpDir = new THREE.Vector3();
+function renderMainView(delta) {
+  if (!thirdPerson || !ownAvatar) { renderer.render(scene, camera); return; }
+  const g = ownAvatar.group;
+  const feetY = camera.position.y - PLAYER_EYE_HEIGHT;
+  // 実際に動いた速さから、歩きの動きを決める(止まっている間は歩かない)
+  const speed = ownFeetPrev && delta > 0 ? Math.hypot(camera.position.x - ownFeetPrev.x, camera.position.z - ownFeetPrev.z) / delta : 0;
+  ownFeetPrev = { x: camera.position.x, z: camera.position.z };
+  g.position.set(camera.position.x, feetY, camera.position.z);
+  g.rotation.y = camera.rotation.y; // 見ている向きに体を向ける(ほかの人に見える向きと同じ)
+  g.visible = true;
+  if (delta > 0) ownAvatar.update(delta, speed);
+  tpEye.copy(camera.position);
+  camera.getWorldDirection(tpDir);
+  const p = thirdPersonPosition(tpEye, tpDir, (x, z) => collidesWithWalls(x, z, 0.15), { minY: feetY + 0.3 });
+  const vis = Object.keys(viewmodels).map((k) => [viewmodels[k], viewmodels[k].visible]);
+  vis.forEach(([v]) => { v.visible = false; });
+  camera.position.set(p.x, p.y, p.z);
+  renderer.render(scene, camera);
+  camera.position.copy(tpEye);
+  vis.forEach(([v, was]) => { v.visible = was; });
+}
+
 function animate() {
   requestAnimationFrame(animate);
   if (loadingMap) { clock.getDelta(); return; }
@@ -2043,7 +2092,7 @@ function animate() {
   updateHuntFlicker(delta);
 
   renderer.shadowMap.needsUpdate = flashlight.intensity > 0; // 懐中電灯が消えている間は、影を描かない(影が見えないので、見た目は同じ)
-  renderer.render(scene, camera);
+  renderMainView(delta);
   if (PERF_DEBUG) reportPerf();
 }
 window.addEventListener('resize', () => {
