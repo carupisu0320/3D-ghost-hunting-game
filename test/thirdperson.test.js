@@ -31,6 +31,6 @@ test('三人称: 下を向くと高く、上を向くと低くなる。床より
 test('三人称: C キーでロビーとゲーム本編の両方で切り替わる', () => {
   ['lobby.js', 'engine.js'].forEach((f) => {
     const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
-    assert.ok(/KeyC/.test(src) && /toggleThirdPerson\(\)/.test(src) && /thirdPersonPosition\(/.test(src) && /renderMainView\(delta\)/.test(src), `${f} に三人称が組み込まれていません`);
+    assert.ok(/KeyC/.test(src) && /toggleThirdPerson\(\)/.test(src) && /thirdPersonPosition\(/.test(src) && (f === 'engine.js' ? /beginThirdPersonView\(delta\)/ : /renderMainView\(delta\)/).test(src), `${f} に三人称が組み込まれていません`);
   });
 });
