@@ -1,9 +1,11 @@
-# GitHub に push したとき・Pull Request を作ったときに、自動で npm test を実行する。 
+# GitHub に push したとき・Pull Request を作ったときに、自動で npm test を実行する。
 # 自分のパソコンに Node.js がなくても、GitHub の画面の「Actions」(または Pull Request の下)で、結果(緑=成功・赤=失敗)が見られる。
+# 失敗したときは、落ちたテストの名前と理由だけを、実行結果の画面(Summary)の上のほうに出す(長いログを探さなくてよい)
 name: test
 on:
   push:
   pull_request:
+  workflow_dispatch:   # 「Actions → test → Run workflow」のボタンで、手動でも実行できる
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,4 +14,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm test
+      - name: Run npm test
+        run: |
+          set +e
+          npm test > test-output.txt 2>&1
+          code=$?
+          tail -n 12 test-output.txt
+          if [ $code -ne 0 ]; then
+            {
+              echo '## 落ちたテスト'
+              echo '```'
+              grep -n -A30 -E '^\s*not ok' test-output.txt | head -150
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            grep -n -A30 -E '^\s*not ok' test-output.txt | head -150
+          fi
+          exit $code
