@@ -102,3 +102,9 @@ test('正気度のバー・一時停止の画面・報酬の内訳・準備完�
   const pause = fs.readFileSync(path.join(ROOT, 'pause-menu.js'), 'utf8');
   assert.ok(/pointerSpeed/.test(pause) && /controls\.addEventListener\('unlock'/.test(pause), '一時停止の画面の中身が足りません');
 });
+
+test('部屋コードの入力欄は、打った文字をその場で大文字の半角英数にそろえる', () => {
+  const lobby = fs.readFileSync(path.join(ROOT, 'lobby.js'), 'utf8');
+  assert.ok(/\{ roomCode: true \}/.test(lobby), '部屋コードの入力が roomCode モードになっていません');
+  assert.ok(/modalInput\.addEventListener\('input'/.test(lobby) && /normalizeRoomCode\(modalInput\.value\)/.test(lobby), '入力中にそろえていません');
+});
