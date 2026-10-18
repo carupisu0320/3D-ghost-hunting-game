@@ -1787,15 +1787,17 @@ function toggleThirdPerson() {
   if (ownAvatar) ownAvatar.group.visible = thirdPerson;
 }
 const tpEye = new THREE.Vector3(), tpDir = new THREE.Vector3();
-function renderMainView(delta) {
-  if (!thirdPerson || !ownAvatar) { renderer.render(scene, camera); return; }
+// 三人称のときだけ、描く直前にカメラをずらす(begin)。描いたあとに戻す(end)。描く行(renderer.render)自体は、animate の中にそのまま残してある
+// (影の更新の行と並んでいることを、test/loading.test.js が確かめているため)
+function beginThirdPersonView(delta) {
+  if (!thirdPerson || !ownAvatar) return null;
   const g = ownAvatar.group;
   const feetY = camera.position.y - PLAYER_EYE_HEIGHT;
   // 実際に動いた速さから、歩きの動きを決める(止まっている間は歩かない)
   const speed = ownFeetPrev && delta > 0 ? Math.hypot(camera.position.x - ownFeetPrev.x, camera.position.z - ownFeetPrev.z) / delta : 0;
   ownFeetPrev = { x: camera.position.x, z: camera.position.z };
   let hop = 0;
-  if (ownHopT >= 0) { // ジャンプの動きがないスキンだけ、体ごと放物線で跳ねる(動きがあるスキンは、その動きに任せる)
+  if (ownHopT >= 0) { // ジャンプの動きがないスキン(ロボット・カプセル)だけ、体ごと放物線で跳ねる(動きがあるスキンは、その動きに任せる)
     ownHopT += delta;
     if (ownHopT >= 0.6) ownHopT = -1; else if (!ownAvatar.jump) { const u = ownHopT / 0.6; hop = 0.5 * 4 * u * (1 - u); }
   }
@@ -1809,9 +1811,12 @@ function renderMainView(delta) {
   const vis = Object.keys(viewmodels).map((k) => [viewmodels[k], viewmodels[k].visible]);
   vis.forEach(([v]) => { v.visible = false; });
   camera.position.set(p.x, p.y, p.z);
-  renderer.render(scene, camera);
+  return { vis };
+}
+function endThirdPersonView(state) {
+  if (!state) return;
   camera.position.copy(tpEye);
-  vis.forEach(([v, was]) => { v.visible = was; });
+  state.vis.forEach(([v, was]) => { v.visible = was; });
 }
 
 function animate() {
@@ -2098,8 +2103,10 @@ function animate() {
   updateGazeHint();
   updateHuntFlicker(delta);
 
+  const tpView = beginThirdPersonView(delta); // 三人称のときだけ、カメラをずらす(下の描画のあとに戻す)
   renderer.shadowMap.needsUpdate = flashlight.intensity > 0; // 懐中電灯が消えている間は、影を描かない(影が見えないので、見た目は同じ)
-  renderMainView(delta);
+  renderer.render(scene, camera);
+  endThirdPersonView(tpView);
   if (PERF_DEBUG) reportPerf();
 }
 window.addEventListener('resize', () => {
